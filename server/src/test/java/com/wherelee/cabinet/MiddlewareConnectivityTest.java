@@ -9,6 +9,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.actuate.health.Status;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.test.context.ActiveProfiles;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -30,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>执行：{@code mvn test -Pintegration}；默认 {@code mvn test} 会跳过（tag=integration）。
  */
 @SpringBootTest
+@ActiveProfiles({"dev", "integration"})
 @Tag("integration")
 class MiddlewareConnectivityTest {
 
@@ -48,10 +50,10 @@ class MiddlewareConnectivityTest {
     private RocketMQHealthIndicator rocketMQHealthIndicator;
 
     @Test
-    @DisplayName("MySQL 业务主库可查，且连的是 cabinet_dev")
+    @DisplayName("MySQL 业务主库可查，且集成测试连的是 cabinet_test")
     void mysqlReachable() throws Exception {
         assertEquals(1, queryScalar(mysqlDataSource, "select 1"));
-        assertEquals("cabinet_dev", queryString(mysqlDataSource, "select database()"));
+        assertEquals("cabinet_test", queryString(mysqlDataSource, "select database()"));
     }
 
     @Test

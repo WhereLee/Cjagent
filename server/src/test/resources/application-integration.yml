@@ -1,0 +1,22 @@
+# 集成测试专用 profile（@ActiveProfiles({"dev","integration"})，本文件覆盖 dev 的同名项）
+#
+# 1) 库固定用 cabinet_test：可以被反复重建/drop，不会碰开发数据
+# 2) 额外加载测试专用迁移目录，用于验证审计字段自动填充，不污染正式迁移链
+spring:
+  flyway:
+    locations: classpath:db/migration,classpath:db/testmigration
+
+cabinet:
+  exception:
+    echo-detail: true
+  cors:
+    # CORS 预发测试需要一个稳定的白名单项
+    allowed-origin-patterns:
+      - http://localhost:5173
+  datasource:
+    mysql:
+      jdbc-url: "jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/cabinet_test?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+
+logging:
+  level:
+    com.wherelee.cabinet: info

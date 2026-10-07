@@ -2,6 +2,9 @@
 cabinet:
   exception:
     echo-detail: false
+  cors:
+    # 正式域名必须显式列在这里；留空等于关闭跨域（宁可拒绝请求也不放开来源）
+    allowed-origin-patterns: []
   datasource:
     mysql:
       jdbc-url: "jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true"

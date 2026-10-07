@@ -16,6 +16,16 @@ spring:
   jackson:
     default-property-inclusion: non_null
     time-zone: GMT+8
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # 已有表但没有历史表的库（比如手动建过的库）允许接管，否则启动直接报错
+    baseline-on-migrate: true
+    baseline-version: 0
+    table: flyway_schema_history
+    # 生产环境永久禁止 clean（会清空整个库）
+    clean-disabled: true
+    validate-on-migrate: true
   data:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
@@ -81,6 +91,12 @@ cabinet:
   exception:
     # 生产环境绝不为 true：会把内部异常信息回显给前端
     echo-detail: false
+  cors:
+    # 白名单为空 = 关闭 CORS。各环境自己填，绝不用 * 配 allowCredentials
+    allowed-origin-patterns: []
+  access-log:
+    enabled: true
+    slow-threshold-ms: 500
   datasource:
     mysql:
       jdbc-url: "jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:cabinet_dev}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"

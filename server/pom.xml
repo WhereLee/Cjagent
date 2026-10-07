@@ -21,6 +21,7 @@
         <java.version>17</java.version>
         <mybatis-plus.version>3.5.9</mybatis-plus.version>
         <rocketmq-client.version>5.3.0</rocketmq-client.version>
+        <transmittable-thread-local.version>2.14.5</transmittable-thread-local.version>
         <springdoc.version>2.8.13</springdoc.version>
         <rocketmq-spring.version>2.3.1</rocketmq-spring.version>
     </properties>
@@ -41,6 +42,17 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- 数据库版本管理：表结构只能靠迁移脚本，不能靠人肉执行 SQL -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <!-- Flyway 10+ 把各数据库方言拆成独立 artifact，不引 flyway-mysql 连 MySQL 会报 "no supported database" -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
         </dependency>
 
         <!-- ORM：MySQL 为业务主库 -->
@@ -83,6 +95,13 @@
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- 租户上下文跨线程池传递：普通 ThreadLocal 在异步/线程池里会丢 -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>transmittable-thread-local</artifactId>
+            <version>${transmittable-thread-local.version}</version>
         </dependency>
 
         <dependency>

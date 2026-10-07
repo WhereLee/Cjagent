@@ -2,6 +2,13 @@
 cabinet:
   exception:
     echo-detail: true
+  cors:
+    # 后端自己占着 8080，所以 uni-app H5 的 devServer 要换端口（manifest.json 里配 8081）
+    allowed-origin-patterns:
+      - http://localhost:5173
+      - http://127.0.0.1:5173
+      - http://localhost:8081
+      - http://127.0.0.1:8081
 
 management:
   endpoint:
