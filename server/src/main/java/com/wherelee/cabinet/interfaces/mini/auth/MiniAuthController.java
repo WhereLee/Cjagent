@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.interfaces.mini.auth;
 
 import com.wherelee.cabinet.application.auth.RiderAuthService;
+import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.domain.entity.SysRider;
 import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
@@ -37,6 +38,7 @@ public class MiniAuthController {
     }
 
     @Operation(summary = "小程序登录", description = "wx.login 的 code 换 openid 再换 token；首次注册需带租户编码")
+    @OperationLog(module = "auth", operation = "骑手登录")
     @PostMapping("/login")
     public R<MiniLoginView> login(@Valid @RequestBody MiniLoginRequest request) {
         return R.ok(riderAuthService.login(request));

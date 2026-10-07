@@ -77,6 +77,29 @@ curl.exe -s http://127.0.0.1:8080/api/system/health
 注销、改权限靠 Redis 作废旧凭证（`cab:auth:` 前缀，db8）：JWT 本身删不掉，只能靠黑名单。
 首个后台账号不预置在仓库里（不留可用凭据），由部署后手动创建。
 
+## 通用能力怎么用
+
+```java
+// 需要登录但权限可控的接口
+@PreAuthorize("hasAuthority('system:user:list')")     // 角色用 hasRole('OPS')
+
+// 审计留痕（成功与失败都记，入参自动脱敏+截断）
+@OperationLog(module = "tenant", operation = "创建租户")
+
+// 防重复提交：下单/开锁/退款类接口必须显式业务键
+@Idempotent(key = "#req.orderNo", requireKey = true, ttlSeconds = 60)
+
+// 限流（默认按登录用户，未登录退化到 IP）
+@RateLimit(limit = 60, windowSeconds = 60)
+
+// 出参脱敏（日志/审计走 MaskUtils，两者都要）
+@JsonMask(MaskType.PHONE) private String phone;
+```
+
+三个切面的顺序、以及“限流 fail-open / 幂等 fail-closed / 审计不保证强一致”的取舍，
+记在 `docs/架构约定.md` §4.1，改之前先看那里。另有 `ArchitectureTest`（ArchUnit）在单测里
+机检分层约定：domain 保持纯净、Controller 不得直接注入 Mapper、两端互不依赖。
+
 ## 测试与 CI
 
 ```powershell

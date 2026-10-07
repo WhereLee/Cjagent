@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.interfaces.admin.auth;
 
 import com.wherelee.cabinet.application.auth.AdminAuthService;
+import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.infrastructure.security.TokenPair;
 import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
@@ -36,6 +37,7 @@ public class AdminAuthController {
     }
 
     @Operation(summary = "账号密码登录", description = "需带租户编码：用户名只租户内唯一")
+    @OperationLog(module = "auth", operation = "后台登录")
     @PostMapping("/login")
     public R<TokenView> login(@Valid @RequestBody AdminLoginRequest request) {
         return R.ok(toView(authService.login(request)));
