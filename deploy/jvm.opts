@@ -1,0 +1,16 @@
+# JVM runtime options - SINGLE SOURCE OF TRUTH.
+# Read by scripts/run-app.ps1 (local dev) and by the systemd unit added in the ops phase,
+# so the two never drift apart. Keep this file ASCII: systemd EnvironmentFile and the
+# PowerShell reader both handle plain ASCII without encoding surprises.
+#
+# Why each flag is here:
+#   -Xms/-Xmx            explicit heap. Without it the JVM sizes itself off physical memory,
+#                        which is exactly what OOM-kills a small server.
+#   HeapDumpOnOutOfMemoryError / HeapDumpPath
+#                        an OOM without a dump is unrecoverable after the fact.
+#   +ExitOnOutOfMemoryError
+#                        die fast so systemd can restart, instead of serving half-dead.
+#   -Xlog:gc*            GC log rotated by size/count; the cheapest post-mortem evidence.
+#   MaxMetaspaceSize     caps native-ish metadata growth; leak shows as bounded, not endless.
+
+JAVA_OPTS=-Xms256m -Xmx512m -XX:MaxMetaspaceSize=256m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=logs -XX:+ExitOnOutOfMemoryError -Xlog:gc*:file=logs/gc.log:time,uptime,level,tags:filecount=5,filesize=20M

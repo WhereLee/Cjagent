@@ -80,4 +80,29 @@ class ArchitectureTest {
                 .should().dependOnClassesThat().resideInAPackage("com.baomidou.mybatisplus.core.mapper..");
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    @DisplayName("common 不依赖持久化框架（分页契约要能脱离 ORM 存立）")
+    void commonHasNoPersistenceDependency() {
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".common..")
+                .should().dependOnClassesThat().resideInAPackage("com.baomidou.mybatisplus..");
+        rule.check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    @DisplayName("接口层不得直接使 MyBatis-Plus 分页对象（必须走 PageQuery/PageSupport）")
+    void interfacesMustUsePageContract() {
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+                .should().dependOnClassesThat()
+                .resideInAPackage("com.baomidou.mybatisplus.extension.plugins.pagination..");
+        rule.check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    @DisplayName("application 不得反向依赖接口层（视图归 application）")
+    void applicationDoesNotDependOnInterfaces() {
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".application..")
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".interfaces..");
+        rule.check(PRODUCTION_CLASSES);
+    }
 }

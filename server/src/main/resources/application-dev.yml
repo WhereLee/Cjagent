@@ -15,6 +15,11 @@ cabinet:
       - http://127.0.0.1:8081
 
 management:
+  endpoints:
+    web:
+      exposure:
+        # dev 多开指标端点：本地排查靠 curl /actuator/metrics/... 就能看，不必装 Prometheus
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       # dev 直接看各项组件明细；prod 收敛，避免暴露内部结构

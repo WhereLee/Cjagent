@@ -277,4 +277,84 @@ class AdminAuthFlowTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40000));
     }
+
+    // ---------- 以下为第5刀：分页约定 + 权限 + 脱敏 + 默认拒绝 ----------
+
+    @Test
+    @DisplayName("账号列表：有权限才可见，只返回本租户数据，手机号已脱敏且不透出哈希")
+    void userListIsAuthorizedScopedAndMasked() throws Exception {
+        String token = login(TENANT_ONE, "ops-admin", PWD_ONE);
+
+        mockMvc.perform(get("/api/admin/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.pageNum").value(1))
+                .andExpect(jsonPath("$.data.pageSize").value(20))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].username").value("ops-admin"))
+                // 脱敏生效在真接口上：不是一行单测里的 mapper 输出
+                .andExpect(jsonPath("$.data.records[0].phone").value("138****8000"))
+                .andExpect(jsonPath("$.data.records[0].passwordHash").doesNotExist())
+                // 雪花 ID 以字符串返回（否则前端会静默丢精度）
+                .andExpect(jsonPath("$.data.records[0].id").isString());
+    }
+
+    @Test
+    @DisplayName("无 system:user:list 权限的账号（租户二）请求列表：403，而非退化成看到全部")
+    void userListRequiresPermission() throws Exception {
+        String token = login(TENANT_TWO, "ops-admin", PWD_TWO);
+
+        // 租户隔离本身由上一个用例的 total=1 证明（库里有 9301/9302 两条，只看得见自己那条）；
+        // 本用例只管一件事：没权限就是 403
+        mockMvc.perform(get("/api/admin/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40300));
+    }
+
+    @Test
+    @DisplayName("排序字段不在白名单：400 + 40000，不打到 DB")
+    void userListRejectsIllegalSort() throws Exception {
+        String token = login(TENANT_ONE, "ops-admin", PWD_ONE);
+
+        mockMvc.perform(get("/api/admin/users?orderBy=passwordHash")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40000));
+
+        mockMvc.perform(get("/api/admin/users?orderBy=1;%20drop%20table%20sys_user")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("pageSize 超上限被参数校验拦住（而不是默默改成 200）")
+    void userListRejectsOversizedPage() throws Exception {
+        String token = login(TENANT_ONE, "ops-admin", PWD_ONE);
+
+        mockMvc.perform(get("/api/admin/users?pageSize=1000")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40000));
+    }
+
+    @Test
+    @DisplayName("没被任何安全链匹配的路径默认要认证（不会绕过安全过滤裸奔）")
+    void unmatchedPathIsDeniedByDefault() throws Exception {
+        mockMvc.perform(get("/api/something/new-and-unmapped"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40100));
+    }
+
+    @Test
+    @DisplayName("dev 下指标已埋：JVM 与 HTTP 请求指标都在（只埋不采）")
+    void metricsEndpointHasJvmAndHttpIndicators() throws Exception {
+        // 不用 /actuator/prometheus：那个端点靠内容协商输出 Prometheus 文本格式，
+        // MockMvc 的请求没 Accept 头时会 404（真实 HTTP 实测是 200）。
+        // 这里只断言指标已注册，格式本身由真实 curl 验证。
+        mockMvc.perform(get("/actuator/metrics"))
+                .andExpect(status().isOk())
+                // names 有几十项，只能断言“包含”而非“等于”（containsInAnyOrder 要求集合全等）
+                .andExpect(jsonPath("$.names").value(org.hamcrest.Matchers.hasItems(
+                        "jvm.memory.used", "http.server.requests")));
+    }
 }

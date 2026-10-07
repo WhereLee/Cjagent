@@ -18,6 +18,10 @@ INSERT INTO sys_permission (id, parent_id, code, name, type, sort, status, creat
 VALUES (9001, 0, 'probe:read', '探针读权限', 'API', 1, 1, NOW(3), NOW(3), 0)
 ON DUPLICATE KEY UPDATE name = VALUES(name), status = 1, deleted = 0;
 
+INSERT INTO sys_permission (id, parent_id, code, name, type, sort, status, create_time, update_time, deleted)
+VALUES (9002, 0, 'system:user:list', '账号列表', 'API', 2, 1, NOW(3), NOW(3), 0)
+ON DUPLICATE KEY UPDATE name = VALUES(name), status = 1, deleted = 0;
+
 -- 角色 OPS（属于租户 8101）与它的权限绑定
 INSERT INTO sys_role (id, tenant_id, role_code, role_name, status, create_time, update_time, deleted)
 VALUES (9101, 8101, 'OPS', '运维', 1, NOW(3), NOW(3), 0)
@@ -27,14 +31,19 @@ INSERT INTO sys_role_permission (id, tenant_id, role_id, permission_id, create_t
 VALUES (9201, 8101, 9101, 9001, NOW(3), NOW(3), 0)
 ON DUPLICATE KEY UPDATE deleted = 0;
 
--- 两个租户下的同名账号（用户名只租户内唯一，专门用来验证登录不会跨租户串号）
-INSERT INTO sys_user (id, tenant_id, username, password_hash, real_name, status, create_time, update_time, deleted)
-VALUES (9301, 8101, 'ops-admin', 'PLACEHOLDER', '运维一', 1, NOW(3), NOW(3), 0)
-ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), status = 1, deleted = 0;
+INSERT INTO sys_role_permission (id, tenant_id, role_id, permission_id, create_time, update_time, deleted)
+VALUES (9202, 8101, 9101, 9002, NOW(3), NOW(3), 0)
+ON DUPLICATE KEY UPDATE deleted = 0;
 
-INSERT INTO sys_user (id, tenant_id, username, password_hash, real_name, status, create_time, update_time, deleted)
-VALUES (9302, 8102, 'ops-admin', 'PLACEHOLDER', '运维二', 1, NOW(3), NOW(3), 0)
-ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), status = 1, deleted = 0;
+-- 两个租户下的同名账号（用户名只租户内唯一，专门用来验证登录不会跳租户串号）
+-- 9301 带手机号：给 @JsonMask 留一个端到端可断言的真实字段
+INSERT INTO sys_user (id, tenant_id, username, password_hash, real_name, phone, status, create_time, update_time, deleted)
+VALUES (9301, 8101, 'ops-admin', 'PLACEHOLDER', '运维一', '13800138000', 1, NOW(3), NOW(3), 0)
+ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), phone = VALUES(phone), status = 1, deleted = 0;
+
+INSERT INTO sys_user (id, tenant_id, username, password_hash, real_name, phone, status, create_time, update_time, deleted)
+VALUES (9302, 8102, 'ops-admin', 'PLACEHOLDER', '运维二', '13900139000', 1, NOW(3), NOW(3), 0)
+ON DUPLICATE KEY UPDATE real_name = VALUES(real_name), phone = VALUES(phone), status = 1, deleted = 0;
 
 -- 9301 绑定 OPS 角色；9302 故意不绑任何角色，用来测"已登录但权限不足 → 403"
 INSERT INTO sys_user_role (id, tenant_id, user_id, role_id, create_time, update_time, deleted)

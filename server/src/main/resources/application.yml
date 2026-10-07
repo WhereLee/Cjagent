@@ -63,6 +63,8 @@ management:
   endpoints:
     web:
       exposure:
+        # 默认只开健康与信息；metrics/prometheus 由 dev profile 追加，
+        # prod 不暴露≠“不泄露”，而是那个端点根本不存在（比靠安全规则拦住更可靠）
         include: health,info
   endpoint:
     health:

@@ -31,6 +31,8 @@ server/                 后端 Spring Boot 工程
   src/test/java/        单测 + @Tag(integration) 集成测试
 admin/ mini/            前端工程（阶段 0 后期创建）
 scripts/dev-env.ps1     本地中间件一键起停与体检
+scripts/run-app.ps1     本地启动后端（读 deploy/jvm.opts 的 JVM 参数）
+deploy/jvm.opts         JVM 参数单一来源（本地脚本与 systemd 单元共用，非密钥文件）
 ci/                     CI 用的 broker 配置
 docs/架构约定.md         分层/命名/错误码/配置的唯一约定来源
 ```
@@ -55,10 +57,14 @@ psql -U postgres -c "create database cabinet_agent"
 psql -U postgres -d cabinet_agent -c "create extension if not exists vector"
 # 表结构由 Flyway 在应用启动时自动创建，不要手工执行 DDL
 
-# 4) 跑起来
-cd server
-mvn -B spring-boot:run
+# 4) 跑起来（JVM 参数从 deploy/jvm.opts 读，与将来 systemd 共用一份）
+powershell -ExecutionPolicy Bypass -File scripts/run-app.ps1
 curl.exe -s http://127.0.0.1:8080/api/system/health
+
+# 指标（只埋不采）：dev 额外开放 metrics / prometheus
+curl.exe -s http://127.0.0.1:8080/actuator/metrics
+curl.exe -s http://127.0.0.1:8080/actuator/prometheus | Select-String jvm_memory_used
+# prod 只暴露 health,info —— 未暴露的端点根本不存在（heapdump/env 等经典泄露点直接消失）
 ```
 
 接口文档：<http://127.0.0.1:8080/swagger-ui.html>（分组：`0-system` / `1-admin` / `2-mini`）
@@ -97,8 +103,21 @@ curl.exe -s http://127.0.0.1:8080/api/system/health
 ```
 
 三个切面的顺序、以及“限流 fail-open / 幂等 fail-closed / 审计不保证强一致”的取舍，
-记在 `docs/架构约定.md` §4.1，改之前先看那里。另有 `ArchitectureTest`（ArchUnit）在单测里
-机检分层约定：domain 保持纯净、Controller 不得直接注入 Mapper、两端互不依赖。
+记在 `docs/架构约定.md` §4.2，改之前先看那里。另有 `ArchitectureTest`（ArchUnit）在单测里
+机检分层约定：domain 保持纯净、Controller 不得直接注入 Mapper、两端互不依赖、
+common 不依赖 ORM、application 不反向依赖接口层。
+
+## 分页与排序
+
+列表接口统一用 `PageQuery`（`pageNum` / `pageSize≤200` / `orderBy` / `asc`）与
+`PageResult`（`total` + `pages` + `records`）。`orderBy` 传**实体属性名**且必须在接口声明的
+白名单内（`order by` 拼的是标识符，预编译帮不上忙）；不指定排序时服务端兜底 `id desc`，
+否则翻页会漏记录。示例：
+
+```
+GET /api/admin/users?pageNum=1&pageSize=20&orderBy=createTime&asc=false
+→ 需要权限码 system:user:list；手机号已脱敏；只返回本租户数据
+```
 
 ## 测试与 CI
 

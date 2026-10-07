@@ -46,11 +46,17 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    /** 公开端点：健康自检、接口文档、测试探针，以及 actuator 的 health/info。 */
+    /**
+     * 公开链：健康自检、探针、文档、actuator。
+     *
+     * <p>{@code /actuator/**} 整段放在这里是安全的，因为 prod 的
+     * {@code management.endpoints.web.exposure.include} 只留 health,info ——
+     * 未露出的端点根本不存在，比“靠安全规则拦住它”可靠（规则会漏，白名单不会）。
+     */
     @Bean
     @Order(1)
     public SecurityFilterChain publicChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
-        http.securityMatcher("/api/system/**", "/api/public/**", "/actuator/health/**", "/actuator/info",
+        http.securityMatcher("/api/system/**", "/api/public/**", "/actuator/**",
                         "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**", "/error")
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> {
@@ -118,6 +124,30 @@ public class SecurityConfig {
                                 ResultCode.UNAUTHORIZED.getMessage()))
                         .accessDeniedHandler(accessDeniedHandler(objectMapper)))
                 .addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class);
+        return http.build();
+    }
+
+    /**
+     * 兜底链：以上都没匹配上的路径一概要求已认证。
+     *
+     * <p>为什么必需：多个 {@code securityMatcher} 的链只处理自己匹配的路径，
+     * 没匹上的请求会绕过整套安全过滤直接进应用——新加一个接口、写错一个路径前缀，
+     * 它就是个无鉴权入口。默认拒绝能把这类坑位从“静默暴露”变成“401，立即看得见”。
+     */
+    @Bean
+    @Order(4)
+    public SecurityFilterChain catchAllChain(HttpSecurity http, ObjectMapper objectMapper) throws Exception {
+        http.securityMatcher("/**")
+                .csrf(csrf -> csrf.disable())
+                .cors(cors -> {
+                })
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(a -> a.anyRequest().authenticated())
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint((req, res, ex) -> AuthFailureWriter.write(res, objectMapper,
+                                HttpStatus.UNAUTHORIZED.value(), ResultCode.UNAUTHORIZED,
+                                ResultCode.UNAUTHORIZED.getMessage()))
+                        .accessDeniedHandler(accessDeniedHandler(objectMapper)));
         return http.build();
     }
 

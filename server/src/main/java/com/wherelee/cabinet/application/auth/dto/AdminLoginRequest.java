@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.interfaces.admin.auth.dto;
+package com.wherelee.cabinet.application.auth.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -6,11 +6,11 @@ import jakarta.validation.constraints.Size;
 /**
  * 后台登录入参。
  *
- * <p>登录必须带租户编码：用户名只在租户内唯一（{@code uk(tenant_id, username)}），
- * 不带租户就定位不到唯一账号。
+ * <p>定义在 application 而不是 Controller 包里，是因为 Service 要直接接收它；
+ * 放在 interfaces 就会让下层反向依赖上层（ArchitectureTest 有一条规则专门抓这个）。
  *
- * <p>口令字段不参与 toString（Lombok 未生成 toString，且日志里绝不打印入参原文），
- * 避免密码进审计日志。
+ * <p>登录必须带租户编码：用户名只租户内唯一（{@code uk(tenant_id, username)}），
+ * 不带租户就定位不到唯一账号。口令不落日志、不进 toString 以外的任何输出。
  */
 public record AdminLoginRequest(
 

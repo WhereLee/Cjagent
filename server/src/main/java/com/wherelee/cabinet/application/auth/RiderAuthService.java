@@ -1,5 +1,7 @@
 package com.wherelee.cabinet.application.auth;
 
+import com.wherelee.cabinet.application.auth.dto.RiderLoginRequest;
+import com.wherelee.cabinet.application.auth.dto.RiderLoginView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -12,8 +14,6 @@ import com.wherelee.cabinet.infrastructure.security.TokenIssuer;
 import com.wherelee.cabinet.infrastructure.security.TokenPair;
 import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
 import com.wherelee.cabinet.infrastructure.wechat.MiniAppClient;
-import com.wherelee.cabinet.interfaces.mini.auth.dto.MiniLoginRequest;
-import com.wherelee.cabinet.interfaces.mini.auth.dto.MiniLoginView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -56,7 +56,7 @@ public class RiderAuthService {
         this.properties = properties;
     }
 
-    public MiniLoginView login(MiniLoginRequest request) {
+    public RiderLoginView login(RiderLoginRequest request) {
         String openId = miniAppClient.resolveOpenId(request.code());
         SysRider rider = riderMapper.selectByOpenId(openId);
 
@@ -74,7 +74,7 @@ public class RiderAuthService {
                 rider.getId(), rider.getTenantId(), displayName(rider));
         log.info("骑手登录成功 tenantId={} riderId={} 是否新注册={} mock={}",
                 rider.getTenantId(), rider.getId(), newRegister, properties.getMini().isMockLogin());
-        return new MiniLoginView(pair.accessToken(), pair.refreshToken(), pair.tokenType(),
+        return new RiderLoginView(pair.accessToken(), pair.refreshToken(), pair.tokenType(),
                 pair.accessExpiresIn(), pair.refreshExpiresIn(), rider.getId(), rider.getTenantId(), newRegister);
     }
 

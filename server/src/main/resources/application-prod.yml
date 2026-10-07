@@ -17,6 +17,12 @@ cabinet:
       jdbc-url: "jdbc:postgresql://${PG_HOST}:${PG_PORT}/${PG_DATABASE}"
 
 management:
+  endpoints:
+    web:
+      exposure:
+        # 生产只留健康与信息：metrics/prometheus/heapdump/env 根本不注册，
+        # 不靠安全规则“拦”，而是让端点不存在
+        include: health,info
   endpoint:
     health:
       show-details: never
