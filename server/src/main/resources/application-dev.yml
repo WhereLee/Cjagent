@@ -1,0 +1,15 @@
+# 开发环境：细节全开，方便联调定位
+cabinet:
+  exception:
+    echo-detail: true
+
+management:
+  endpoint:
+    health:
+      # dev 直接看各项组件明细；prod 收敛，避免暴露内部结构
+      show-details: always
+
+logging:
+  level:
+    com.wherelee.cabinet: debug
+    com.wherelee.cabinet.infrastructure.mapper: debug

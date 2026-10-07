@@ -18,7 +18,32 @@ models/
 _wheels/
 *.whl
 
-# ===== Python =====
+# ===== Java / Maven =====
+target/
+*.class
+*.jar
+*.war
+!**/src/main/**/target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# ===== Node / 前端 =====
+node_modules/
+dist/
+build/
+*.local
+npm-debug.log*
+yarn-error.log*
+
+# ===== uni-app =====
+unpackage/
+.hx_deploy/
+
+# ===== IDE =====
+.idea/
+*.iml
+.vscode/settings.json
+
+# ===== Python（备用，早期手册项目沿用）=====
 __pycache__/
 *.py[cod]
 .pytest_cache/

@@ -1,0 +1,28 @@
+# 生产环境：信息收敛，一切外部地址/账号必须由环境变量注入，不给默认值
+cabinet:
+  exception:
+    echo-detail: false
+  datasource:
+    mysql:
+      jdbc-url: "jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true"
+      maximum-pool-size: 30
+      minimum-idle: 5
+    pg:
+      jdbc-url: "jdbc:postgresql://${PG_HOST}:${PG_PORT}/${PG_DATABASE}"
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+springdoc:
+  api-docs:
+    # 生产不开接口清单
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+logging:
+  level:
+    root: info
+    com.wherelee.cabinet: info

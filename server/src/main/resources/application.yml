@@ -1,0 +1,102 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  application:
+    name: cabinet-server
+  profiles:
+    active: dev
+  # 本地密钥来源：同目录 .env（已 gitignore）。用 properties 格式导入，
+  # 这样 yml 里的 ${MYSQL_PASSWORD} 占位符能直接从 .env 取到值。
+  config:
+    import: "optional:file:.env[.properties]"
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  jackson:
+    default-property-inclusion: non_null
+    time-zone: GMT+8
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      # 本机 Redis 是多项目共用实例，固定用独立库位 + key 前缀，避免互相踩数据
+      database: ${REDIS_DATABASE:8}
+      timeout: 3s
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 0
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_id
+      # 约定：需要逻辑删除的表统一加 deleted 字段（0 正常 / 1 已删）
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+rocketmq:
+  name-server: ${ROCKETMQ_NAME_SERVER:127.0.0.1:9876}
+  producer:
+    group: cabinet-producer-group
+    send-message-timeout: 3000
+    retry-times-when-send-failed: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when_authorized
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
+    diskspace:
+      # 磁盘余量告警对本地开发没意义，CI/服务器上再开
+      enabled: false
+
+springdoc:
+  api-docs:
+    path: /openapi.json
+  swagger-ui:
+    path: /swagger-ui.html
+    # 2.8 里 groups-order 是 Direction 枚举（asc/desc），不是旧版的 alpha
+    groups-order: asc
+    disable-swagger-default-url: true
+
+cabinet:
+  exception:
+    # 生产环境绝不为 true：会把内部异常信息回显给前端
+    echo-detail: false
+  datasource:
+    mysql:
+      jdbc-url: "jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:cabinet_dev}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
+      driver-class-name: com.mysql.cj.jdbc.Driver
+      username: ${MYSQL_USERNAME}
+      password: ${MYSQL_PASSWORD}
+      pool-name: mysql-hikari
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 5000
+    pg:
+      jdbc-url: "jdbc:postgresql://${PG_HOST:127.0.0.1}:${PG_PORT:5432}/${PG_DATABASE:cabinet_agent}"
+      driver-class-name: org.postgresql.Driver
+      username: ${PG_USERNAME}
+      password: ${PG_PASSWORD}
+      pool-name: pg-hikari
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 5000
