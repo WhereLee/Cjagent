@@ -1,0 +1,210 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. 单测：不依赖任何中间件，秒级到分钟级，先给它过 ─────────────────
+  unit-tests:
+    name: 单元测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: 运行单测（surefire excludedGroups=integration）
+        run: mvn -B -ntp test
+
+      - name: 失败时保留测试报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-unit-reports
+          path: server/target/surefire-reports/
+          retention-days: 3
+
+  # ── 2. 密钥与入库范围扫描 ────────────────────────────────────────
+  secret-scan:
+    name: 密钥与敏感文件扫描
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 禁止入库的文件不得被跟踪
+        run: |
+          set -euo pipefail
+          hits="$(git ls-files | grep -E '(^|/)\.env$|(^|/)logs/|\.log$|(^|/)target/|(^|/)node_modules/|\.pem$|(^|/)unpackage/' || true)"
+          if [ -n "$hits" ]; then
+            echo "::error::以下敏感文件或构建产物被纳入了版本控制"
+            echo "$hits"
+            exit 1
+          fi
+          echo "OK：无禁止入库文件"
+
+      - name: 扫描明文密钥与令牌
+        run: |
+          set -euo pipefail
+          # 只匹配确定性格式，避免把 \${MYSQL_PASSWORD} 这类占位符误判成命中
+          pattern='-----BEGIN [A-Z ]*PRIVATE KEY-----|ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{20,}|AKIA[0-9A-Z]{16}|LTAI[0-9A-Za-z]{12,}|xox[baprs]-[0-9A-Za-z-]{10,}'
+          hits="$(git grep -I -n -E "$pattern" -- . || true)"
+          if [ -n "$hits" ]; then
+            echo "::error::检测到疑似真实密钥，请改为 .env / 环境变量注入"
+            echo "$hits"
+            exit 1
+          fi
+          echo "OK：未发现明文密钥"
+
+  # ── 3. 集成测试：与本地同一批 @Tag(integration) 用例，只是环境换成容器 ──
+  #    本地无 Docker 用真实实例，CI 有 Docker 用服务容器，测试代码零改动。
+  #    RocketMQ 不放 services：broker 需固定 brokerIP1=127.0.0.1 且要 --net host
+  #    才能被 runner 宿主机上的测试进程连上，用 step 起更好控制和排查。
+  integration-tests:
+    name: 集成测试（MySQL + PG/pgvector + Redis + RocketMQ）
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: unit-tests
+    env:
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: '3306'
+      MYSQL_DATABASE: cabinet_dev
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: root
+      PG_HOST: 127.0.0.1
+      PG_PORT: '5432'
+      PG_DATABASE: cabinet_agent
+      PG_USERNAME: postgres
+      PG_PASSWORD: root
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: '6379'
+      ROCKETMQ_NAME_SERVER: 127.0.0.1:9876
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cabinet_dev
+        ports:
+          - '3306:3306'
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: root
+          POSTGRES_DB: cabinet_agent
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd="pg_isready -h 127.0.0.1 -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - '6379:6379'
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: 准备 MySQL 测试库
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot \
+            -e "create database if not exists cabinet_test character set utf8mb4 collate utf8mb4_general_ci;"
+
+      - name: 启用 pgvector 扩展
+        env:
+          PGPASSWORD: root
+        run: psql -h 127.0.0.1 -U postgres -d cabinet_agent -c "create extension if not exists vector;"
+
+      - name: 启动 RocketMQ namesrv
+        run: |
+          docker run -d --name rmqnamesrv --net host \
+            -e MAX_POSSIBLE_HEAP=256m \
+            -e JAVA_OPT_EXT="-Xms256m -Xmx256m -Xmn128m" \
+            apache/rocketmq:5.3.1 sh mqnamesrv
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/9876) 2>/dev/null; then
+              echo "namesrv ready on 9876"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::namesrv 未在 60s 内监听 9876"
+          docker logs rmqnamesrv
+          exit 1
+
+      - name: 启动 RocketMQ broker 并等待注册
+        run: |
+          docker run -d --name rmqbroker --net host \
+            -e MAX_POSSIBLE_HEAP=1g \
+            -e JAVA_OPT_EXT="-Xms512m -Xmx512m" \
+            -v "$GITHUB_WORKSPACE/ci/broker-ci.conf:/home/rocketmq/rocketmq-5.3.1/conf/broker.conf:ro" \
+            apache/rocketmq:5.3.1 sh mqbroker -c /home/rocketmq/rocketmq-5.3.1/conf/broker.conf
+          # 端口通了还不算好：broker 要心跳注册到 namesrv，测试才能拿到 broker 列表
+          for i in $(seq 1 40); do
+            if docker exec rmqbroker sh mqadmin clusterList -n 127.0.0.1:9876 2>/dev/null | grep -q "broker-a"; then
+              echo "broker registered"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::broker 未在 120s 内注册到 namesrv"
+          docker logs rmqbroker
+          exit 1
+
+      - name: 运行集成测试
+        working-directory: server
+        run: mvn -B -ntp test -Pintegration
+
+      - name: 失败时保留测试报告与中间件日志
+        if: failure()
+        run: |
+          mkdir -p /tmp/rmqlogs
+          docker logs rmqnamesrv > /tmp/rmqlogs/namesrv.log 2>&1 || true
+          docker logs rmqbroker  > /tmp/rmqlogs/broker.log  2>&1 || true
+      - name: 上传排查产物
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-diag
+          path: |
+            server/target/surefire-reports/
+            /tmp/rmqlogs/
+          retention-days: 3
