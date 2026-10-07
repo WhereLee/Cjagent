@@ -1,0 +1,34 @@
+# ===== 操作手册：仅本地留存，不入库（含服务器地址与内部约定）=====
+git与CI操作手册.md
+服务器运维手册.md
+
+# ===== 密钥 / 环境（真源是本地 .env，绝不入库）=====
+.env
+.env.*
+!.env.example
+*.pem
+id_rsa*
+
+# ===== 日志 =====
+logs/
+*.log
+
+# ===== 模型权重 / 离线依赖包（体积大，不入 git 也不入镜像）=====
+models/
+_wheels/
+*.whl
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# ===== 编辑器 / 系统 =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
