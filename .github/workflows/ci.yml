@@ -42,7 +42,39 @@ jobs:
           path: server/target/surefire-reports/
           retention-days: 3
 
-  # ── 2. 密钥与入库范围扫描 ────────────────────────────────────────
+  # ── 2. 前端（admin）门禁：lint + 类型检查 + 构建 ────────────────────
+  frontend-admin:
+    name: 前端 admin 检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      # npm ci 而不是 install：锁定文件不一致时直接失败，不会静默升版
+      - name: 安装依赖
+        run: npm ci
+
+      - name: ESLint（--max-warnings 0）
+        run: npm run lint
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 生产构建
+        run: npm run build
+
+  # ── 3. 密钥与入库范围扫描 ────────────────────────────────────────
   secret-scan:
     name: 密钥与敏感文件扫描
     runs-on: ubuntu-latest
@@ -75,7 +107,7 @@ jobs:
           fi
           echo "OK：未发现明文密钥"
 
-  # ── 3. 集成测试：与本地同一批 @Tag(integration) 用例，只是环境换成容器 ──
+  # ── 4. 集成测试：与本地同一批 @Tag(integration) 用例，只是环境换成容器 ──
   #    本地无 Docker 用真实实例，CI 有 Docker 用服务容器，测试代码零改动。
   #    RocketMQ 不放 services：broker 需固定 brokerIP1=127.0.0.1 且要 --net host
   #    才能被 runner 宿主机上的测试进程连上，用 step 起更好控制和排查。

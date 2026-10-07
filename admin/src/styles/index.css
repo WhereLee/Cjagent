@@ -1,0 +1,25 @@
+:root {
+  --page-bg: #f5f7fa;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+  background: var(--page-bg);
+  color: #303133;
+}
+
+.page {
+  padding: 16px;
+}
+
+/* 长串 ID、traceId 用等宽字体，肉眼对齐比对时才不容易看错一位 */
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

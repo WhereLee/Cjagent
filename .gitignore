@@ -2,10 +2,12 @@
 git与CI操作手册.md
 服务器运维手册.md
 
-# ===== 密钥 / 环境（真源是本地 .env，绝不入库）=====
+# ===== 密钥 / 环境（真源是本地 .env，不得入库）=====
 .env
 .env.*
 !.env.example
+# 前端环境文件只存本地地址（VITE_API_BASE 等），无密钥，必须入库才能新人跑得起来
+!admin/.env.development
 *.pem
 id_rsa*
 

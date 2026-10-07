@@ -288,6 +288,13 @@ class AdminAuthFlowTest {
         mockMvc.perform(get("/api/admin/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
+                // 分页计数必须是 JSON 数字。这里故意用 isNumber/isString 而不是 value(...)：
+                // value() 对 number 与 string 是宽容比较，曾让 Long→String 全局规则
+                // 把 total 变成 "1" 也测不出来（真实 HTTP 才发现）
+                .andExpect(jsonPath("$.data.pageNum").isNumber())
+                .andExpect(jsonPath("$.data.pageSize").isNumber())
+                .andExpect(jsonPath("$.data.total").isNumber())
+                .andExpect(jsonPath("$.data.pages").isNumber())
                 .andExpect(jsonPath("$.data.pageNum").value(1))
                 .andExpect(jsonPath("$.data.pageSize").value(20))
                 .andExpect(jsonPath("$.data.total").value(1))

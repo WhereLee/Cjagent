@@ -29,7 +29,8 @@ server/                 后端 Spring Boot 工程
     config/             Spring 装配：双数据源、MyBatis-Plus、Jackson、CORS、OpenAPI
   src/main/resources/db/migration/   Flyway 版本化 DDL
   src/test/java/        单测 + @Tag(integration) 集成测试
-admin/ mini/            前端工程（阶段 0 后期创建）
+admin/                Vue3 + Vite + Element Plus 运营后台
+mini/                 uni-app 骑手端（第7刀）
 scripts/dev-env.ps1     本地中间件一键起停与体检
 scripts/run-app.ps1     本地启动后端（读 deploy/jvm.opts 的 JVM 参数）
 deploy/jvm.opts         JVM 参数单一来源（本地脚本与 systemd 单元共用，非密钥文件）
@@ -118,6 +119,29 @@ common 不依赖 ORM、application 不反向依赖接口层。
 GET /api/admin/users?pageNum=1&pageSize=20&orderBy=createTime&asc=false
 → 需要权限码 system:user:list；手机号已脱敏；只返回本租户数据
 ```
+
+## 前端（admin）
+
+```bash
+cd admin
+npm install
+npm run dev                       # http://127.0.0.1:8082
+npm run lint && npm run typecheck && npm run build
+```
+
+端口用 **8082 而不是 8081**：8081 已被本机 RocketMQ 5 的 proxy 组件占用（抢它会得到
+`EACCES: permission denied`，容易误读成权限问题）。后端 dev 的来源白名单在
+`application-dev.yml` 里，**改端口要两边一起改**。
+
+本地第一个后台账号（仓库不存可用口令，需自己建）：
+
+1. 生成 BCrypt 哈希（强度 10，与后端编码器一致），用 `spring-security-crypto` 的
+   `BCrypt.hashpw` 即可；用命令行 `javac` 跑小工具时要加 `-encoding UTF-8`（Windows 默认 GBK）
+2. 在 `cabinet_dev` 里插：权限 `system:user:list` → 角色 → `sys_role_permission`
+   → `sys_user`（带哈希）→ `sys_user_role`
+3. 登录：租户编码 `platform`（V3 迁移已建好）、你建的用户名与口令
+
+账号数据**不要写进 `db/migration`**：迁移脚本一经发布不可修改，而带口令的种子数据几乎肯定要反复改动。
 
 ## 测试与 CI
 
