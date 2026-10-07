@@ -2,6 +2,7 @@ package com.wherelee.cabinet.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,6 +20,8 @@ public class CabinetProperties {
     private final Cors cors = new Cors();
     private final AccessLog accessLog = new AccessLog();
     private final Tenant tenant = new Tenant();
+    private final Jwt jwt = new Jwt();
+    private final Mini mini = new Mini();
 
     public Cors getCors() {
         return cors;
@@ -30,6 +33,14 @@ public class CabinetProperties {
 
     public Tenant getTenant() {
         return tenant;
+    }
+
+    public Jwt getJwt() {
+        return jwt;
+    }
+
+    public Mini getMini() {
+        return mini;
     }
 
     /** 跨域白名单：前端本地端口与正式域名分开配，绝不用 * 配 allowCredentials。 */
@@ -118,6 +129,104 @@ public class CabinetProperties {
 
         public void setSlowThresholdMs(long slowThresholdMs) {
             this.slowThresholdMs = slowThresholdMs;
+        }
+    }
+
+    /**
+     * JWT 签发与校验。{@code secret} 不给默认值：缺了就启动失败，
+     * 避免带默认密钥上线（这种密钥一旦写进代码就等于公开）。
+     */
+    public static class Jwt {
+        /** HS256 要求至少 32 字节。 */
+        private String secret;
+        private String issuer = "cabinet-server";
+        private Duration accessTtl = Duration.ofMinutes(30);
+        private Duration refreshTtl = Duration.ofDays(7);
+        /** 权限清单缓存时长：角色变更后最坏 5 分钟内旧权限仍生效。 */
+        private Duration permissionCacheTtl = Duration.ofMinutes(5);
+
+        public String getSecret() {
+            return secret;
+        }
+
+        public void setSecret(String secret) {
+            this.secret = secret;
+        }
+
+        public String getIssuer() {
+            return issuer;
+        }
+
+        public void setIssuer(String issuer) {
+            this.issuer = issuer;
+        }
+
+        public Duration getAccessTtl() {
+            return accessTtl;
+        }
+
+        public void setAccessTtl(Duration accessTtl) {
+            this.accessTtl = accessTtl;
+        }
+
+        public Duration getRefreshTtl() {
+            return refreshTtl;
+        }
+
+        public void setRefreshTtl(Duration refreshTtl) {
+            this.refreshTtl = refreshTtl;
+        }
+
+        public Duration getPermissionCacheTtl() {
+            return permissionCacheTtl;
+        }
+
+        public void setPermissionCacheTtl(Duration permissionCacheTtl) {
+            this.permissionCacheTtl = permissionCacheTtl;
+        }
+    }
+
+    /**
+     * 小程序端登录配置。{@code mockLogin} 只在 dev 生效：
+     * 没有 AppID 时把 code 直接换成一个固定 openid，便于本地跑通完整链路；
+     * prod 必须为 false，否则等于开了一个无需微信验签的后门。
+     */
+    public static class Mini {
+        private boolean mockLogin = false;
+        private String appId;
+        private String appSecret;
+        private String code2SessionUrl = "https://api.weixin.qq.com/sns/jscode2session";
+
+        public boolean isMockLogin() {
+            return mockLogin;
+        }
+
+        public void setMockLogin(boolean mockLogin) {
+            this.mockLogin = mockLogin;
+        }
+
+        public String getAppId() {
+            return appId;
+        }
+
+        public void setAppId(String appId) {
+            this.appId = appId;
+        }
+
+        public String getAppSecret() {
+            return appSecret;
+        }
+
+        public void setAppSecret(String appSecret) {
+            this.appSecret = appSecret;
+        }
+
+        public String getCode2SessionUrl() {
+            return code2SessionUrl;
+        }
+
+        public void setCode2SessionUrl(String code2SessionUrl) {
+            this.code2SessionUrl = code2SessionUrl;
         }
     }
 }

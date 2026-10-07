@@ -79,8 +79,8 @@ management:
       enabled: false
 
 springdoc:
-  api-docs:
-    path: /openapi.json
+  # 不改 api-docs.path：改成 /openapi.json 会让分组文档变成 /openapi.json/1-admin 这种非标准路径，
+  # 前端和接口工具默认都猜 /v3/api-docs，省事比“看起来干净”重要
   swagger-ui:
     path: /swagger-ui.html
     # 2.8 里 groups-order 是 Direction 枚举（asc/desc），不是旧版的 alpha
@@ -101,6 +101,18 @@ cabinet:
     # 全库统一的租户列名；白名单表自己读不到别人数据，但查它们时拦截器不会加条件，需手工过滤
     column: tenant_id
     ignore-tables: []
+  jwt:
+    # 无默认值：缺了或短于 32 字节直接启动失败，绝不带默认密钥上线
+    secret: ${JWT_SECRET}
+    issuer: cabinet-server
+    access-ttl: 30m
+    refresh-ttl: 7d
+    permission-cache-ttl: 5m
+  mini:
+    # 本地没有 AppID 时可置 true 跑通链路；prod 配置文件里强制 false
+    mock-login: false
+    app-id: ${WECHAT_APP_ID:}
+    app-secret: ${WECHAT_APP_SECRET:}
   datasource:
     mysql:
       jdbc-url: "jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:cabinet_dev}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"

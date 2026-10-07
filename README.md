@@ -46,6 +46,8 @@ powershell -ExecutionPolicy Bypass -File scripts/dev-env.ps1 status
 
 # 2) 配置密钥：复制模板后填自己的库账号（.env 已在 .gitignore 内，绝不入库）
 copy server\.env.example server\.env
+# 至少要填：MYSQL_*/PG_* 账号口令、JWT_SECRET（HS256 要求 ≥ 32 字节，短了启动直接失败）
+#   生成一个：openssl rand -base64 48
 
 # 3) 建库（只需一次）
 mysql -u root -p -e "create database if not exists cabinet_dev character set utf8mb4;"
@@ -60,6 +62,20 @@ curl.exe -s http://127.0.0.1:8080/api/system/health
 ```
 
 接口文档：<http://127.0.0.1:8080/swagger-ui.html>（分组：`0-system` / `1-admin` / `2-mini`）
+
+## 认证授权
+
+| 端 | 登录 | 说明 |
+|---|---|---|
+| 后台 | `POST /api/admin/auth/login`，body 带 `tenantCode` + `username` + `password` | 用户名只**租户内**唯一，所以必须带租户；口令用 BCrypt 存 |
+| 骑手 | `POST /api/mini/auth/login`，body 带 `code`（首次注册再加 `tenantCode`） | dev 下 `cabinet.mini.mock-login=true` 可无 AppID 跑通；生产必须关掉 |
+| 两端 | `refresh` / `logout` / `me` | access 30 分、refresh 7 天；**refresh 一次性**，用过即废 |
+
+三条安全链：公开（`/api/system/**`、文档、actuator health）、`/api/admin/**`、`/api/mini/**`。
+**两端凭证互不通用**（token 里带 `end`），骑手 token 打后台接口直接 401。
+
+注销、改权限靠 Redis 作废旧凭证（`cab:auth:` 前缀，db8）：JWT 本身删不掉，只能靠黑名单。
+首个后台账号不预置在仓库里（不留可用凭据），由部署后手动创建。
 
 ## 测试与 CI
 
@@ -77,7 +93,7 @@ GitHub Actions（`.github/workflows/ci.yml`）三个 job：`unit-tests`、`secre
 ## 约定要点（细节见 `docs/架构约定.md`）
 
 - 所有接口返回 `R<T>`；错误码分段：`0` 成功 / `1xxxx` 业务 / `4xxxx` 客户端 / `5xxxx` 服务端
-- 业务异常 → HTTP 200 + 业务码；参数/认证/系统类异常 → HTTP 状态码与语义一致
+- HTTP 状态按错误码族给：`1xxxx` → 200；`401xx/403xx/404xx/405xx/409xx/429xx` → 对应状态码；`5xxxx` → 500
 - 主键是雪花 ID，**JSON 里以字符串输出**（19 位超出 JS 安全整数，前端会静默丢精度）
 - 时间统一 `yyyy-MM-dd HH:mm:ss`
 - 每请求有 `X-Trace-Id` 响应头，报障直接给 ID；接口耗时看服务端访问日志（含慢请求 warn）与 Nginx `$request_time`

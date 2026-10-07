@@ -2,6 +2,10 @@
 cabinet:
   exception:
     echo-detail: true
+  mini:
+    # 本地无小程序 AppID：把 code 直接当 openid 用，能把登录→带 token→调接口 全链路跑通并写进测试。
+    # 开关同时受 @Profile("!prod") 限制，两层保险；详见 MockMiniAppClient 的安全边界说明。
+    mock-login: true
   cors:
     # 后端自己占着 8080，所以 uni-app H5 的 devServer 要换端口（manifest.json 里配 8081）
     allowed-origin-patterns:

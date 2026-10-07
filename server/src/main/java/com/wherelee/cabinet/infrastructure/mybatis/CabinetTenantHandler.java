@@ -31,11 +31,13 @@ public class CabinetTenantHandler implements TenantLineHandler {
      * <ul>
      *   <li>{@code flyway_schema_history}：迁移表，本身没有 tenant_id</li>
      *   <li>{@code sys_tenant}：租户主表，自己的 tenant_id 就是主键，不能再被过滤</li>
+     *   <li>{@code sys_permission}：权限点与菜单字典，平台维护、全租户共享（见 V3 注释）</li>
      *   <li>{@code sys_operation_log}：审计日志允许记录平台侧操作（tenant_id 可为空），
      *       <b>代价是查这张表时必须自己加租户条件</b>，拦截器帮不了</li>
      * </ul>
      */
-    private static final Set<String> BUILTIN_IGNORE = Set.of("flyway_schema_history", "sys_tenant", "sys_operation_log");
+    private static final Set<String> BUILTIN_IGNORE = Set.of(
+            "flyway_schema_history", "sys_tenant", "sys_permission", "sys_operation_log");
 
     private final CabinetProperties properties;
 
