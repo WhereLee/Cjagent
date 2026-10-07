@@ -1,5 +1,9 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+import { ElMessage } from 'element-plus'
+
+import { ApiError } from '@/api/http'
+import { ResultCode } from '@/types/api'
 import { useAuthStore } from '@/stores/auth'
 
 declare module 'vue-router' {
@@ -70,8 +74,10 @@ const router = createRouter({
 /**
  * 路由守卫做三件事：未登录跳登录、登录后确保拿到账号信息、无权限跳 403。
  *
- * `loadAccount()` 失败时不吞异常：token 已失效又停在原页会让界面显示成"有名字没数据"，
- * 那种半登录状态最难排查，所以一律清掉重新走登录。
+ * <b>`loadAccount()` 失败必须分因处置，不能一律踢下线。</b>
+ * 之前写成 `catch { clear(); 跳登录 }`，于是网络抖动、后端 5xx、超时也会把凭证有数的用户
+ * 踢回登录页，表现为“登录明明成功了却又退回来”且无任何线索——这种偶发问题最难查。
+ * 只有凭证真的失效（40100）才清除登录态；其余情况保留登录态、告知原因并继续导航（服务端才是门禁）。
  */
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
@@ -85,9 +91,19 @@ router.beforeEach(async (to) => {
 
   try {
     await auth.loadAccount()
-  } catch {
-    auth.clear()
-    return { name: 'login', query: { redirect: to.fullPath } }
+  } catch (error) {
+    if (error instanceof ApiError && error.code === ResultCode.UNAUTHORIZED) {
+      auth.clear()
+      return { name: 'login', query: { redirect: to.fullPath } }
+    }
+    // 非凭证问题：不能当成未登录处理，否则就是把用户往登录页里扫
+    const reason = error instanceof Error ? error.message : '未知错误'
+    console.warn(`加载账号信息失败，保留登录态继续导航：${reason}`)
+    if (to.meta.perm) {
+      // 拿不到权限就没法判断能不能进，此时宁可拦住并说清原因，也不要让他看到一个半空页面
+      ElMessage.error('暂时无法获取权限信息，请稍后重试')
+      return { name: 'forbidden' }
+    }
   }
 
   if (to.meta.perm && !auth.hasAuthority(to.meta.perm)) {

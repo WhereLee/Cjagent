@@ -29,7 +29,11 @@ bindSession({
   applyTokens: (access, refresh) => auth.setTokens(access, refresh),
   forceLogout: () => {
     auth.clear()
-    void router.replace({ name: 'login' })
+    const current = router.currentRoute.value
+    // 带上 redirect：不然凭证过期后重登会丢回首页，用户不知道刚才填到一半的表单去哪了
+    if (current.name !== 'login') {
+      void router.replace({ name: 'login', query: { redirect: current.fullPath } })
+    }
   },
 })
 

@@ -25,11 +25,16 @@ const rules: FormRules<typeof form> = {
 }
 
 async function submit() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
-
+  // 回车与点按钮会走同一个 submit；ElButton 的 loading 只禁用点击，不禁用 keyup.enter。
+  // **标志位必须在任何 await 之前同步置位**：上一版先 `await validate()` 再置 true，
+  // 同一个 tick 内的多次触发都读到 false 而全部放行（浏览器实测能打出 3 次 login）。
+  if (loading.value) return
   loading.value = true
+
   try {
+    const valid = await formRef.value?.validate().catch(() => false)
+    if (!valid) return
+
     await auth.login({ ...form })
     ElMessage.success('登录成功')
     // redirect 只接受站内绝对路径，避免 ?redirect=https://evil 变成开放重定向
