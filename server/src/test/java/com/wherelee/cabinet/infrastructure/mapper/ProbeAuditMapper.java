@@ -28,4 +28,8 @@ public interface ProbeAuditMapper extends BaseMapper<ProbeAudit> {
     /** 校验 Flyway 迁移是否真的应用到当前库（版本按字符串传，MySQL 侧会做隐式转换）。 */
     @Select("select count(*) from flyway_schema_history where version = #{version} and success = 1")
     int countAppliedMigration(@Param("version") String version);
+
+    /** 白名单表用的探针：租户拦截器不应给这两类表加条件。 */
+    @Select("select count(*) from sys_tenant")
+    int countTenantsWithoutContext();
 }

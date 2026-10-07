@@ -97,6 +97,10 @@ cabinet:
   access-log:
     enabled: true
     slow-threshold-ms: 500
+  tenant:
+    # 全库统一的租户列名；白名单表自己读不到别人数据，但查它们时拦截器不会加条件，需手工过滤
+    column: tenant_id
+    ignore-tables: []
   datasource:
     mysql:
       jdbc-url: "jdbc:mysql://${MYSQL_HOST:127.0.0.1}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:cabinet_dev}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"

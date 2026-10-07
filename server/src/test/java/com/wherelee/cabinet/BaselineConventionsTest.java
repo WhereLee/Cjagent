@@ -14,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.jdbc.Sql;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -21,6 +22,7 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
@@ -39,6 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @Transactional
 @Rollback
+@Sql(scripts = "/sql/probe-audit.sql", executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD)
 class BaselineConventionsTest {
 
     private static final Long TEST_TENANT = 9001L;
@@ -59,10 +62,10 @@ class BaselineConventionsTest {
     }
 
     @Test
-    @DisplayName("Flyway 迁移确实应用到当前库（正式链 + 测试链）")
+    @DisplayName("Flyway 把正式迁移链应用到了当前库")
     void flywayApplied() {
         assertTrue(probeMapper.countAppliedMigration("1") > 0, "V1__baseline 未应用");
-        assertTrue(probeMapper.countAppliedMigration("100") > 0, "测试专用 V100__probe_audit 未应用");
+        assertTrue(probeMapper.countAppliedMigration("2") > 0, "V2__sys_tenant 未应用");
     }
 
     @Test
@@ -141,15 +144,21 @@ class BaselineConventionsTest {
     }
 
     @Test
-    @DisplayName("租户上下文缺失时不写入 tenantId，但也不抛异常（内部任务场景合法）")
-    void insertWithoutTenantStillWorks() {
+    @DisplayName("无租户上下文写非白名单表：直接拒绝，不允许静默写入 tenant_id 为空的脏数据")
+    void insertWithoutTenantIsRejected() {
         ProbeAudit entity = new ProbeAudit();
         entity.setName("probe-no-tenant");
 
-        probeMapper.insert(entity);
-
-        assertNull(entity.getTenantId());
-        assertNotNull(entity.getId());
+        // 实测机制：tenant_id 因标了 fill=INSERT 而总是出现在 INSERT 列里，租户插件会因此
+        // 跳过注入与校验 → 守卫必须在 AuditMetaObjectHandler 里做，否则静默写入
+        // tenant_id = null 的黑洞数据（不属于任何租户、所有租户都查不到）。
+        Throwable thrown = assertThrows(Throwable.class, () -> probeMapper.insert(entity));
+        Throwable cursor = thrown;
+        while (cursor != null && !(cursor instanceof com.wherelee.cabinet.common.exception.BizException)) {
+            cursor = cursor.getCause();   // MyBatis-Spring 可能会转译包装
+        }
+        assertNotNull(cursor, "预期被写入侧租户守卫拒绝（BizException），实际是 "
+                + thrown.getClass().getName() + ": " + thrown.getMessage());
     }
 
     @Test

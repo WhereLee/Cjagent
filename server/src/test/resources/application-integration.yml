@@ -1,10 +1,11 @@
 # 集成测试专用 profile（@ActiveProfiles({"dev","integration"})，本文件覆盖 dev 的同名项）
 #
-# 1) 库固定用 cabinet_test：可以被反复重建/drop，不会碰开发数据
-# 2) 额外加载测试专用迁移目录，用于验证审计字段自动填充，不污染正式迁移链
+# 库固定用 cabinet_test：可以被反复重建/drop，不会碰开发数据。
+# 注意：这里不再往 spring.flyway.locations 里塞测试专用脚本目录 —— 测试夹具走 @Sql，
+# 否则测试脚本会和正式迁移争抢版本号（踩过：V100 让新增的 V2 变成 out-of-order）。
 spring:
   flyway:
-    locations: classpath:db/migration,classpath:db/testmigration
+    clean-disabled: false   # 仅测试库允许 clean，方便必要时重建；生产永远 true
 
 cabinet:
   exception:

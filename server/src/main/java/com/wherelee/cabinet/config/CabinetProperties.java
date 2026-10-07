@@ -18,6 +18,7 @@ public class CabinetProperties {
 
     private final Cors cors = new Cors();
     private final AccessLog accessLog = new AccessLog();
+    private final Tenant tenant = new Tenant();
 
     public Cors getCors() {
         return cors;
@@ -25,6 +26,10 @@ public class CabinetProperties {
 
     public AccessLog getAccessLog() {
         return accessLog;
+    }
+
+    public Tenant getTenant() {
+        return tenant;
     }
 
     /** 跨域白名单：前端本地端口与正式域名分开配，绝不用 * 配 allowCredentials。 */
@@ -60,6 +65,36 @@ public class CabinetProperties {
 
         public void setMaxAge(long maxAge) {
             this.maxAge = maxAge;
+        }
+    }
+
+    /**
+     * 多租户。没有 enabled 开关：关掉就等于没有隔离，这种能力不应该能被配置误关。
+     */
+    public static class Tenant {
+        /** 租户列名，全库统一。 */
+        private String column = "tenant_id";
+
+        /**
+         * 追加白名单（内置的 flyway_schema_history / sys_tenant / sys_operation_log 无需重复写）。
+         * 典型是全局字典、区域、套餐模板这类平台维护的表。
+         */
+        private List<String> ignoreTables = new ArrayList<>();
+
+        public String getColumn() {
+            return column;
+        }
+
+        public void setColumn(String column) {
+            this.column = column;
+        }
+
+        public List<String> getIgnoreTables() {
+            return ignoreTables;
+        }
+
+        public void setIgnoreTables(List<String> ignoreTables) {
+            this.ignoreTables = ignoreTables;
         }
     }
 
