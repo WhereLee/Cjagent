@@ -3,6 +3,7 @@ package com.wherelee.cabinet.config;
 import com.baomidou.mybatisplus.annotation.DbType;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.BlockAttackInnerInterceptor;
+import com.baomidou.mybatisplus.extension.plugins.inner.OptimisticLockerInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.TenantLineInnerInterceptor;
 import com.wherelee.cabinet.infrastructure.mybatis.CabinetTenantHandler;
@@ -26,13 +27,18 @@ public class MybatisPlusConfig {
         // 1) 租户条件注入（必须第一个）
         interceptor.addInnerInterceptor(new TenantLineInnerInterceptor(tenantHandler));
 
-        // 2) 分页：限制单页最大条数，禁止 overflow 回跳首页，避免前端传个大页码把全表捞出来
+        // 2) 乐观锁：实体字段标 @Version 后，update 会自动带上 version 条件并把值 +1。
+        //    不注册它，表里的 version 列就是个不会自己动的普通字段——最坑的是“看起来有乐观锁”。
+        //    必须在分页之前：两者都是改写 SQL 的插件，顺序错会让分页 count 丢版本条件。
+        interceptor.addInnerInterceptor(new OptimisticLockerInnerInterceptor());
+
+        // 3) 分页：限制单页最大条数，禁止 overflow 回跳首页，避免前端传个大页码把全表捞出来
         PaginationInnerInterceptor pagination = new PaginationInnerInterceptor(DbType.MYSQL);
         pagination.setMaxLimit(500L);
         pagination.setOverflow(false);
         interceptor.addInnerInterceptor(pagination);
 
-        // 3) 阻断没有 where 条件的 update / delete，防手滑清库
+        // 4) 阻断没有 where 条件的 update / delete，防手滑清库
         interceptor.addInnerInterceptor(new BlockAttackInnerInterceptor());
 
         return interceptor;

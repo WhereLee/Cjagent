@@ -12,6 +12,9 @@ git与CI操作手册.md
 *.pem
 id_rsa*
 
+# 本地生成物（种子脚本输出的 .sql 等）：可重跑就不入库
+scripts/generated/
+
 # 浏览器验证/调试截图：它们是过程证据，不是交付物，不入库
 screenshots/
 /*.png

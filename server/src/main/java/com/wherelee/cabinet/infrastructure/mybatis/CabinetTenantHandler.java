@@ -34,10 +34,14 @@ public class CabinetTenantHandler implements TenantLineHandler {
      *   <li>{@code sys_permission}：权限点与菜单字典，平台维护、全租户共享（见 V3 注释）</li>
      *   <li>{@code sys_operation_log}：审计日志允许记录平台侧操作（tenant_id 可为空），
      *       <b>代价是查这张表时必须自己加租户条件</b>，拦截器帮不了</li>
+     *   <li>{@code biz_cabinet_model}：柜机型号模板（硬件事实：6大/8中/10小）是全平台字典，
+     *       租户只引用不拥有（S-14）。进白名单的意思是“写错了不会越租，但也不隔离”，
+     *       所以它只允许平台侧维护，不给业务侧开放增删改接口</li>
      * </ul>
      */
     private static final Set<String> BUILTIN_IGNORE = Set.of(
-            "flyway_schema_history", "sys_tenant", "sys_permission", "sys_operation_log");
+            "flyway_schema_history", "sys_tenant", "sys_permission", "sys_operation_log",
+            "biz_cabinet_model");
 
     private final CabinetProperties properties;
 
