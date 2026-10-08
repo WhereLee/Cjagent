@@ -114,6 +114,15 @@ cabinet:
     # 订单“待落库”消息；tag 固定 order，同一 topic 后续可接超时释放、结算等语义分流
     order-persist-topic: storage-order-persist
     send-timeout-ms: 3000
+  device:
+    # 等设备回执的上限。这个值不是“越快越好”：它同时决定了“多快把异常告知用户”
+    # 与“一次挂死的设备能拖住多少用户”。等待期间不开事务、不占连接
+    receipt-timeout-ms: 2500
+    # 连续失败到这个次数就标故障格口 + 停用柜机（阈值取低：坏柜机接客的用户损失比误停用大）
+    fail-threshold: 3
+  simulator:
+    # 柜机模拟器（进程内，仅 dev/test/integration 装配）：它是可控故障源，不是设备仿真
+    reply-delay-ms: 60
   ratelimit:
     # 默认开。只允许本地压测时临时置 false（第 9 刀压测口径会标注），真实环境不得关闭
     enabled: true

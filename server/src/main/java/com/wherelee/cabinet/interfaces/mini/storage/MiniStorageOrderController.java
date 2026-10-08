@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.interfaces.mini.storage;
 
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
+import org.springframework.web.bind.annotation.RequestParam;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
 import com.wherelee.cabinet.common.annotation.Idempotent;
@@ -65,5 +66,26 @@ public class MiniStorageOrderController {
     public R<StorageOrderView> cancel(@AuthenticationPrincipal VerifiedToken current,
                                       @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(storageOrderFacade.cancel(current.subjectId(), orderNo));
+    }
+
+    /**
+     * 开柜类动作。
+     *
+     * <p>两层幂等故意分开：这里用切面默认的“用户+URI+入参摘要”防**双击**；
+     * 设备侧真正的“不重复下发”由 {@code DeviceCommandService} 按 attempt 生成的 requestId 保证。
+     * 只靠前者会误伤正常重试（同一 URI 重发被当成重复），只靠后者则拦不住“同一次尝试发两次”。
+     */
+    @Operation(summary = "开柜/关门校验",
+            description = "action：OPEN（投件开柜）| OPEN_TEMP（中途取物）| CLOSE_VERIFY（关门校验）")
+    @OperationLog(module = "storage", operation = "开柜")
+    @RateLimit(limit = 12, windowSeconds = 60, message = "开柜操作过于频繁，请稍候再试")
+    @Idempotent(message = "开柜请求处理中，请勿重复操作")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @PostMapping("/{orderNo}/door")
+    public R<StorageOrderView> door(@AuthenticationPrincipal VerifiedToken current,
+                                    @PathVariable @NotBlank @Size(max = 32) String orderNo,
+                                    @RequestParam @NotBlank @Size(max = 16) String action) {
+        return R.ok(storageOrderFacade.openDoor(current.subjectId(), orderNo,
+                com.wherelee.cabinet.domain.enums.CommandAction.of(action)));
     }
 }

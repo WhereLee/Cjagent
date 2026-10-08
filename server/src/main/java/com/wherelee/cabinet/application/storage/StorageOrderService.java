@@ -46,17 +46,23 @@ public class StorageOrderService {
     private final BizStorageOrderMapper orderMapper;
     private final SlotAllocator allocator;
     private final SlotPreDeductionService preDeduction;
+    private final com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands;
+    private final com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper;
 
     public StorageOrderService(BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper,
                                BizStorageOrderMapper orderMapper,
                                SlotAllocator allocator,
-                               SlotPreDeductionService preDeduction) {
+                               SlotPreDeductionService preDeduction,
+                               com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands,
+                               com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
         this.allocator = allocator;
         this.preDeduction = preDeduction;
+        this.deviceCommands = deviceCommands;
+        this.deviceCommandMapper = deviceCommandMapper;
     }
 
     @Transactional
@@ -175,5 +181,149 @@ public class StorageOrderService {
     /** 供测试与指标读取当前生效策略。 */
     public String activeStrategy() {
         return allocator.strategy();
+    }
+
+    /** 订单行是否已存在（异步路径的“创建中”判定靠它，不区分归属）。 */
+    public boolean orderExists(String orderNo) {
+        return orderMapper.exists(Wrappers.<BizStorageOrder>lambdaQuery()
+                .eq(BizStorageOrder::getOrderNo, orderNo));
+    }
+
+    /**
+     * 开柜类动作（首次投件 OPEN / 中途取物 OPEN_TEMP / 关门校验 CLOSE_VERIFY）。
+     *
+     * <p><b>requestId 按“这是该单该动作的第几次”生成</b>：只写 {@code orderNo:action} 会错——
+     * 第一次开柜失败后用户再点，会命中幂等而拿回“失败”旧结果，重试通道被自己堵死；
+     * 完全随机又会让“双击”产生命令两次下发。所以：同一次尝试幂等，重试换新键。
+     *
+     * <p>注意本方法<b>不在事务里</b>：等回执最长 2.5 秒，开事务会占住连接（第 9 刀压测的瓶颈）。
+     * 指令与回执的写入各自成一个短事务（在 DeviceCommandService 内部），
+     * 这里的订单状态推进是第 3 个短事务。<b>失败后果说清：中途崩溃会留下“设备开了门但订单没变”的现场，
+     * 由上报流水与超时回扫收敛（第 13 刀）。</b>
+     */
+    public StorageOrderView openDoor(Long customerId, String orderNo,
+                                     com.wherelee.cabinet.domain.enums.CommandAction action) {
+        BizStorageOrder order = findOwned(customerId, orderNo);
+        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
+        if (cabinet == null) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "柜机不存在，需人工核对 orderNo=" + orderNo);
+        }
+
+        boolean opening = action == com.wherelee.cabinet.domain.enums.CommandAction.OPEN;
+        boolean tempOpen = action == com.wherelee.cabinet.domain.enums.CommandAction.OPEN_TEMP;
+        boolean verifyClose = action == com.wherelee.cabinet.domain.enums.CommandAction.CLOSE_VERIFY;
+
+        if (opening && order.getStatus() != OrderStatus.RESERVED) {
+            throw new BizException(ResultCode.BIZ_ERROR, "当前状态不可开柜：" + order.getStatus());
+        }
+        if (tempOpen && order.getStatus() != OrderStatus.ACTIVE) {
+            throw new BizException(ResultCode.BIZ_ERROR, "只有计费中的订单可以临时开柜");
+        }
+        if (verifyClose && order.getStatus() != OrderStatus.OPENING
+                && order.getStatus() != OrderStatus.TEMP_OPEN) {
+            throw new BizException(ResultCode.BIZ_ERROR, "没有待关闭的柜门");
+        }
+
+        if (opening) {
+            order.transitTo(OrderStatus.OPENING);
+            orderMapper.updateById(order);
+        }
+
+        long attempts = countAttempts(orderNo, action);
+        String requestId = orderNo + ":" + action.name() + ":" + (attempts + 1);
+        com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome;
+        try {
+            outcome = deviceCommands.dispatch(cabinet, order.getSlotId(), action, order.getId(), requestId);
+        } catch (RuntimeException e) {
+            // 上面已经把 RESERVED 推成 OPENING 并单独提交了（等回执不能开事务）。
+            // 下发本身报错（柜机离线、通道异常）时若不退回，单就会卡在 OPENING：
+            // 用户既重试不了，也没人来推它——这就是“每个异常路径都要回答下一步能做什么”。
+            if (opening) {
+                order.transitTo(OrderStatus.RESERVED);
+                orderMapper.updateById(order);
+            }
+            throw e;
+        }
+
+        applyDeviceOutcome(order, action, outcome);
+        orderMapper.updateById(order);
+
+        return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), slotNoOf(order.getSlotId()),
+                order.getSizeType().name(), order.getStatus().name(), order.getEstimateMinutes(),
+                0, allocator.strategy());
+    }
+
+    /**
+     * 设备结果到订单状态的映射。
+     *
+     * <p><b>判据是“正在执行哪个动作”，不是“当前状态”。</b>
+     * 为什么不能看状态：本方法跑在 OPEN 已把 RESERVED 推成 OPENING <em>之后</em>，
+     * 此时“OPENING”既可能意味着“门开了、件在里面”，也可能意味着“门根本没开”。
+     * 拿状态做判就会把“开柜失败”当成“要人工”，而把“关门时谎报”当成“重试一下就好”——两者恰好反了。
+     *
+     * <p>按动作判就干净了：
+     * <ul>
+     *   <li>{@code OPEN} 失败 → 件还在用户手里 → 退回 {@code RESERVED}（可重试、可换柜机，不打扰运营）；</li>
+     *   <li>{@code CLOSE_VERIFY} 失败/谎报 → <b>件已在柜内</b> → 只能 {@code ABNORMAL} 等人工；</li>
+     *   <li>{@code OPEN_TEMP} 失败 → 件在里面但没丢 → 保持 {@code ACTIVE}，用户可再试。</li>
+     * </ul>
+     */
+    private void applyDeviceOutcome(BizStorageOrder order,
+                                    com.wherelee.cabinet.domain.enums.CommandAction action,
+                                    com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome) {
+        if (outcome.stale()) {
+            // 旧事件：什么都不改（设备重放不得把新状态覆盖成旧事件）
+            return;
+        }
+        if (outcome.businessSuccess()) {
+            switch (action) {
+                case OPEN -> {
+                    // 门已开，等用户投件 + 关门校验；此时仍是 OPENING，不能提前记为已存
+                    log.info("格口已开门 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
+                }
+                case OPEN_TEMP -> {
+                    order.setTempOpenCount(order.getTempOpenCount() == null ? 1 : order.getTempOpenCount() + 1);
+                    order.transitTo(OrderStatus.TEMP_OPEN);
+                }
+                case CLOSE_VERIFY -> order.transitTo(order.getStatus() == OrderStatus.TEMP_OPEN
+                        ? OrderStatus.ACTIVE : OrderStatus.STORED);
+                default -> throw new BizException(ResultCode.PARAM_INVALID, "不支持的动作：" + action);
+            }
+            return;
+        }
+
+        // 失败分支：先问“件在谁手里”
+        switch (action) {
+            case OPEN -> {
+                if (order.getStatus() == OrderStatus.OPENING) {
+                    order.transitTo(OrderStatus.RESERVED);
+                }
+                log.info("开柜未成功，已退回可重试态 orderNo={} fault={}", order.getOrderNo(), outcome.faultType());
+            }
+            case OPEN_TEMP -> {
+                if (order.getStatus() == OrderStatus.TEMP_OPEN) {
+                    order.transitTo(OrderStatus.ACTIVE);
+                }
+            }
+            // 关门校验失败：件已经在柜里，谎报与错乱目标都必须人工，绝不能再自动流转
+            case CLOSE_VERIFY, FORCE_OPEN -> order.transitTo(OrderStatus.ABNORMAL);
+            default -> order.transitTo(OrderStatus.ABNORMAL);
+        }
+    }
+
+    private long countAttempts(String orderNo, com.wherelee.cabinet.domain.enums.CommandAction action) {
+        return deviceCommandMapper.selectCount(Wrappers.<com.wherelee.cabinet.domain.entity.BizDeviceCommand>lambdaQuery()
+                .likeRight(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getRequestId,
+                        orderNo + ":" + action.name() + ":"));
+    }
+
+    private BizStorageOrder findOwned(Long customerId, String orderNo) {
+        BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
+                .eq(BizStorageOrder::getOrderNo, orderNo));
+        if (order == null || !order.getCustomerId().equals(customerId)) {
+            // 不区分“不存在”与“不是你的”：避免用 404/403 差值枚举他人单号
+            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "寄存单不存在");
+        }
+        return order;
     }
 }

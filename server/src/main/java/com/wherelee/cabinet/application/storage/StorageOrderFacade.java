@@ -4,6 +4,7 @@ import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
+import com.wherelee.cabinet.domain.enums.CommandAction;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -66,6 +67,16 @@ public class StorageOrderFacade {
             }
             throw e;
         }
+    }
+
+    public StorageOrderView openDoor(Long customerId, String orderNo, CommandAction action) {
+        // 开柜必须面对已落库的订单。异步路径下“消息已发、行还没写”的短暂窗口里，
+        // 去操作一个不存在的订单没有意义（格口可能正在被别人拿走），直接回“创建中、请重试”。
+        // 把这个窗口暴露给用户而不是粉饰太平：它本来就是异步设让的代价。
+        if (STRATEGY_PREALLOC.equalsIgnoreCase(strategy) && !syncService.orderExists(orderNo)) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "寄存单创建中，请稍候重试");
+        }
+        return syncService.openDoor(customerId, orderNo, action);
     }
 
     public String activeStrategy() {
