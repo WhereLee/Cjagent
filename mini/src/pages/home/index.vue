@@ -2,10 +2,10 @@
 import { onShow } from '@dcloudio/uni-app'
 import { ref } from 'vue'
 
-import { useRiderStore } from '@/stores/rider'
+import { useCustomerStore } from '@/stores/customer'
 import { ensureAuthenticated } from '@/utils/authz'
 
-const store = useRiderStore()
+const store = useCustomerStore()
 const ready = ref(false)
 
 // onShow 而不是 onLoad：从扫码页返回时也要重新校验登录态（凭证可能在此期间失效）
@@ -27,10 +27,10 @@ function goMine(): void {
 <template>
   <view v-if="ready">
     <view class="card">
-      <view class="title">{{ store.profile?.nickname || '骑手' }}</view>
+      <view class="title">{{ store.profile?.nickname || '你' }}</view>
       <view class="row">
-        <text class="label">骑手 ID</text>
-        <text class="value mono">{{ store.profile?.riderId }}</text>
+        <text class="label">客户 ID</text>
+        <text class="value mono">{{ store.profile?.customerId }}</text>
       </view>
       <view class="row">
         <text class="label">所属运营方（报障编号）</text>

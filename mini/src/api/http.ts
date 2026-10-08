@@ -1,17 +1,20 @@
 import { ResultCode, type ApiResult } from '@/types/api'
 
 /**
- * 骑手端请求层。与 admin 的 http.ts 语义一致（解 R、按 code 分派、401 刷新去重、
- * 认证接口不参与刷新），但底下换成 `uni.request`——原因不是"顺手换个写法"：
+ * 用户端请求层。与 admin 的 http.ts 语义一致（解 R、按 code 分派、401 刷新去重、
+ * 认证接口不参与刷新），但底下换成 `uni.request`——原因不是“顺手写个新的”：
  *
  * - 小程序端没有 XHR，axios 跑不起来；
  * - `uni.request` **业务失败不抛异常**，非 2xx 也照样走 success 回调，
- *   所以"HTTP 状态"和"业务 code"必须在这一层分开处理，不能像 axios 那样靠 catch 兜；
- * - 没有 params 序列化，`GET` 的查询串要自己拼（数组/undefined 的处理是常见坑）。
+ *   所以“HTTP 状态”与“业务 code”必须在这一层分开处理，不能像 axios 那样靠 catch 兜；
+ * - 没有 params 序列化，GET 的查询串要自己拼（undefined/空值必须跳过）。
+ *
+ * <p>两份请求层各写一份是已登记的简化（docs/架构约定.md §7）：接口数量上来后
+ * 应抽成共享核心包 + 平台适配器，否则错误码与刷新语义会漂。
  */
 
-const ACCESS_KEY = 'rider.at'
-const REFRESH_KEY = 'rider.rt'
+const ACCESS_KEY = 'cust.at'
+const REFRESH_KEY = 'cust.rt'
 
 const baseURL = import.meta.env.VITE_API_BASE ?? 'http://127.0.0.1:8080'
 

@@ -2,10 +2,10 @@
 import { onShow } from '@dcloudio/uni-app'
 import { ref } from 'vue'
 
-import { useRiderStore } from '@/stores/rider'
+import { useCustomerStore } from '@/stores/customer'
 import { ensureAuthenticated } from '@/utils/authz'
 
-const store = useRiderStore()
+const store = useCustomerStore()
 const ready = ref(false)
 
 onShow(async () => {
@@ -34,8 +34,8 @@ function confirmLogout(): void {
   <view v-if="ready" class="card">
     <view class="title">我的</view>
     <view class="row">
-      <text class="label">骑手 ID</text>
-      <text class="value mono">{{ store.profile?.riderId }}</text>
+      <text class="label">客户 ID</text>
+      <text class="value mono">{{ store.profile?.customerId }}</text>
     </view>
     <view class="row">
       <text class="label">所属运营方（报障编号）</text>

@@ -1,27 +1,28 @@
-# Cjagent · 换电柜 SaaS
+# Cjagent · 储物柜 SaaS
 
-面向外卖骑手的**换电柜 SaaS**：柜机（IoT）+ 骑手端小程序 + 运营/商户后台 + 多租户平台。
-当前处于**阶段 0（底座）**，业务表与设备接入尚未开始。
+面向城市临时寄存场景的**储物柜 SaaS**：柜机（虚拟设备，主要用于故障模拟）+ 用户端（H5 / 微信小程序）
++ 运营后台 + 多租户平台。项目由“换电柜”领域调整而来，原因见 `docs/储物柜业务规划.md` 开头。
+当前处于**阶段 1（寄存业务）**：阶段 0 底座与两个前端已完成，业务地基（表与状态机）已落地。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| 0 底座 | 工程骨架、通用能力（响应/异常/链路/审计字段）、多租户、认证授权、中间件接入、CI | **进行中** |
-| 1 换电业务 | 站点、柜机、电池、套餐、订单、计费、换电流程 | 未开始 |
-| 2 设备接入 | MQTT 上报、远程开锁、指令下发、离线告警 | 未开始 |
+| 0 底座 | 工程骨架、通用能力（响应/异常/链路/审计字段）、多租户、认证授权、中间件接入、CI | **已完成** |
+| 1 寄存业务 | 点位、柜机、格口、寄存单、点数与押金、超时与调度、运营后台 | **进行中** |
+| 2 设备接入 | 指令下发与回执、心跳在线、**故障注入（模拟器作为可控故障源）** | 未开始 |
 | 3 Java Agent | 运维问答 / RAG（pgvector 已就绪） | 未开始 |
 
 ## 技术栈
 
 - **后端** Java 17 · Spring Boot 3.5 · Maven（单模块分包）· MyBatis-Plus · Flyway · Spring Security + JWT · SpringDoc
 - **数据** MySQL 8（业务主库）· PostgreSQL + pgvector（agent / 向量）· Redis（缓存、登录态、限流、设备在线判定）· RocketMQ 5（业务异步事件）
-- **前端** uni-app + Vue 3 + TS（骑手端，可编译 H5 本地直连后端）· Vue 3 + Element Plus（运营后台）
+- **前端** uni-app + Vue 3 + TS（用户端，可编译 H5 本地直连后端）· Vue 3 + Element Plus（运营后台）
 
 ## 目录
 
 ```
 server/                 后端 Spring Boot 工程
   src/main/java/com/wherelee/cabinet/
-    interfaces/         对外接口：admin（后台）/ mini（骑手端）/ system（自检）
+    interfaces/         对外接口：admin（后台）/ mini（用户端）/ system（自检）
     application/        用例编排与事务边界
     domain/             实体、枚举、领域服务（BaseEntity 定死审计列与租户列）
     infrastructure/     mapper、缓存、消息、外部 SDK
@@ -30,8 +31,8 @@ server/                 后端 Spring Boot 工程
   src/main/resources/db/migration/   Flyway 版本化 DDL
   src/test/java/        单测 + @Tag(integration) 集成测试
 admin/                Vue3 + Vite + Element Plus 运营后台
-mini/                 uni-app 骑手端（H5 + 微信小程序，Vue3 + TS）
-  src/pages/          登录 / 首页 / 扫码（占位）/ 我的
+mini/                 uni-app 用户端（H5 + 微信小程序，Vue3 + TS）
+  src/pages/          寄存登录 / 首页 / 扫码（占位）/ 我的
   tools/gen-page-flow.mjs  页面流转图生成与静态检查
 scripts/dev-env.ps1     本地中间件一键起停与体检
 scripts/run-app.ps1     本地启动后端（读 deploy/jvm.opts 的 JVM 参数）
@@ -77,11 +78,11 @@ curl.exe -s http://127.0.0.1:8080/actuator/prometheus | Select-String jvm_memory
 | 端 | 登录 | 说明 |
 |---|---|---|
 | 后台 | `POST /api/admin/auth/login`，body 带 `tenantCode` + `username` + `password` | 用户名只**租户内**唯一，所以必须带租户；口令用 BCrypt 存 |
-| 骑手 | `POST /api/mini/auth/login`，body 带 `code`（首次注册再加 `tenantCode`） | dev 下 `cabinet.mini.mock-login=true` 可无 AppID 跑通；生产必须关掉 |
+| 寄存客户 | `POST /api/mini/auth/login`，body 带 `code`（首次注册再加 `tenantCode`） | dev 下 `cabinet.mini.mock-login=true` 可无 AppID 跑通；生产必须关掉 |
 | 两端 | `refresh` / `logout` / `me` | access 30 分、refresh 7 天；**refresh 一次性**，用过即废 |
 
 三条安全链：公开（`/api/system/**`、文档、actuator health）、`/api/admin/**`、`/api/mini/**`。
-**两端凭证互不通用**（token 里带 `end`），骑手 token 打后台接口直接 401。
+**两端凭证互不通用**（token 里带 `end`），客户 token 打后台接口直接 401。
 
 注销、改权限靠 Redis 作废旧凭证（`cab:auth:` 前缀，db8）：JWT 本身删不掉，只能靠黑名单。
 首个后台账号不预置在仓库里（不留可用凭据），由部署后手动创建。
@@ -145,7 +146,7 @@ npm run lint && npm run typecheck && npm run build
 
 账号数据**不要写进 `db/migration`**：迁移脚本一经发布不可修改，而带口令的种子数据几乎肯定要反复改动。
 
-## 前端（mini 骑手端）
+## 前端（mini 用户端）
 
 ```bash
 cd mini
@@ -156,8 +157,8 @@ npm run build:h5 && npm run build:mp-weixin
 ```
 
 - **H5 直连后端调试**，不需要小程序 AppID：登录走后端 mock 通道（`code` 直接当 openId），
-  本地 code 会存在 Storage 里保持稳定（否则每登录一次就多一个骑手）。编译到微信小程序那么
-  `uni.login` 取真实 code，mock 分支由 `mini.mock-login` + `@Profile("!prod")` 两层锁住。
+  本地 code 存在 Storage 里保持稳定（否则每登录一次就多一个新客户）。编译到微信小程序时
+  改用 `uni.login` 取真实 code，mock 分支由 `mini.mock-login` + `@Profile("!prod")` 两层锁住。
 - 端口 **8083**（admin 8082、后端 8080、8081 被本机 RocketMQ proxy 占用），后端 dev
   的来源白名单已同时放行两个，改端口要两边一起改。
 - `npm run flow` 会从 `pages.json` 与页面源码生成 `docs/页面流转.md`（Mermaid），

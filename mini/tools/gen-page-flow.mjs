@@ -101,7 +101,7 @@ function build({ pages, entry }, edges) {
   )
 
   const body = [
-    '# 骑手端页面流转',
+    '# 用户端页面流转',
     '',
     '> 本文件由 `node mini/tools/gen-page-flow.mjs` 从 `pages.json` 与页面源码生成，**不要手工编辑**。',
     '> 手画的流转图一旦和代码分叉就再没人信它，所以宁可脚本生成、偶尔过期，也不手写。',
@@ -132,7 +132,7 @@ function build({ pages, entry }, edges) {
     '## 说明',
     '',
     `- 未注册的跳转目标会被 --check 拦下；标题来源：\`pages.json\` 的 \`navigationBarTitleText\`（共 ${titles.size} 页）。`,
-    '- 小程序端没有 vue-router，鉴权拦在各页面 `onShow` 的 `ensureAuthenticated()` 与后端每个接口的 `hasRole(\'RIDER\')` 两处；',
+    '- 小程序端没有 vue-router，鉴权拦在各页面 `onShow` 的 `ensureAuthenticated()` 与后端每个接口的 `hasRole(\'CUSTOMER\')` 两处；',
     '  凭证失效由请求层 `clearTokensAndRelaunch()` 直接 `reLaunch` 到登录页（用 reLaunch 是为了清掉整条页面栈，',
     '  否则用户按返回会再撞一次 401）。',
     '',

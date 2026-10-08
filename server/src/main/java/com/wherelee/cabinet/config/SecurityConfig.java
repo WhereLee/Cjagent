@@ -8,7 +8,7 @@ import com.wherelee.cabinet.infrastructure.security.AdminPermissionService;
 import com.wherelee.cabinet.infrastructure.security.AuthRedisService;
 import com.wherelee.cabinet.infrastructure.security.JwtAuthenticationFilter;
 import com.wherelee.cabinet.infrastructure.security.JwtTokenService;
-import com.wherelee.cabinet.infrastructure.security.RiderAuthoritiesResolver;
+import com.wherelee.cabinet.infrastructure.security.CustomerAuthoritiesResolver;
 import com.wherelee.cabinet.infrastructure.security.AdminUserDetailsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -98,16 +98,16 @@ public class SecurityConfig {
         return http.build();
     }
 
-    /** 骑手端：小程序 code 换 openid 再换 token，固定角色。 */
+    /** 用户端（寄存客户）：小程序 code 换 openid 再换 token，固定角色。 */
     @Bean
     @Order(3)
     public SecurityFilterChain miniChain(HttpSecurity http,
                                          JwtTokenService jwtTokenService,
                                          AuthRedisService authRedisService,
-                                         RiderAuthoritiesResolver riderAuthoritiesResolver,
+                                         CustomerAuthoritiesResolver customerAuthoritiesResolver,
                                          ObjectMapper objectMapper) throws Exception {
         JwtAuthenticationFilter filter = new JwtAuthenticationFilter(
-                AuthConstants.END_MINI, jwtTokenService, authRedisService, riderAuthoritiesResolver, objectMapper);
+                AuthConstants.END_MINI, jwtTokenService, authRedisService, customerAuthoritiesResolver, objectMapper);
 
         http.securityMatcher("/api/mini/**")
                 .csrf(csrf -> csrf.disable())

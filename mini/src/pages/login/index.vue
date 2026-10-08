@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-import { useRiderStore } from '@/stores/rider'
+import { useCustomerStore } from '@/stores/customer'
 
-const store = useRiderStore()
+const store = useCustomerStore()
 const tenantCode = ref('platform')
 const loading = ref(false)
 
@@ -26,9 +26,9 @@ async function submit() {
 
 <template>
   <view class="card">
-    <view class="title">骑手登录</view>
+    <view class="title">寄存登录</view>
     <view class="row">
-      <text class="label">运营租户编码</text>
+      <text class="label">运营商编码</text>
       <input v-model="tenantCode" class="input" placeholder="platform" />
     </view>
    <!--

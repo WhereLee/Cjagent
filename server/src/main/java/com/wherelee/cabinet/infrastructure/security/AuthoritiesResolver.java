@@ -11,7 +11,7 @@ import java.util.List;
 public interface AuthoritiesResolver {
 
     /**
-     * @param subjectId 账号 ID（后台是 sys_user.id，骑手是 sys_rider.id）
+     * @param subjectId 账号 ID（后台是 sys_user.id，用户端是 biz_customer.id）
      * @return 权限串列表；角色需自带 {@code ROLE_} 前缀
      */
     List<String> resolve(Long subjectId);

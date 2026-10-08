@@ -1,19 +1,19 @@
 import { ApiError } from '@/api/http'
 import { ResultCode } from '@/types/api'
-import { useRiderStore } from '@/stores/rider'
+import { useCustomerStore } from '@/stores/customer'
 
 /**
  * 页面级鉴权。小程序没有 vue-router，也就没有全局守卫，所以拦在两个地方：
- * 页面 onLoad/onShow 这里（体验），以及后端每个接口的 `hasRole('RIDER')`（安全）。
+ * 页面 onLoad/onShow 这里（体验），以及后端每个接口的 `hasRole('CUSTOMER')`（安全）。
  *
- * <p>注意本函数依赖 `isLoggedIn()` 是**函数**而非缓存的 computed（见 stores/rider.ts 的注释）：
+ * <p>注意本函数依赖 `isLoggedIn()` 是**函数**而非缓存的 computed（见 stores/customer.ts 的注释）：
  * 曾经写 `loggedIn` computed 缓存了 Storage 读取结果，退出登录后仍为 true，
  * 导致"只改地址栏 hash 直达受限页"这条路径完全不拦（浏览器实测 2/2 复现）。
  *
  * @returns 是否可以继续渲染
  */
 export async function ensureAuthenticated(): Promise<boolean> {
-  const store = useRiderStore()
+  const store = useCustomerStore()
 
   if (!store.isLoggedIn()) {
     backToLogin()
