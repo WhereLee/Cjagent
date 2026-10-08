@@ -104,7 +104,8 @@ export function saveTokens(accessToken: string, refreshToken: string): void {
 export function clearTokensAndRelaunch(): void {
   uni.removeStorageSync(ACCESS_KEY)
   uni.removeStorageSync(REFRESH_KEY)
-  uni.reLaunch({ url: '/pages/login/index' })
+  // animationDuration: 0：避开“上一跳过渡未完成时 reLaunch 被丢弃”的竞态（见 utils/authz.ts 同处说明）
+  uni.reLaunch({ url: '/pages/login/index', animationDuration: 0 })
 }
 
 /** 不参与"401 自动刷新"的接口，见下方 send() 里的说明。 */

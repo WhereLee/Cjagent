@@ -33,7 +33,7 @@ function goMine(): void {
         <text class="value mono">{{ store.profile?.riderId }}</text>
       </view>
       <view class="row">
-        <text class="label">所属租户</text>
+        <text class="label">所属运营方（报障编号）</text>
         <text class="value mono">{{ store.profile?.tenantId }}</text>
       </view>
     </view>
@@ -41,7 +41,10 @@ function goMine(): void {
     <view class="card">
       <button class="btn btn-primary" @click="goScan">扫码换电</button>
       <button class="btn btn-ghost" @click="goMine">我的</button>
-      <view class="hint">换电业务尚未接入（阶段 1 第 8～12 刀），这里的扫码入口目前是占位页面。</view>
+      <view class="hint">换电功能即将开放；现在看到的扫码入口是占位页。</view>
     </view>
   </view>
+
+  <!-- 鉴权未通过时的兜底：不能只留空白页 -->
+  <need-login v-else />
 </template>

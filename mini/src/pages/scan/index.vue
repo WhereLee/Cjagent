@@ -46,8 +46,10 @@ function back(): void {
     </view>
     <button class="btn btn-ghost" @click="back">返回</button>
     <view class="hint">
-      业务尚未接入：真实流程是「柜机码 → 定位柜机与空闲仓位 → 抢电池（并发锁） → 下发开锁指令（MQTT）」。
-      H5 里点扫码必然失败（平台不支持），这是预期分支，不是 bug。
+      换电功能尚未开放，扫码不会发起业务。在微信小程序或真机上才能扫码；
+      普通浏览器里点“扫一扫”一定会提示不支持，这不是手机坏了。
     </view>
   </view>
+
+  <need-login v-else />
 </template>

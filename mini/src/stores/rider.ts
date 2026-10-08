@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 
 import { fetchProfile, loginApi, logoutApi, type RiderProfile } from '@/api/auth'
-import { clearTokensAndRelaunch, readAccessToken, readRefreshToken, saveTokens } from '@/api/http'
+import { ApiError, clearTokensAndRelaunch, readAccessToken, readRefreshToken, saveTokens } from '@/api/http'
+import { ResultCode } from '@/types/api'
 
 const DEV_CODE_KEY = 'rider.devCode'
 
@@ -36,12 +37,24 @@ function resolveLoginCode(): Promise<string> {
 
 export const useRiderStore = defineStore('rider', () => {
   const profile = ref<RiderProfile | null>(null)
-  const loggedIn = computed(() => Boolean(readAccessToken()))
 
-  /** 本地缓存里没有就回源；回源失败（凭证失效）由 http 层处理刷新与登出。 */
+  /**
+   * 登录判定必须是**函数**而不是 computed。
+   *
+   * 上一版写的 `computed(() => Boolean(readAccessToken()))`：它依赖的是 uni Storage，
+   * 不是响应式源，于是 computed 求值一次就永不失效——退出登录清完 Storage 它仍回 true，
+   * 仅改 hash 直达受限页的拦截因此失效（浏览器实测重现，复现率 2/2）。
+   */
+  function isLoggedIn(): boolean {
+    return Boolean(readAccessToken())
+  }
+
+  /** 本地缓存里没有就回源。没 token 一定抛错，**不得静默返回 null**：否则调用方会把“未登录”当成“已加载完成”。 */
   async function loadProfile(force = false): Promise<RiderProfile | null> {
     if (profile.value && !force) return profile.value
-    if (!readAccessToken()) return null
+    if (!readAccessToken()) {
+      throw new ApiError(ResultCode.UNAUTHORIZED, '未登录或登录状态已过期')
+    }
     profile.value = await fetchProfile()
     return profile.value
   }
@@ -66,5 +79,5 @@ export const useRiderStore = defineStore('rider', () => {
     }
   }
 
-  return { profile, loggedIn, loadProfile, login, logout }
+  return { profile, isLoggedIn, loadProfile, login, logout }
 })

@@ -84,6 +84,8 @@ class RiderAuthFlowTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.tenantId").value("8101"))
                 .andExpect(jsonPath("$.data.riderId").isString())
+                // 注册本次就是首次登录：不能出现“刚注册完却显示从未登录过”这种语义空缺
+                .andExpect(jsonPath("$.data.lastLoginAt").isNotEmpty())
                 // 实体不得直出：openId / unionId / deleted 是服务端内部字段，
                 // 之前这个用例反过来断言了 openId 存在，等于把泄露固化进测试
                 .andExpect(jsonPath("$.data.openId").doesNotExist())

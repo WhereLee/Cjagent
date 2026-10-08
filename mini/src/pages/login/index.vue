@@ -40,8 +40,8 @@ async function submit() {
       {{ loading ? '登录中…' : '登录 / 注册' }}
     </button>
     <view class="hint">
-      H5 调试走 mock 通道：本地生成一个稳定 code，后端把它当 openId 用（同一台设备始终是同一个骑手）。
-      编译到微信小程序时改用 uni.login 的真实 code，这条 mock 分支由后端 mock-login 开关与 @Profile("!prod") 双重限制。
+      本地调试使用模拟登录通道（免微信授权）；正式发布后改走微信授权登录。
+      若提示“租户不可用”，请确认输入的是运营商给你的编码，而不是账号或手机号。
     </view>
   </view>
 </template>

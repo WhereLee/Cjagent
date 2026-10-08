@@ -90,6 +90,8 @@ public class RiderAuthService {
         rider.setNickname("骑手" + openId.substring(Math.max(0, openId.length() - 4)));
         rider.setStatus(1);
         rider.setRegisterTime(LocalDateTime.now());
+        // 注册本次就是首次登录；不写的话新骑手进“我的”会看到“最后登录 -”这种语义空缺
+        rider.setLastLoginAt(LocalDateTime.now());
         // 写入必须在该租户上下文里做：sys_rider 不是白名单表，租户守卫会拒绝无上下文的写入
         TenantContext.runAs(tenant.getId(), () -> riderMapper.insert(rider));
         return rider;
