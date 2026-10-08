@@ -3,9 +3,9 @@ package com.wherelee.cabinet.interfaces.mini.auth;
 import com.wherelee.cabinet.application.auth.RiderAuthService;
 import com.wherelee.cabinet.application.auth.dto.RiderLoginRequest;
 import com.wherelee.cabinet.application.auth.dto.RiderLoginView;
+import com.wherelee.cabinet.application.auth.dto.RiderView;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.domain.entity.SysRider;
 import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
 import com.wherelee.cabinet.interfaces.mini.auth.dto.MiniRefreshRequest;
 import com.wherelee.cabinet.interfaces.mini.auth.dto.MiniTokenView;
@@ -62,10 +62,10 @@ public class MiniAuthController {
         return R.ok();
     }
 
-    @Operation(summary = "当前骑手信息")
+    @Operation(summary = "当前骑手信息", description = "不回传 openId/unionId：那是服务端身份标识")
     @PreAuthorize("hasRole('RIDER')")
     @GetMapping("/me")
-    public R<SysRider> me(@AuthenticationPrincipal VerifiedToken current) {
-        return R.ok(riderAuthService.currentRider(current));
+    public R<RiderView> me(@AuthenticationPrincipal VerifiedToken current) {
+        return R.ok(riderAuthService.currentProfile(current));
     }
 }

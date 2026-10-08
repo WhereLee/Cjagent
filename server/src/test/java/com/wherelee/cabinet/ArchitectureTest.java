@@ -99,6 +99,16 @@ class ArchitectureTest {
     }
 
     @Test
+    @DisplayName("实体不得出现在接口层（防实体直出）")
+    void entitiesMustNotLeakToInterfaces() {
+        // 起因：/api/mini/auth/me 直接返回了 SysRider，把 openId/unionId/deleted 下发给客户端。
+        // 实体一旦当响应用，前端就会“顺手用起来”，以后改名或拆字段就是破契约
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".domain.entity..");
+        rule.check(PRODUCTION_CLASSES);
+    }
+
+    @Test
     @DisplayName("application 不得反向依赖接口层（视图归 application）")
     void applicationDoesNotDependOnInterfaces() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".application..")

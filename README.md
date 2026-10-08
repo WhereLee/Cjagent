@@ -30,7 +30,9 @@ server/                 后端 Spring Boot 工程
   src/main/resources/db/migration/   Flyway 版本化 DDL
   src/test/java/        单测 + @Tag(integration) 集成测试
 admin/                Vue3 + Vite + Element Plus 运营后台
-mini/                 uni-app 骑手端（第7刀）
+mini/                 uni-app 骑手端（H5 + 微信小程序，Vue3 + TS）
+  src/pages/          登录 / 首页 / 扫码（占位）/ 我的
+  tools/gen-page-flow.mjs  页面流转图生成与静态检查
 scripts/dev-env.ps1     本地中间件一键起停与体检
 scripts/run-app.ps1     本地启动后端（读 deploy/jvm.opts 的 JVM 参数）
 deploy/jvm.opts         JVM 参数单一来源（本地脚本与 systemd 单元共用，非密钥文件）
@@ -143,6 +145,25 @@ npm run lint && npm run typecheck && npm run build
 
 账号数据**不要写进 `db/migration`**：迁移脚本一经发布不可修改，而带口令的种子数据几乎肯定要反复改动。
 
+## 前端（mini 骑手端）
+
+```bash
+cd mini
+npm install
+npm run dev:h5                    # http://127.0.0.1:8083
+npm run lint && npm run typecheck && npm run flow
+npm run build:h5 && npm run build:mp-weixin
+```
+
+- **H5 直连后端调试**，不需要小程序 AppID：登录走后端 mock 通道（`code` 直接当 openId），
+  本地 code 会存在 Storage 里保持稳定（否则每登录一次就多一个骑手）。编译到微信小程序那么
+  `uni.login` 取真实 code，mock 分支由 `mini.mock-login` + `@Profile("!prod")` 两层锁住。
+- 端口 **8083**（admin 8082、后端 8080、8081 被本机 RocketMQ proxy 占用），后端 dev
+  的来源白名单已同时放行两个，改端口要两边一起改。
+- `npm run flow` 会从 `pages.json` 与页面源码生成 `docs/页面流转.md`（Mermaid），
+  并顺带检查两件事：**跳转目标未注册**（点了白屏）与**页面不可达**（死页面），不过则退出码 1。
+- 扫码页在 H5 下必然失败（`uni.scanCode` 不支持 H5），那是预期分支不是 bug。
+
 ## 测试与 CI
 
 ```powershell
@@ -151,16 +172,17 @@ mvn -B -ntp test                 # 单测，不依赖中间件
 mvn -B -ntp test -Pintegration   # 集成测试，需真实中间件 + server/.env（连 cabinet_test 库）
 ```
 
-GitHub Actions（`.github/workflows/ci.yml`）三个 job：`unit-tests`、`secret-scan`、
-`integration-tests`（服务容器 MySQL/pgvector/Redis + step 起 RocketMQ）。
+GitHub Actions（`.github/workflows/ci.yml`）**五个 job**：`unit-tests`、`frontend-admin`、
+`frontend-mini`、`secret-scan`、`integration-tests`（服务容器 MySQL/pgvector/Redis + step 起 RocketMQ）。
 **本地与 CI 跑同一批 `@Tag(integration)` 用例**，只是环境由"本机实例"换成"容器"，测试代码不分叉。
-实测一次流水线约 2 分钟。
+实测一次流水线约 2~3 分钟。
 
 ## 约定要点（细节见 `docs/架构约定.md`）
 
 - 所有接口返回 `R<T>`；错误码分段：`0` 成功 / `1xxxx` 业务 / `4xxxx` 客户端 / `5xxxx` 服务端
 - HTTP 状态按错误码族给：`1xxxx` → 200；`401xx/403xx/404xx/405xx/409xx/429xx` → 对应状态码；`5xxxx` → 500
-- 主键是雪花 ID，**JSON 里以字符串输出**（19 位超出 JS 安全整数，前端会静默丢精度）
+- 主键是雪花 ID，**JSON 里以字符串输出**（19 位超出 JS 安全整数，前端会静默丢精度）；
+  但计数与时长（分页 total、expiresIn 等）保持数字——ID 字段声明为 `Long`，计数声明为 `long`
 - 时间统一 `yyyy-MM-dd HH:mm:ss`
 - 每请求有 `X-Trace-Id` 响应头，报障直接给 ID；接口耗时看服务端访问日志（含慢请求 warn）与 Nginx `$request_time`
 - `tenant_id`、`create_time`、`update_time`、`deleted` 由基类与自动填充负责，业务代码不手写

@@ -83,7 +83,12 @@ class RiderAuthFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.tenantId").value("8101"))
-                .andExpect(jsonPath("$.data.openId").value("mock-openid-rider-new-01"));
+                .andExpect(jsonPath("$.data.riderId").isString())
+                // 实体不得直出：openId / unionId / deleted 是服务端内部字段，
+                // 之前这个用例反过来断言了 openId 存在，等于把泄露固化进测试
+                .andExpect(jsonPath("$.data.openId").doesNotExist())
+                .andExpect(jsonPath("$.data.unionId").doesNotExist())
+                .andExpect(jsonPath("$.data.deleted").doesNotExist());
     }
 
     @Test

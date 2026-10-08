@@ -2,6 +2,7 @@ package com.wherelee.cabinet.application.auth;
 
 import com.wherelee.cabinet.application.auth.dto.RiderLoginRequest;
 import com.wherelee.cabinet.application.auth.dto.RiderLoginView;
+import com.wherelee.cabinet.application.auth.dto.RiderView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -120,13 +121,19 @@ public class RiderAuthService {
         tokenIssuer.logout(AuthConstants.END_MINI, currentAccess, refreshToken);
     }
 
-    /** 当前骑手信息。租户上下文已由过滤器按凭证建立，所以 selectById 自带租户条件。 */
-    public SysRider currentRider(VerifiedToken current) {
+    /**
+     * 当前骑手信息。租户上下文已由过滤器按凭证建立，所以 selectById 自带租户条件。
+     *
+     * <p>回的是 {@link RiderView} 而不是实体：openId / unionId 属于服务端侧身份标识，
+     * 下发给客户端没有任何用处，却把一个稳定主键泄露到了前端与日志里。
+     */
+    public RiderView currentProfile(VerifiedToken current) {
         SysRider rider = riderMapper.selectById(current.subjectId());
         if (rider == null) {
             throw new BizException(ResultCode.UNAUTHORIZED, "账号不存在或已被删除，请重新登录");
         }
-        return rider;
+        return new RiderView(rider.getId(), rider.getTenantId(), rider.getNickname(), rider.getPhone(),
+                rider.getStatus(), rider.getRegisterTime(), rider.getLastLoginAt());
     }
 
     private String displayName(SysRider rider) {

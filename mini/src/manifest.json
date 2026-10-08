@@ -1,0 +1,32 @@
+{
+  "name": "cabinet-mini",
+  "appid": "",
+  "description": "换电柜 SaaS 骑手端",
+  "versionName": "0.0.1",
+  "versionCode": "1",
+  "transformPx": false,
+  "vueVersion": "3",
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "minified": false
+    },
+    "usingComponents": true
+  },
+  "h5": {
+    "router": {
+      "mode": "hash",
+      "base": "./"
+    },
+    "devServer": {
+      "port": 8083
+    }
+  }
+}

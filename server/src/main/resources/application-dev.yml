@@ -7,13 +7,15 @@ cabinet:
     # 开关同时受 @Profile("!prod") 限制，两层保险；详见 MockMiniAppClient 的安全边界说明。
     mock-login: true
   cors:
-    # 后端占 8080；admin 本地跑 8082（8081 已被本机 RocketMQ 5 proxy 占用），
+    # 后端占 8080；admin 跑 8082、mini 的 H5 跑 8083（8081 已被本机 RocketMQ 5 proxy 占用），
     # 5173 是 Vite 默认端口，留着以免有人改回默认后撞上同一个难归因的 CORS 报错
     allowed-origin-patterns:
       - http://localhost:5173
       - http://127.0.0.1:5173
       - http://localhost:8082
       - http://127.0.0.1:8082
+      - http://localhost:8083
+      - http://127.0.0.1:8083
 
 management:
   endpoints:

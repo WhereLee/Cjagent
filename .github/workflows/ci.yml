@@ -74,7 +74,47 @@ jobs:
       - name: 生产构建
         run: npm run build
 
-  # ── 3. 密钥与入库范围扫描 ────────────────────────────────────────
+  # ── 3. 前端（mini 骑手端）门禁：lint + 类型 + 页面流转检查 + 两端构建 ──────
+  # 两个构建目标都跑：只验 H5 的话，“uni-app 能编小程序”就只是纸面承诺
+  frontend-mini:
+    name: 前端 mini 检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mini
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            admin/package-lock.json
+            mini/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: ESLint（--max-warnings 0）
+        run: npm run lint
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 页面流转检查（跳转目标已注册、无不可达页面）
+        run: npm run flow
+
+      - name: 构建 H5
+        run: npm run build:h5
+
+      - name: 构建微信小程序
+        run: npm run build:mp-weixin
+
+  # ── 4. 密钥与入库范围扫描 ────────────────────────────────────────
   secret-scan:
     name: 密钥与敏感文件扫描
     runs-on: ubuntu-latest
@@ -107,7 +147,7 @@ jobs:
           fi
           echo "OK：未发现明文密钥"
 
-  # ── 4. 集成测试：与本地同一批 @Tag(integration) 用例，只是环境换成容器 ──
+  # ── 5. 集成测试：与本地同一批 @Tag(integration) 用例，只是环境换成容器 ──
   #    本地无 Docker 用真实实例，CI 有 Docker 用服务容器，测试代码零改动。
   #    RocketMQ 不放 services：broker 需固定 brokerIP1=127.0.0.1 且要 --net host
   #    才能被 runner 宿主机上的测试进程连上，用 step 起更好控制和排查。

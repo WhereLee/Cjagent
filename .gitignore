@@ -8,6 +8,7 @@ git与CI操作手册.md
 !.env.example
 # 前端环境文件只存本地地址（VITE_API_BASE 等），无密钥，必须入库才能新人跑得起来
 !admin/.env.development
+!mini/.env.development
 *.pem
 id_rsa*
 
