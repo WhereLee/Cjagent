@@ -99,6 +99,13 @@ cabinet:
   access-log:
     enabled: true
     slow-threshold-ms: 500
+  alloc:
+    # 格口分配策略：pessimistic（SELECT FOR UPDATE + 条件更新）| cas（无条件锁，候选逐个条件更新）
+    # 第 9~10 刀靠它切策略跑压测对比；默认悲观，因为它的正确性最好证
+    strategy: pessimistic
+  ratelimit:
+    # 默认开。只允许本地压测时临时置 false（第 9 刀压测口径会标注），真实环境不得关闭
+    enabled: true
   tenant:
     # 全库统一的租户列名；白名单表自己读不到别人数据，但查它们时拦截器不会加条件，需手工过滤
     column: tenant_id

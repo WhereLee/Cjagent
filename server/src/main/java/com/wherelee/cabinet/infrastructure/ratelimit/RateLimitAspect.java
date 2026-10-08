@@ -48,12 +48,27 @@ public class RateLimitAspect {
 
     private final StringRedisTemplate redis;
 
+    /**
+     * 仅供本地压测关掉限流用。
+     *
+     * <p>关掉后才能量到“分配路径本身”的吞吐——否则 100 并发压一个 20 次/分的桶，
+     * 测到的是限流器而不是并发控制。代价是多一个开关：所以关掉时必定打一条 warn，
+     * 并且**要把这一条写进压测报告的口径里**（不标注的数字不可信）。
+     */
+    @org.springframework.beans.factory.annotation.Value("${cabinet.ratelimit.enabled:true}")
+    private boolean enabled;
+
     public RateLimitAspect(StringRedisTemplate redis) {
         this.redis = redis;
     }
 
     @Around("@annotation(rateLimit)")
     public Object around(ProceedingJoinPoint joinPoint, RateLimit rateLimit) throws Throwable {
+        if (!enabled) {
+            log.warn("限流已关闭（cabinet.ratelimit.enabled=false），仅用于本地压测；任何真实环境不得这么配");
+            return joinPoint.proceed();
+        }
+
         String bucket = bucketOf(joinPoint, rateLimit);
         long windowSeconds = Math.max(1, rateLimit.windowSeconds());
 
