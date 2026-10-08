@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.mini.storage;
 
-import com.wherelee.cabinet.application.storage.StorageOrderService;
+import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
 import com.wherelee.cabinet.common.annotation.Idempotent;
@@ -40,10 +40,10 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class MiniStorageOrderController {
 
-    private final StorageOrderService storageOrderService;
+    private final StorageOrderFacade storageOrderFacade;
 
-    public MiniStorageOrderController(StorageOrderService storageOrderService) {
-        this.storageOrderService = storageOrderService;
+    public MiniStorageOrderController(StorageOrderFacade storageOrderFacade) {
+        this.storageOrderFacade = storageOrderFacade;
     }
 
     @Operation(summary = "占位（选格口）", description = "并发下抢到格口才建单；失败区分 10409 无位 / 10410 抢输")
@@ -54,7 +54,7 @@ public class MiniStorageOrderController {
     @PostMapping
     public R<StorageOrderView> create(@AuthenticationPrincipal VerifiedToken current,
                                       @Valid @RequestBody CreateOrderCommand cmd) {
-        return R.ok(storageOrderService.create(current.subjectId(), cmd));
+        return R.ok(storageOrderFacade.create(current.subjectId(), cmd));
     }
 
     @Operation(summary = "取消占位", description = "免费取消窗口内全额释放；格口随事务释放")
@@ -64,6 +64,6 @@ public class MiniStorageOrderController {
     @PostMapping("/{orderNo}/cancel")
     public R<StorageOrderView> cancel(@AuthenticationPrincipal VerifiedToken current,
                                       @PathVariable @NotBlank @Size(max = 32) String orderNo) {
-        return R.ok(storageOrderService.cancel(current.subjectId(), orderNo));
+        return R.ok(storageOrderFacade.cancel(current.subjectId(), orderNo));
     }
 }

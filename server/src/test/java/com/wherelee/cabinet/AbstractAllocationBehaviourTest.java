@@ -2,6 +2,7 @@ package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.storage.SlotAllocator;
+import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
@@ -57,6 +58,9 @@ abstract class AbstractAllocationBehaviourTest {
 
     @Autowired
     protected StorageOrderService storageOrderService;
+    /** 并发用例必须走门面（真实入口）：直接调 Service 会跳过柜机锁，redisson 策略就测了个寂寞。 */
+    @Autowired
+    protected StorageOrderFacade facade;
     @Autowired
     protected SlotAllocator allocator;
     @Autowired
@@ -72,6 +76,16 @@ abstract class AbstractAllocationBehaviourTest {
 
     private Long cabinetId;
     private String cabinetNo;
+
+    /** 子类需要拿柜机 ID 去定位锁等外部资源（字段本身保持 private）。 */
+    protected Long currentCabinetId() {
+        return cabinetId;
+    }
+
+    /** 柜机锁是按 cabinetNo 加的，子类要校同一个 key。 */
+    protected String currentCabinetNo() {
+        return cabinetNo;
+    }
 
     protected JdbcTemplate jdbc;
 
@@ -141,7 +155,7 @@ abstract class AbstractAllocationBehaviourTest {
                     start.await();
                     // requestId 每线程唯一：不能被幂等注解当作同一请求合并，否则测的是幂等不是并发
                     String requestId = "rt-" + UUID.randomUUID();
-                    Object outcome = TenantContext.callAs(TENANT, () -> storageOrderService.create(
+                    Object outcome = TenantContext.callAs(TENANT, () -> facade.create(
                             900001L + seq,
                             new CreateOrderCommand(requestId, cabinetNo, requested.name(), 120)));
                     results.add(outcome);
@@ -162,30 +176,68 @@ abstract class AbstractAllocationBehaviourTest {
     }
 
     @Test
-    @DisplayName("N 个线程抢有限格口：成功数=可用数，且没有格口被双占")
+    @DisplayName("夹具容量与子类期望一致（防容量改动后断言静默失配）")
+    void capacityMatchesExpectation() {
+        assertEquals(LARGE_SLOTS, expectedSuccessesAtCapacity(),
+                "基类容量与子类期望不一致，用例会假绿");
+    }
+
+    /**
+     * 竞争强度：默认 20 线程抢 6 口（故意超卖压力）；
+     * 有界等锁的策略（redisson）会有一部分请求主动放弃，这是设计行为而不是 bug。
+     */
+    @Test
+    @DisplayName("N 个线程抢有限格口：不超卖、不脏数据、失败都是业务码")
     void concurrentAllocationNeverOversells() throws Exception {
         List<Object> results = runConcurrentRequests(THREADS, SizeType.LARGE);
 
-        long success = results.stream().filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView).count();
+        long success = results.stream()
+                .filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView).count();
         List<BizException> failures = results.stream()
                 .filter(r -> r instanceof BizException)
                 .map(r -> (BizException) r)
                 .toList();
 
-        assertEquals(LARGE_SLOTS, success,
-                "成功单数必须恰好等于大格口数量，实际成功 " + success + "，策略=" + allocator.strategy());
-        assertTrue(failures.size() >= THREADS - LARGE_SLOTS, "失败方必须全部返回业务错误，不能静默丢请求");
+        // 硬不变量：成功数不得超过容量（超卖）、不得静默丢请求
+        assertTrue(success <= LARGE_SLOTS,
+                "成功数超过可用容量＝超卖：success=" + success + " 策略=" + allocator.strategy());
+        assertEquals(THREADS, success + failures.size(), "每个请求都必须有结果，不能静默丢失");
         for (BizException failure : failures) {
             int code = failure.getResultCode().getCode();
             assertTrue(code == 10409 || code == 10410,
-                    "抢位失败只能是无位(10409)或抢输(10410)，实际 code=" + code + " msg=" + failure.getMessage());
+                    "抢位失败只能是无位(10409)或抢输/超时(10410)，实际 code=" + code + " msg=" + failure.getMessage());
         }
 
+        assertNoOversell();
+    }
+
+    /**
+     * 容量刚好等于线程数：此时不该有人等待，三种策略都必须全部成功。
+     * 这条才是“恰等于”的确定断言，而不是在 20 抢 6 的场景里硬要求全抢到。
+     */
+    @Test
+    @DisplayName("线程数恰等于容量：全部成功抢到，无等待放弃")
+    void allocationAtCapacityAllSucceed() throws Exception {
+        List<Object> results = runConcurrentRequests(LARGE_SLOTS, SizeType.LARGE);
+        long success = results.stream()
+                .filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView).count();
+        assertEquals(LARGE_SLOTS, success,
+                "容量内无竞争，不应有任何请求失败（策略=" + allocator.strategy() + "）：" + results);
+        assertNoOversell();
+    }
+
+    /** 子类声明自己在“线程数=容量”下应成功多少，防止基类容量改动后期望静默失配。 */
+    protected int expectedSuccessesAtCapacity() {
+        return LARGE_SLOTS;
+    }
+
+    /** 共用的一组存储层不变量取证（失败时报错会带上策略名，便于定位是哪条路径）。 */
+    private void assertNoOversell() {
         // 不变量①：同一格口的活动单数必须 <= 1
         Integer doubleBooked = jdbc.queryForObject(
                 "select count(*) from (select slot_id from biz_storage_order where active_flag = 1 "
                         + "group by slot_id having count(*) > 1) t", Integer.class);
-        assertEquals(0, doubleBooked, "出现同一格口多条活动单：超卖");
+        assertEquals(0, doubleBooked, "出现同一格口多条活动单：超卖（策略=" + allocator.strategy() + "）");
 
         // 不变量②：格口状态与订单必须一致（RESERVED 的格口都要有 current_order_id）
         Integer inconsistent = jdbc.queryForObject(

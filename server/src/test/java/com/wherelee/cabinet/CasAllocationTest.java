@@ -26,7 +26,7 @@ class CasAllocationTest extends AbstractAllocationBehaviourTest {
     @DisplayName("生效策略是 cas")
     void strategyIsCas() {
         assertEquals("cas", allocator.strategy());
-        assertEquals("cas", storageOrderService.activeStrategy());
+        assertEquals("cas", facade.activeStrategy());
     }
 
     @Test

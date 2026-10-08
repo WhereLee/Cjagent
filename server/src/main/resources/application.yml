@@ -100,9 +100,20 @@ cabinet:
     enabled: true
     slow-threshold-ms: 500
   alloc:
-    # 格口分配策略：pessimistic（SELECT FOR UPDATE + 条件更新）| cas（无条件锁，候选逐个条件更新）
-    # 第 9~10 刀靠它切策略跑压测对比；默认悲观，因为它的正确性最好证
+    # 格口分配策略，第 9~10 刀靠它切策略跑对比，业务代码不变：
+    #   pessimistic — SELECT … FOR UPDATE 锁候选行 + 锁内条件更新（默认，正确性最好证）
+    #   cas         — 无锁读候选 + 按偏好逐个条件 UPDATE（能区分“没位/抢输”）
+    #   redisson    — 分柜机分布式锁（锁必须活过事务提交，见 RedissonSlotAllocator）
+    #   prealloc    — Redis 集合预扣 + MQ 异步落库（请求路径上无 DB 事务，代价是最终一致）
     strategy: pessimistic
+    # prealloc 的占位租约：到期未被提交也未归还 = 悬空（少卖），由同步校准收敛
+    hold-ttl: 180s
+    # redisson 等锁上限：拿不到不排长队，直接回 10410 让客户端重试或换柜机
+    lock-wait-ms: 800
+  mq:
+    # 订单“待落库”消息；tag 固定 order，同一 topic 后续可接超时释放、结算等语义分流
+    order-persist-topic: storage-order-persist
+    send-timeout-ms: 3000
   ratelimit:
     # 默认开。只允许本地压测时临时置 false（第 9 刀压测口径会标注），真实环境不得关闭
     enabled: true

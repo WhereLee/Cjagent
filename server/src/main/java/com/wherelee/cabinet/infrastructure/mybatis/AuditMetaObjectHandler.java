@@ -37,14 +37,22 @@ public class AuditMetaObjectHandler implements MetaObjectHandler {
         strictInsertFill(metaObject, FIELD_DELETED, Integer.class, 0);
 
         Long tenantId = TenantContext.current();
-        if (metaObject.getOriginalObject() instanceof BaseEntity) {
+        if (metaObject.getOriginalObject() instanceof BaseEntity entity) {
             // BaseEntity 子类的 tenant_id 必须有值：因为它标了 fill=INSERT，这一列**总是出现在**
             // INSERT 语句里，TenantLineInnerInterceptor 看到列已存在就会跳过注入与校验，
             // 参数为 null 就直接写入 null（集成测试实测到：无上下文插入不报错，写出黑洞数据）。
             // 所以写入侧的守卫必须在填充层自己做，不能指望租户插件。
+            //
+            // 守卫的目的是“绝不写入 NULL 租户”，而不是“必须有 ThreadLocal”：
+            // MQ 消费者、定时任务这类内部任务会在业务前自己把租户显式填上（此时上下文可能还没建立），
+            // 该接受。第 10 刀就是被这条写成“无上下文就报错”卡住了消费者落库（已修）。
+            Long explicit = entity.getTenantId();
+            if (explicit != null) {
+                return; // 调用方已显式指定，不覆盖
+            }
             if (tenantId == null) {
                 throw new BizException(ResultCode.TENANT_INVALID,
-                        "写入业务实体缺少租户上下文，已拒绝；内部任务请用 TenantContext.runAs 显式指定");
+                        "写入业务实体时既无租户上下文也未显式设置 tenantId，已拒绝（防写出无主数据）");
             }
             strictInsertFill(metaObject, FIELD_TENANT_ID, Long.class, tenantId);
         } else if (tenantId != null) {

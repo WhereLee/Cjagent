@@ -12,6 +12,7 @@ import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.infrastructure.alloc.SlotPreDeductionService;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
@@ -44,15 +45,18 @@ public class StorageOrderService {
     private final BizCompartmentMapper slotMapper;
     private final BizStorageOrderMapper orderMapper;
     private final SlotAllocator allocator;
+    private final SlotPreDeductionService preDeduction;
 
     public StorageOrderService(BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper,
                                BizStorageOrderMapper orderMapper,
-                               SlotAllocator allocator) {
+                               SlotAllocator allocator,
+                               SlotPreDeductionService preDeduction) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
         this.allocator = allocator;
+        this.preDeduction = preDeduction;
     }
 
     @Transactional
@@ -126,6 +130,15 @@ public class StorageOrderService {
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，请联系运营处理");
         }
         orderMapper.updateById(order);
+        // 预扣策略下 DB 回 FREE 了就必须让 Redis 空闲集合也看到它，否则这个位置从此“谁也算不到”。
+        // 失败只影响准入精度（少卖），不影响正确性，所以这里只告警不阻断取消。
+        if ("prealloc".equals(allocator.strategy())) {
+            try {
+                preDeduction.addFree(order.getCabinetId(), order.getSizeType(), order.getSlotId());
+            } catch (RuntimeException e) {
+                log.warn("格口已回 FREE 但 Redis 空闲集合同步失败（等校准修复）slotId={}", order.getSlotId(), e);
+            }
+        }
         return new StorageOrderView(order.getOrderNo(), cabinetNoOf(order.getCabinetId()),
                 slotNoOf(order.getSlotId()), order.getSizeType().name(), order.getStatus().name(),
                 order.getEstimateMinutes(), 0, allocator.strategy());

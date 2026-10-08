@@ -27,7 +27,7 @@ class PessimisticAllocationTest extends AbstractAllocationBehaviourTest {
     @DisplayName("生效策略是 pessimistic（写进压测报告，避免事后说不清测了哪个）")
     void strategyIsPessimistic() {
         assertEquals("pessimistic", allocator.strategy());
-        assertEquals("pessimistic", storageOrderService.activeStrategy());
+        assertEquals("pessimistic", facade.activeStrategy());
     }
 
     @Test
