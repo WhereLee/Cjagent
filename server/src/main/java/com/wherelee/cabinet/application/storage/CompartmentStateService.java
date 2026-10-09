@@ -184,8 +184,18 @@ public class CompartmentStateService {
         markAnomalyAndLog(slotId, CompartmentAnomaly.CONTENT_LEFT, reason);
     }
 
-    /** 门关了却测不到柜内：标“待确认清空”，不可分配，等业务运维或下一位使用者确认。 */
+    /**
+     * 门关了却测不到柜内：标“待确认清空”，不可分配，等业务运维或下一位使用者确认。
+     *
+     * <p>不会拚掉更强的锁：“遗留物”是已经看见有东西，“测不到”只是没凭据。
+     * 让弱锁盖掉强锁，就会出现“上报过别人东西的格口因为一次探测失败被降级成待确认”然后被人清走。
+     */
     public void markContentUnverified(Long slotId, String reason) {
+        BizCompartment slot = slotMapper.selectById(slotId);
+        if (slot != null && slot.getAnomaly() != null && slot.getAnomaly() != CompartmentAnomaly.DOOR_OPEN) {
+            log.debug("已有更强的异常，不降级为待确认 slotNo={} anomaly={}", slot.getSlotNo(), slot.getAnomaly());
+            return;
+        }
         markAnomalyAndLog(slotId, CompartmentAnomaly.CONTENT_UNVERIFIED, reason);
     }
 

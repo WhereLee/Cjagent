@@ -290,6 +290,13 @@ class CommandRescanTest {
         assertNotNull(distinctKeys);
     }
 
+    private BizDelayTask rescanTask(String requestId) {
+        return TenantContext.callAs(TENANT, () -> taskMapper.selectOne(
+                Wrappers.<BizDelayTask>lambdaQuery()
+                        .eq(BizDelayTask::getTaskType, TaskType.COMMAND_RESCAN)
+                        .eq(BizDelayTask::getBizKey, requestId)));
+    }
+
     @Test
     @DisplayName("扫街：卡在 SENT 的指令（进程被杀那种）能被捞回并登记回扫")
     void sweepCatchesStuckSentCommand() {
@@ -315,14 +322,19 @@ class CommandRescanTest {
         TenantContext.runAs(TENANT, () -> tasks.schedule(TaskType.COMMAND_SWEEP, String.valueOf(TENANT),
                 TENANT, LocalDateTime.now().minusSeconds(5)));
         expireTasks(TaskType.COMMAND_SWEEP);
-        runDue();
-
-        BizDelayTask registered = TenantContext.callAs(TENANT, () -> taskMapper.selectOne(
-                Wrappers.<BizDelayTask>lambdaQuery()
-                        .eq(BizDelayTask::getTaskType, TaskType.COMMAND_RESCAN)
-                        .eq(BizDelayTask::getBizKey, requestId)));
+        // 一轮 runDue 只按 fire_at 取 batch-size 条：共享库里别人的到期任务排在前面时，
+        // 我们这条扫街本轮根本不会被认领——这就是它偶尔红的真因（不是业务错，是观测窗口不够）。
+        // 所以跑到“登记出现”为止，并给上限防止死循环
+        BizDelayTask registered = null;
+        for (int round = 0; round < 20 && registered == null; round++) {
+            runDue();
+            registered = rescanTask(requestId);
+        }
         assertNotNull(registered, "扫街必须把卡住的指令重新推上回扫通道");
-        assertEquals(TaskStatus.PENDING, registered.getStatus());
+        // 不断言一定是 PENDING：登记后它可能在后续轮次被立即执行完（那就是本用例期望的行为）。
+        // 真正不能接受的是被判死：那意味着进了回扫通道却没人被执行
+        assertTrue(registered.getStatus() != TaskStatus.DEAD,
+                "回扫任务不该直接判死，实测 " + registered.getStatus());
 
         // 回扫真跑一轮：设备正常，指令要收敛成 SUCCEEDED（而不是永远 SENT）
         expireTasks(TaskType.COMMAND_RESCAN);

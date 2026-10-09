@@ -98,6 +98,20 @@ public class StorageOrderFacade {
         return syncService.remoteClose(customerId, orderNo);
     }
 
+    /**
+     * 否认“柜内有我的东西”→ 走 AI 看图复审（争议阶梯）。
+     *
+     * <p>与 pickup/abandon 一样不走异步分流：它需要当前的门磁与物检读数，而异步待落库窗口里这些全部未知。
+     */
+    public StorageOrderView denyItem(Long customerId, String orderNo) {
+        return syncService.denyItem(customerId, orderNo);
+    }
+
+    /** 下一位使用者上报“本格口里有别人的东西”：锁格 + 本单不收费退回。 */
+    public StorageOrderView reportLeftover(Long customerId, String orderNo) {
+        return syncService.reportLeftover(customerId, orderNo);
+    }
+
     public String activeStrategy() {
         return strategy;
     }

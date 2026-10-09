@@ -55,6 +55,8 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.application.point.OrderFundService funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
     private final CompartmentStateService states;
+    /** 柜内物品争议阶梯（第 13C 刀）：只写证据与争议字段，不管钱与主态。 */
+    private final ItemDisputeService dispute;
     /**
      * 调度器延迟拿取：直接注入会形成循环依赖
      * （StorageOrderService → DelayTaskService → SlotReleaseHandler → StorageOrderService）。
@@ -85,6 +87,7 @@ public class StorageOrderService {
                                com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper,
                                com.wherelee.cabinet.application.point.OrderFundService funds,
                                CompartmentStateService states,
+                               ItemDisputeService dispute,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
@@ -95,6 +98,7 @@ public class StorageOrderService {
         this.deviceCommandMapper = deviceCommandMapper;
         this.funds = funds;
         this.states = states;
+        this.dispute = dispute;
         this.taskScheduler = taskScheduler;
     }
 
@@ -187,22 +191,32 @@ public class StorageOrderService {
                     "柜内检测到物品：请先取出再取消（或走“声明放弃物品”结束）");
         }
 
-        order.transitTo(OrderStatus.CANCELLED);
-        int released = slotMapper.releaseSlot(order.getSlotId(), order.getId());
-        if (released == 0) {
-            // 状态说该释放却释放不掉：说明格口已被他人改写，必须报错回滚而不是"取消成功但格口仍占着"
-            throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，请联系运营处理");
-        }
         if (order.getToleranceUntil() != null && !emptyEvidence(sensing)) {
             // 门曾经开过（他可能已经放了东西进去）而柜内又确认不了：“取消”不能比“结束”拿到更少的凭据。
             // 不拦他取消（未计费阶段拦人无意义），但格口锁成待确认，等一次人来看看
             states.markContentUnverified(order.getSlotId(),
                     "开过门的单被取消且柜内无法确认，需现场确认后才能重新分配");
         }
-        // 取消同样要把押金与预估全额解冻；与取件共用同一段代码，避免两处各自维护把押金退漏
+        return releaseOrder(order);
+    }
+
+    /**
+     * 把一张不再计费的单释放掉：转 CANCELLED + 释放格口 + 全额解冻 + 同步预扣集合。
+     *
+     * <p>两个入口共用它：<b>用户主动取消</b>与<b>上报遗留物后退单</b>。两者对柜内的态度相反
+     * （前者“有物就拦”，后者正因为看到有物才上报），所以柜内检查留在 cancel() 里而不是下沉到这里——
+     * 下沉了会把上报路径堵死，不下沉则会漏拦取消路径。
+     */
+    private StorageOrderView releaseOrder(BizStorageOrder order) {
+        order.transitTo(OrderStatus.CANCELLED);
+        int released = slotMapper.releaseSlot(order.getSlotId(), order.getId());
+        if (released == 0) {
+            // 状态说该释放却释放不掉：说明格口已被他人改写，必须报错回滚而不是"取消成功但格口仍占着"
+            throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，请联系运营处理");
+        }
         funds.cancelHold(order);
         if (orderMapper.updateById(order) == 0) {
-            throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + orderNo);
+            throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + order.getOrderNo());
         }
         // 预扣策略下 DB 回 FREE 了就必须让 Redis 空闲集合也看到它，否则这个位置从此“谁也算不到”。
         // 失败只影响准入精度（少卖），不影响正确性，所以这里只告警不阻断取消。
@@ -298,6 +312,16 @@ public class StorageOrderService {
      * 只在一半路径上修的 bug（第 12 刀已经为退款路径合并过一次）。
      */
     private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason) {
+        return finish(customerId, orderNo, atSite, reason, false);
+    }
+
+    /**
+     * @param waivedByFalseAlarm AI 复审已判为设备误报：跳过“柜内无物”这一条（它就是为这一步服务的），
+     *                           并把结算终点回退到争议起始时刻——争议期间的计费本就不该由用户担。
+     *                           <b>门没关仍不给结束</b>：这一条与凭据无关，不能随复审一起豁免。
+     */
+    private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason,
+                                    boolean waivedByFalseAlarm) {
         BizStorageOrder order = findOwned(customerId, orderNo);
         if (order.getStatus() != OrderStatus.ACTIVE && order.getStatus() != OrderStatus.TEMP_OPEN
                 && order.getStatus() != OrderStatus.EXPIRED) {
@@ -313,16 +337,32 @@ public class StorageOrderService {
             }
             // 放弃本身就是“无凭据也结束”，所以调用方要锁格（leavesAnomaly）
             verdict = CloseCriteria.Verdict.closeWithoutEvidence(null);
+        } else if (waivedByFalseAlarm) {
+            // 复审已经推定“无物”，所以只守门这一条；不这么处理会陷入“因有物被拦 → 复审判误报 → 仍因有物不能结束”
+            if (!sensing.doorClosed()) {
+                throw new BizException(ResultCode.BIZ_ERROR, CloseCriteria.evaluate(
+                        false, sensing.presence(), true, atSite).userMessage());
+            }
+            verdict = CloseCriteria.Verdict.closeWithEvidence();
         } else {
             verdict = CloseCriteria.evaluate(sensing.doorClosed(), sensing.presence(),
                     states.fresh(sensing), atSite);
             if (!verdict.closable()) {
+                if (verdict.blocker() == CloseCriteria.Blocker.CONTENT_PRESENT) {
+                    // 争议起始时刻要活过这次回滚（REQUIRES_NEW），否则事后既无法误报免除也无法统计误报率
+                    dispute.markBlocked(order, com.wherelee.cabinet.domain.enums.Presence.PRESENT,
+                            atSite ? "现场结束被拒：物检检测到柜内物品"
+                                    : "远程结束被拒：物检检测到柜内物品");
+                }
                 throw new BizException(ResultCode.BIZ_ERROR, verdict.userMessage());
             }
         }
 
+        // 误报免除：计费终点回到争议开始那一刻（争议期间是平台在等判定，不该用户付费）
+        LocalDateTime settleEnd = waivedByFalseAlarm && order.getDisputeStartedAt() != null
+                ? order.getDisputeStartedAt() : LocalDateTime.now();
         long actualMinutes = order.getStartedAt() == null ? 0L
-                : Math.max(0L, Duration.between(order.getStartedAt(), LocalDateTime.now()).toMinutes());
+                : Math.max(0L, Duration.between(order.getStartedAt(), settleEnd).toMinutes());
         funds.settle(order, actualMinutes, reason);
 
         if (reason.leavesAnomaly()) {
@@ -561,6 +601,82 @@ public class StorageOrderService {
         // 已在计费但门还开着：该让他关上（关上后才能结束）
         BizCompartment slot = slotMapper.selectById(order.getSlotId());
         return order.getStatus() == OrderStatus.ACTIVE && slot != null && slot.doorOpen();
+    }
+
+    /**
+     * 用户否认“柜内有我的东西”→ 触发 AI 看图复审（L3）。
+     *
+     * <p>判为误报则当场结束并把争议期间的费用免除；AI 仍判有物或无法判断时，订单不动、
+     * <b>计费也不停</b>（I11）——否则“我否认一下”就是暂停计费的白嫖通道。
+     *
+     * <p><b>本方法故意不开事务</b>，两个理由缺一不可：
+     * ① 复审是一次外部调用（模型），等它的时候不能握着数据库连接（第 11 刀拆事务的同一理由）；
+     * ② 更隐蔽：这里先由 {@code ItemDisputeService.deny} 在独立事务里写了复审次数，
+     * 如果本方法自开一个事务，它的快照是在那次提交<b>之前</b>定的，下面 finish 重新加载订单时
+     * 读到的是旧值，紧接着的 updateById 会把刚写的复审次数**反向覆盖回 0**（实测到）。
+     * 不开事务后两个写入各自成事务，顺序自然成立。教训：<b>REQUIRES_NEW 写完的东西，
+     * 外层的全行 updateById 会把它抹掉</b>，不要靠“记得只更部分列”来防。
+     */
+    public StorageOrderView denyItem(Long customerId, String orderNo) {
+        BizStorageOrder order = findOwned(customerId, orderNo);
+        if (!order.inDispute()) {
+            // 不先拦下就没有争议可复审：这个前置让“绕过阶梯直接拿 AI 结论免单”在结构上不存在
+            throw new BizException(ResultCode.BIZ_ERROR, "当前没有待复核的柜内物品争议");
+        }
+        ItemDisputeService.Decision decision = dispute.deny(order);
+        if (decision.outcome() != ItemDisputeService.Outcome.FALSE_ALARM) {
+            throw new BizException(ResultCode.BIZ_ERROR, decision.message());
+        }
+        return finish(customerId, orderNo, true, OrderCloseReason.DISPUTE_WAIVED, true);
+    }
+
+    /**
+     * 下一位使用者上报“这个格口里有别人的东西”。
+     *
+     * <p>这是唯一能兑住“物检漏检 + 当事人没及时发现”的路径：传感器看不到的东西，
+     * 开门的人看得到。三个动作缺一不可：锁格（不得再卖）、上报者的单不收费退回、
+     * 给原主单打标（他下次看页面时能知道，也是纠纷还原的依据）。
+     *
+     * <p><b>上报者免费是故意的</b>：他的单可能已计费几分钟，一律按取消处理不收费。
+     * 要他为一个不是自己造成的现场付钱，得到的只会是“下次不开这扇门直接走人”——
+     * 而我们需要的正是他报这一句。
+     */
+    @Transactional
+    public StorageOrderView reportLeftover(Long customerId, String orderNo) {
+        BizStorageOrder order = findOwned(customerId, orderNo);
+        if (order.getStatus() != OrderStatus.OPENING && order.getStatus() != OrderStatus.ACTIVE
+                && order.getStatus() != OrderStatus.TEMP_OPEN) {
+            throw new BizException(ResultCode.BIZ_ERROR, "只有正在使用的格口可以上报遗留物");
+        }
+        Long slotId = order.getSlotId();
+        // 先标异常再释放：顺序反过来会有一个窗口让这一格“看起来是空的”被别人抢走
+        states.markContentLeft(slotId, "下一位使用者开门发现他人遗留物，需业务运维清柜");
+        markOriginalOwner(order);
+        log.warn("格口遗留物上报 orderNo={} slotId={} 上报人={}", order.getOrderNo(), slotId, customerId);
+        return releaseOrder(order);
+    }
+
+    /**
+     * 给同一格口上一个终态单打标（“你的东西被别人看到过”）。
+     *
+     * <p>找不到也不影响上报成立：遗留物可能属于很久以前那张单，甚至属于一张被物理清柜时的无主物；
+     * 这种情况不报错而是让台账自己说（否则一个上报会被“无法归因”直接拒绝，那是把好处处推给用户）。
+     */
+    private void markOriginalOwner(BizStorageOrder current) {
+        BizStorageOrder previous = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
+                .eq(BizStorageOrder::getSlotId, current.getSlotId())
+                .ne(BizStorageOrder::getId, current.getId())
+                .in(BizStorageOrder::getStatus, OrderStatus.CLOSED, OrderStatus.CANCELLED)
+                .orderByDesc(BizStorageOrder::getFinishedAt)
+                .last("limit 1"));
+        if (previous == null) {
+            log.info("遗留物无法归因到上一张单，仅记台账 slotId={}", current.getSlotId());
+            return;
+        }
+        int marked = orderMapper.markLeftoverReported(previous.getId(), LocalDateTime.now());
+        if (marked == 0) {
+            log.debug("该单已被上报过一次，不刷时间 orderNo={}", previous.getOrderNo());
+        }
     }
 
     /** 登记“门开未关”看管，并把容错到期时刻定下来（两者是同一个时刻）。 */

@@ -70,8 +70,32 @@ public class BizStorageOrder extends BaseEntity {
     /** 结束原因：不同结束方式<b>价格不同</b>且格口后续处置不同，不能只记“已关闭”。 */
     private OrderCloseReason closeReason;
 
-    /** 未关门加收的点数（= 该格口单价 × remote-close-hours），冷数据在单上以便账单直读。 */
+    /** 未关门离开加收的点数（= 该格口单价 × remote-close-hours），冷数据在单上以便账单直读。 */
     private Long remoteClosePoints;
+
+    /**
+     * 柜内物品争议状态（13C）：只记“用户否认 → AI 复审 → 转人工”的进度。
+     *
+     * <p>它故意<b>不是</b>订单状态：争议中订单仍在 ACTIVE 正常计费。把“能不能结束”与
+     * “进行到哪一步”分开，才不会出现“为了表达争议而新增一个订单状态，导致每个状态
+     * 都要重新回答能不能取件”。
+     */
+    private com.wherelee.cabinet.domain.enums.DisputeState disputeState;
+
+    /**
+     * 第一次因柜内物品被拒绝结束的时刻。<b>只记第一次</b>：判为设备误报时结算终点退回这里，
+     * 如果每次拦下都刷新，反复点否认就会不断把终点往后推，免除反而变成加费。
+     */
+    private LocalDateTime disputeStartedAt;
+
+    /** 本单已触发的 AI 复审次数（上限防止“反复否认刷模型调用”）。 */
+    private Integer aiReviewCount;
+
+    /**
+     * 后来者上报“本格口遗留他人物品”的时刻。两个用途：让原主页面能显示这件事（他不在场时
+     * 唯一能知道的路径），以及纠纷时能回答“谁在什么时候看到过”。
+     */
+    private LocalDateTime leftoverReportedAt;
 
     private LocalDateTime finishedAt;
     private Integer tempOpenCount;
@@ -85,6 +109,11 @@ public class BizStorageOrder extends BaseEntity {
 
     @Version
     private Integer version;
+
+    /** 争议是否已经开始（结算与阶梯都要用，不想让调用方各自判空）。 */
+    public boolean inDispute() {
+        return disputeStartedAt != null;
+    }
 
     /**
      * 状态迁移的唯一入口。非法迁移抛业务异常（10000 族 → HTTP 200 + code，
