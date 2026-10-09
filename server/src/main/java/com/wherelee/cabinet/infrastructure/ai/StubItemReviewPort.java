@@ -16,11 +16,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>它和柜机模拟器一样是<b>可控故障源</b>，不是模型还原：本项目的目的从来不是跑通一次识图，
  * 而是让业务侧在"AI 说有 / 说没有 / 说不知道 / 调用失败"四种答案下都走对该走的路。
  *
- * <p>默认值选 {@link Presence#UNKNOWN} 而不是 ABSENT，是有意为之：
- * 一个没配答案的用例如果默认放行，"AI 不可用就当没事"这条错路就永远测不出来。
- * 真实识图模型由用户提供 key 后另写实现类接入（配置切换），业务代码不动，key 不进仓库。
+ * 默认值选 {@link Presence#UNKNOWN} 而不是 ABSENT，是有意为之：
+ * 一个没配答案的用例如果默认放行，“AI 不可用就当没事”这条错路就永远测不出来。
+ * 真实识图模型由 {@code cabinet.dispute.review.client=mimo} 切到 {@link MimoItemReviewPort}，
+ * 业务代码不动，key 不进仓库。两个实现同一个开关互斥，<b>不靠 Profile 区分</b>：
+ * 集成测试要跑在 dev profile 上，靠 profile 切会把“测试必须用桩”这个约束写成“测试碰巧用了桩”。
  */
 @Component
+@org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+        name = "cabinet.dispute.review.client", havingValue = "stub", matchIfMissing = true)
 @Profile({"dev", "test", "integration"})
 public class StubItemReviewPort implements ItemReviewPort {
 

@@ -156,6 +156,22 @@ cabinet:
     # 每单 AI 看图复审次数上限。不设上限就是给用户一个“反复点否认刷模型调用”的按钮；
     # 用完直接转人工，而且**一次模型调用都不再发**（否则上限只是“多提醒几次”而不是止损）
     max-ai-review: 2
+    # 复审实现：stub（桩，默认）| mimo（OpenAI 兼容识图）。默认桩是为了让 CI 与集成测试
+    # **永不调用付费接口**（结论不可重现、会限流、还要管密钥）；接真模型只改这一项 + 环境变量
+    review:
+      client: stub
+    mimo:
+      # 密钥只从环境变量注入，不进仓库也不写明文配置：${MIMO_API_KEY:} 缺失时启动会直接失败
+      # （配了 mimo 却没 key 是装配问题，不该等到用户按“否认”时才暴露）
+      base-url: https://api.xiaomimimo.com/v1
+      api-key: ${MIMO_API_KEY:}
+      model: mimo-v2.6-flash
+      timeout-ms: 20000
+      # 思考 token 与正文共用这个预算：实测给 300 时正文会空（reasoning 把预算占满），
+      # 所以给到 1200 起；正文为空仍会被当成 UNKNOWN，不会误判为“没东西”
+      max-completion-tokens: 1200
+      # 低于此置信度一律降为 UNKNOWN：模型会用肯定的语气说不确定的事
+      min-confidence: 0.6
   pay:
     # 支付通道：mock | none。**这里默认 mock 是因为 dev 需要能充值**；
     # application-prod.yml 显式改成 none（不靠运行时的判断拦，而是让通道 bean 根本不存在，
