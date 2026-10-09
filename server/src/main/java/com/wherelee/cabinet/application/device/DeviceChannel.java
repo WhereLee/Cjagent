@@ -1,8 +1,10 @@
 package com.wherelee.cabinet.application.device;
 
 import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.ReportEvent;
 
+import java.time.LocalDateTime;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -26,6 +28,27 @@ public interface DeviceChannel {
 
     /** 通道当前是否可用（柜机离线判定）。真实实现里它对应 broker 连接与会话状态。 */
     boolean available(Long cabinetId);
+
+    /**
+     * 读一次格口传感器现状。<b>这是命令做不到的事：一条命令不能替用户把门关上。</b>
+     *
+     * <p>为什么业务必须靠它而不是只靠回执判定门与物：回执说明的是
+     * “设备在那一问里答了什么”，而“结束订单”要的是“此刻门真的关了、里面真的没东西”。
+     * 两者不等价，这个不等价就是谎报与漏检钻进来的缝（docs/门态与物品争议设计.md §3）。
+     */
+    SlotSensor probe(Long cabinetId, Long slotId);
+
+    /**
+     * 一次传感器读数。
+     *
+     * @param doorClosed 门磁结论：门关了没
+     * @param presence   柜内物检结论。<b>三值而不是布尔</b>：设备没装物检、传感器脏污、
+     *                   柜机离线都是“不知道”，把它们当成“没东西”就会把别人的行李卖给下一位
+     * @param sensedAt   读数时刻（服务端时间，设备时钟不可信 S-07）。
+     *                   调用方必须查这个时刻新旧：设备“看了一眼”不等于“现在也是”
+     */
+    record SlotSensor(boolean doorClosed, Presence presence, LocalDateTime sensedAt) {
+    }
 
     /**
      * @param requestId 幂等键，重试不变

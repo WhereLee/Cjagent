@@ -67,6 +67,9 @@ class SchedulerZsetTriggerTest {
     @Autowired
     private DataSource dataSource;
 
+    /** 本批用例自己写进 ZSet 的成员名：断言只看它们，不看整个共享 key。 */
+    private volatile List<String> lastReminders = List.of();
+
     @AfterEach
     void cleanup() {
         new JdbcTemplate(dataSource).update("delete from biz_delay_task where tenant_id = ?", TENANT);
@@ -87,6 +90,7 @@ class SchedulerZsetTriggerTest {
             keys.add(TaskType.SLOT_RELEASE.name() + ":" + bizKey);
             TenantContext.runAs(TENANT, () -> tasks.schedule(TaskType.SLOT_RELEASE, bizKey, TENANT, fireAt));
         }
+        lastReminders = List.copyOf(keys);
         if (!remindIntact) {
             // 模拟"写完 DB 崩在 ZADD 前 / 取出后崩溃"这一类提醒丢失
             redis.opsForZSet().remove(ZSET_KEY, keys.toArray());
@@ -138,10 +142,14 @@ class SchedulerZsetTriggerTest {
 
         long max = delays.stream().mapToLong(Long::longValue).max().orElse(-1);
         assertTrue(max < 5_000L, "ZSet 模式下最大延迟应远小于轮询间隔，实测 max=" + max + "ms " + delays);
-        // 提醒写进去了就要被取走：取出即删除，之后执行权只在 DB 租约上
-        assertTrue(Boolean.FALSE.equals(redis.hasKey(ZSET_KEY))
-                        || Long.valueOf(0L).equals(redis.opsForZSet().size(ZSET_KEY)),
-                "到期提醒应已被原子取走（Lua 取出即删）");
+        // 提醒写进去了就要被取走：取出即删除，之后执行权只在 DB 租约上。
+        // 注意这里只断言**本用例自己那批成员**：“整个 key 为空”在共享 Redis 上是在赌
+        // 没人往里写东西（跟“全库账户必须平”、“两个事务各拿 4 条”一样过约），
+        // 一旦另一个用例/租户留了提醒就会红，而那根本不是本用例要测的东西
+        List<String> stillThere = lastReminders.stream()
+                .filter(member -> redis.opsForZSet().score(ZSET_KEY, member) != null)
+                .toList();
+        assertTrue(stillThere.isEmpty(), "到期提醒应已被原子取走（Lua 取出即删），残留：" + stillThere);
     }
 
     @Test

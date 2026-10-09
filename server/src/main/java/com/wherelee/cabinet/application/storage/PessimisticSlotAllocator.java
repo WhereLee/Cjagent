@@ -1,11 +1,9 @@
 package com.wherelee.cabinet.application.storage;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.domain.enums.SlotStatus;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -40,12 +38,12 @@ public class PessimisticSlotAllocator implements SlotAllocator {
     public AllocatedSlot allocate(Long cabinetId, SizeType required, Long orderId) {
         List<SizeType> acceptable = SizeType.acceptanceOrder(required);
 
-        List<BizCompartment> candidates = slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                .eq(BizCompartment::getCabinetId, cabinetId)
-                .eq(BizCompartment::getStatus, SlotStatus.FREE)
-                .in(BizCompartment::getSizeType, acceptable)
-                // 锁住扫描到的候选行；必须在事务里调用（StorageOrderService 已标注）
-                .last("for update"));
+        // 候选定义不写在本类里：“可分配”在四个分配器 + 预扣集合 + 校准上必须是同一条判据
+        // （见 SlotCandidateQuery）。“门开着”与“有遗留物”的格口不能出现在候选里。
+        List<BizCompartment> candidates = slotMapper.selectList(
+                SlotCandidateQuery.assignable(cabinetId, acceptable)
+                        // 锁住扫描到的候选行；必须在事务里调用（StorageOrderService 已标注）
+                        .last("for update"));
 
         if (candidates.isEmpty()) {
             throw new BizException(ResultCode.SLOT_UNAVAILABLE, "该柜机没有可用格口");

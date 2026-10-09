@@ -272,13 +272,16 @@ public class AsyncStorageOrderAppService {
         return slot == null ? "-" : slot.getSlotNo();
     }
 
-    /** 测试与运维入口：把 DB 真相同步进 Redis 空闲集合（第 13 刀的定时校准调它）。 */
+    /**
+     * 测试与运维入口：把 DB 真相同步进 Redis 空闲集合（第 13 刀的定时校准调它）。
+     *
+     * <p>集合同样只收“真的可卖”的格口（共用 SlotCandidateQuery）：预扣只认集合不查 DB，
+     * 所以“门开着”或“有遗留物”的格口一旦进了集合，就会被真的分给用户——
+     * 这是预扣设计下<b>唯一能造成卖错</b>的地方（其他策略都会在条件 UPDATE 上被拦下）。
+     */
     public void syncFreeSets(Long cabinetId) {
         for (SizeType size : SizeType.values()) {
-            List<Long> freeIds = slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                            .eq(BizCompartment::getCabinetId, cabinetId)
-                            .eq(BizCompartment::getSizeType, size)
-                            .eq(BizCompartment::getStatus, com.wherelee.cabinet.domain.enums.SlotStatus.FREE))
+            List<Long> freeIds = slotMapper.selectList(SlotCandidateQuery.assignable(cabinetId, size))
                     .stream().map(BizCompartment::getId).toList();
             preDeduction.replaceFreeSet(cabinetId, size, freeIds);
         }

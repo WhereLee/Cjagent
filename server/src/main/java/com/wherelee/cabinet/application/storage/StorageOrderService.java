@@ -10,6 +10,7 @@ import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
+import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.infrastructure.alloc.SlotPreDeductionService;
@@ -52,6 +53,8 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands;
     private final com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper;
     private final com.wherelee.cabinet.application.point.OrderFundService funds;
+    /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
+    private final CompartmentStateService states;
     /**
      * 调度器延迟拿取：直接注入会形成循环依赖
      * （StorageOrderService → DelayTaskService → SlotReleaseHandler → StorageOrderService）。
@@ -63,8 +66,15 @@ public class StorageOrderService {
     @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.hold-grace-minutes:5}")
     private long holdGraceMinutes;
 
-    @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.door-grace-minutes:2}")
-    private long doorGraceMinutes;
+    /**
+     * 开门后的容错期（分钟，第 13B 刀）：这段时间不计费，给用户挑包、放件、翻找。
+     *
+     * <p>取代原来的 {@code door-grace-minutes}：“多久该提醒”与“多久该起计”本质上是
+     * 同一个时刻的两个说法，存两个近似参数总有一天会被配成不一样，那时没人说得清
+     * 哪个是计费起点。到期同时做三件事：落定计费起点、标格口异常、发提醒。
+     */
+    @org.springframework.beans.factory.annotation.Value("${cabinet.pricing.tolerance-minutes:5}")
+    private long toleranceMinutes;
 
     public StorageOrderService(BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper,
@@ -74,6 +84,7 @@ public class StorageOrderService {
                                com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands,
                                com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper,
                                com.wherelee.cabinet.application.point.OrderFundService funds,
+                               CompartmentStateService states,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
@@ -83,6 +94,7 @@ public class StorageOrderService {
         this.deviceCommands = deviceCommands;
         this.deviceCommandMapper = deviceCommandMapper;
         this.funds = funds;
+        this.states = states;
         this.taskScheduler = taskScheduler;
     }
 
@@ -167,6 +179,14 @@ public class StorageOrderService {
             throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "寄存单不存在");
         }
 
+        // 取消不能比结束更松：检测到柜内有东西时不得取消。否则就是“钱退了、件留下了、
+        // 格子又卖给了第三个人”——那是一整个流程里最难收拾的现场（不变量 I12）。
+        CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
+        if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.PRESENT) {
+            throw new BizException(ResultCode.BIZ_ERROR,
+                    "柜内检测到物品：请先取出再取消（或走“声明放弃物品”结束）");
+        }
+
         order.transitTo(OrderStatus.CANCELLED);
         int released = slotMapper.releaseSlot(order.getSlotId(), order.getId());
         if (released == 0) {
@@ -232,22 +252,76 @@ public class StorageOrderService {
     }
 
     /**
-     * 取件：结算 + 退押金 + 释放格口。
+     * 取件（用户当面结束）：<b>门关 + 柜内无物才停计费</b>。
      *
-     * <p>计费时长由**服务端时间**算（started_at → 此刻），不接受客户端上报的时长：
-     * 设备与手机时钟都不可信，而这里是真金白银（S-07）。
+     * <p>计费时长从 {@code started_at} 算到此刻，全部用服务端时间（S-07）。
+     * 没落定过起点（容错期内就结束）就是 0 分钟——他确实还没占用过这个格子。
      */
     @Transactional
     public StorageOrderView pickup(Long customerId, String orderNo) {
+        return finish(customerId, orderNo, true, OrderCloseReason.NORMAL);
+    }
+
+    /**
+     * 声明“里面的东西不要了”并结束：这是柜内有物时唯一的自助出口。
+     *
+     * <p><b>只豁免“柜内无物”这一条，不豁免“门关”</b>：门开着就不是结束，而是还在占用。
+     * 结束后格口转 {@code CONTENT_LEFT}：单结束了、钱到此为止，但这一格在有人清走东西之前
+     * 不能再卖（不变量 I12：“钱走了、东西还在柜里、格子又卖给了第三个人”是整份设计里最坏的结果）。
+     */
+    @Transactional
+    public StorageOrderView abandon(Long customerId, String orderNo) {
+        return finish(customerId, orderNo, true, OrderCloseReason.ABANDONED);
+    }
+
+    /**
+     * 远程结束订单（人不在现场）：同一套判据，不豁免任何一条。
+     *
+     * <p>如果远程能绕过“无物”，那“离开现场”就比“留在现场”更容易脱身，方向正好反了。
+     * 费用 = 计时计费 + 该格口 {@code remote-close-hours} 小时单价的加收。
+     */
+    @Transactional
+    public StorageOrderView remoteClose(Long customerId, String orderNo) {
+        return finish(customerId, orderNo, false, OrderCloseReason.REMOTE);
+    }
+
+    /**
+     * 结束订单的共用收口：三个入口（当面结束 / 声明放弃 / 远程结束）只差在“谁在作证”与“收不收加收”。
+     *
+     * <p>写成一个而不是三份：分开写过几天就会出现“当面结束会退押金、远程结束漏了退”这种
+     * 只在一半路径上修的 bug（第 12 刀已经为退款路径合并过一次）。
+     */
+    private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason) {
         BizStorageOrder order = findOwned(customerId, orderNo);
         if (order.getStatus() != OrderStatus.ACTIVE && order.getStatus() != OrderStatus.TEMP_OPEN
                 && order.getStatus() != OrderStatus.EXPIRED) {
-            throw new BizException(ResultCode.BIZ_ERROR, "当前状态不可取件：" + order.getStatus());
+            throw new BizException(ResultCode.BIZ_ERROR, "当前状态不可结束：" + order.getStatus());
         }
-        LocalDateTime from = order.getStartedAt() != null ? order.getStartedAt() : order.getCreateTime();
-        long actualMinutes = Math.max(0L, Duration.between(from, LocalDateTime.now()).toMinutes());
+        CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
+        if (reason == OrderCloseReason.ABANDONED) {
+            // 放弃只豁免“无物”，门没关仍不能结束
+            if (!sensing.doorClosed()) {
+                throw new BizException(ResultCode.BIZ_ERROR,
+                        "柜门还没关上：请先关好门再结束（声明放弃物品不能代替代关门）");
+            }
+        } else {
+            CloseCriteria.Verdict verdict = CloseCriteria.evaluate(sensing.doorClosed(), sensing.presence(),
+                    states.fresh(sensing), atSite);
+            if (!verdict.closable()) {
+                throw new BizException(ResultCode.BIZ_ERROR, verdict.userMessage());
+            }
+        }
 
-        funds.settle(order, actualMinutes);
+        long actualMinutes = order.getStartedAt() == null ? 0L
+                : Math.max(0L, Duration.between(order.getStartedAt(), LocalDateTime.now()).toMinutes());
+        funds.settle(order, actualMinutes, reason);
+
+        if (reason.leavesAnomaly()) {
+            states.markContentLeft(order.getSlotId(), "用户声明放弃柜内物品，需业务运维清柜后才能重新分配");
+        } else {
+            // 门关且确认空：能自动解除的就解除（只有 DOOR_OPEN 这一类可自动，见 I9）
+            states.tryAutoRecover(order.getSlotId(), sensing);
+        }
 
         BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
         return new StorageOrderView(order.getOrderNo(), cabinet == null ? "-" : cabinet.getCabinetNo(),
@@ -285,9 +359,9 @@ public class StorageOrderService {
         if (tempOpen && order.getStatus() != OrderStatus.ACTIVE) {
             throw new BizException(ResultCode.BIZ_ERROR, "只有计费中的订单可以临时开柜");
         }
-        if (verifyClose && order.getStatus() != OrderStatus.OPENING
-                && order.getStatus() != OrderStatus.TEMP_OPEN) {
-            throw new BizException(ResultCode.BIZ_ERROR, "没有待关闭的柜门");
+        if (verifyClose && !mayCloseVerify(order)) {
+            throw new BizException(ResultCode.BIZ_ERROR,
+                    "没有待关闭的柜门（当前状态 " + order.getStatus() + "）");
         }
 
         if (opening) {
@@ -311,7 +385,7 @@ public class StorageOrderService {
             throw e;
         }
 
-        applyDeviceOutcome(order, action, outcome);
+        applyDeviceOutcome(order, action, outcome, true);
         if (orderMapper.updateById(order) == 0) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + orderNo);
         }
@@ -332,13 +406,18 @@ public class StorageOrderService {
      * <p>按动作判就干净了：
      * <ul>
      *   <li>{@code OPEN} 失败 → 件还在用户手里 → 退回 {@code RESERVED}（可重试、可换柜机，不打扰运营）；</li>
-     *   <li>{@code CLOSE_VERIFY} 失败/谎报 → <b>件已在柜内</b> → 只能 {@code ABNORMAL} 等人工；</li>
+     *   <li>{@code CLOSE_VERIFY} 失败/谎报 → 不推进也不回退，只标传感器矛盾（S-16 后它有自己的自助出口）；</li>
      *   <li>{@code OPEN_TEMP} 失败 → 件在里面但没丢 → 保持 {@code ACTIVE}，用户可再试。</li>
      * </ul>
+     *
+     * @param atSite <b>这次收敛是不是“用户本人在柜机前”发起的</b>。实时路径是，回扫路径不是。
+     *               这个区分影响“柜内情况测不到时能不能信”：现场的人就是凭据，
+     *               而系统事后收敛时没有人作证，就不能把拿不到凭据的格口放回可售池。
      */
     private void applyDeviceOutcome(BizStorageOrder order,
                                     com.wherelee.cabinet.domain.enums.CommandAction action,
-                                    com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome) {
+                                    com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome,
+                                    boolean atSite) {
         if (outcome.stale()) {
             // 旧事件：什么都不改（设备重放不得把新状态覆盖成旧事件）
             return;
@@ -346,40 +425,20 @@ public class StorageOrderService {
         if (outcome.businessSuccess()) {
             switch (action) {
                 case OPEN -> {
-                    // 门已开，等用户投件 + 关门校验；此时仍是 OPENING，不能提前记为已存
+                    // 门真的开了才记下起点：从这一刻起容错计时开始跑。
+                    // “门开了没人关”的看管也从这里登记——如果只在关门后登记，
+                    // 用户开完门就走，单会停在 OPENING、格口停在 RESERVED、押金一直冻着，没人收场
+                    states.afterDoorOpened(states.reload(order.getSlotId()), order.getCustomerId());
                     log.info("格口已开门 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
-                    // “门开了没人关”的看管必须从这里登记：OPEN 之后如果用户走了，
-                    // 单会停在 OPENING、格口停在 RESERVED、押金一直冻着，而超时释放只认 RESERVED——没人收场
                     scheduleDoorWatch(order);
                 }
                 case OPEN_TEMP -> {
                     order.setTempOpenCount(order.getTempOpenCount() == null ? 1 : order.getTempOpenCount() + 1);
                     order.transitTo(OrderStatus.TEMP_OPEN);
+                    states.afterDoorOpened(states.reload(order.getSlotId()), order.getCustomerId());
                     scheduleDoorWatch(order);
                 }
-                case CLOSE_VERIFY -> {
-                    order.transitTo(order.getStatus() == OrderStatus.TEMP_OPEN
-                            ? OrderStatus.ACTIVE : OrderStatus.STORED);
-                    if (order.getStatus() == OrderStatus.STORED) {
-                        // 格口从"预占"变"真有件"：状态分开存，事故时才能分辨件在不在柜里
-                        if (slotMapper.markOccupied(order.getSlotId(), order.getId()) == 0) {
-                            throw new BizException(ResultCode.SYSTEM_ERROR,
-                                    "格口状态与订单不一致，需人工核对 slotId=" + order.getSlotId());
-                        }
-                        // 计费开始：时间一律用服务端时间（设备时钟不可信，S-07）
-                        order.transitTo(OrderStatus.ACTIVE);
-                        order.setStartedAt(LocalDateTime.now());
-                        order.setExpectedFinishAt(order.getStartedAt()
-                                .plusMinutes(order.getEstimateMinutes() == null ? 60 : order.getEstimateMinutes()));
-
-                        var scheduler = taskScheduler.getIfAvailable();
-                        if (scheduler != null) {
-                            scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.OVERDUE_PICKUP,
-                                    order.getOrderNo(), order.getTenantId(),
-                                    order.getExpectedFinishAt().plusMinutes(holdGraceMinutes));
-                        }
-                    }
-                }
+                case CLOSE_VERIFY -> closeVerified(order, atSite);
                 default -> throw new BizException(ResultCode.PARAM_INVALID, "不支持的动作：" + action);
             }
             return;
@@ -398,20 +457,162 @@ public class StorageOrderService {
                     order.transitTo(OrderStatus.ACTIVE);
                 }
             }
-            // 关门校验失败：件已经在柜里，谎报与错乱目标都必须人工，绝不能再自动流转
-            case CLOSE_VERIFY, FORCE_OPEN -> order.transitTo(OrderStatus.ABNORMAL);
+            // 关门校验失败/谎报：**不再一律转 ABNORMAL 等人工**（S-16）。
+            // 但也不能当成已存：件可能正在里面，假装已存就会把这个格子卖给下一位。
+            // 所以：状态不动（计不计费交给容错计时），只把矛盾本身记下来。
+            case CLOSE_VERIFY, FORCE_OPEN -> {
+                states.markSensorConflict(order.getSlotId(),
+                        "设备称关门成功但门磁不认（谎报或门磁卡住），需现场确认");
+                log.warn("关门未被门磁确认，不推进订单状态 orderNo={} fault={}",
+                        order.getOrderNo(), outcome.faultType());
+            }
             default -> order.transitTo(OrderStatus.ABNORMAL);
         }
     }
 
-    /** 登记“门开未关”看管（OPEN 与 OPEN_TEMP 共用）。 */
+    /**
+     * 关门校验的业务收敛：<b>设备自称成功不算，门磁说了才算</b>。
+     *
+     * @param atSite true=用户当面点“我关好了”（他就在柜子前）；
+     *               false=事后回扫替系统收敛（没有一个活人在现场作证）
+     */
+    private void closeVerified(BizStorageOrder order, boolean atSite) {
+        applyCloseVerified(order, states.sense(order.getCabinetId(), order.getSlotId()), atSite);
+    }
+
+    /** 关门收敛的真身：读数由参数进来，这样巡检路径能复用同一个方法而不重探一次设备。 */
+    private void applyCloseVerified(BizStorageOrder order, CompartmentStateService.Sensing sensing, boolean atSite) {
+        if (!sensing.doorClosed()) {
+            // 指令层成功而门磁不认：不推进。宁可让用户再点一次，也不能把“没关上”记成已存
+            states.markSensorConflict(order.getSlotId(), "收到关门校验但门磁仍报开着，需现场确认");
+            log.warn("关门校验未被门磁确认 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
+            return;
+        }
+        states.afterDoorClosed(states.reload(order.getSlotId()), order.getCustomerId());
+        if (order.getStatus() == OrderStatus.TEMP_OPEN) {
+            // 中途取物后又关回来：本来就在计费，起点不动（I10）
+            order.transitTo(OrderStatus.ACTIVE);
+        } else if (order.getStatus() == OrderStatus.OPENING || order.getStatus() == OrderStatus.RESERVED) {
+            // 容错期满已被巡检推进成 ACTIVE 时走不到这里；走到这里说明这是正常的投件关门
+            if (slotMapper.markOccupied(order.getSlotId(), order.getId()) == 0) {
+                throw new BizException(ResultCode.SYSTEM_ERROR,
+                        "格口状态与订单不一致，需人工核对 slotId=" + order.getSlotId());
+            }
+            // 格口从“预占”变“真有件”：两个状态分开存，事故时才能分辨件在不在柜里
+            order.transitTo(OrderStatus.STORED);
+            order.transitTo(OrderStatus.ACTIVE);
+        }
+        startBilling(order, LocalDateTime.now());
+        if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.ABSENT && states.fresh(sensing)) {
+            states.tryAutoRecover(order.getSlotId(), sensing);
+        } else if (!atSite) {
+            // 没人在场又得不出“柜内空”的凭据：不能把这一格放回可售池，等人确认（I9）
+            states.markContentUnverified(order.getSlotId(),
+                    "系统收敛了关门事件，但拿不出柜内已清空的凭据，需现场确认");
+        }
+    }
+
+    /**
+     * 落定计费起点。<b>一旦写过就不再改（不变量 I10）</b>：结算、逾期看管、账单展示都读它，
+     * 改它就等于改掉已经发生的历史。
+     *
+     * <p>起点取“关门时刻”与“容错到期时刻”中较早的一个：容错期内关门就从关门起计，
+     * 超容错没关门则从到期时起计（所以“开门不关门”不是免费的）。
+     * 巡检任务比这里晚到也不影响金额：两边都算到同一个 toleranceUntil。
+     */
+    private void startBilling(BizStorageOrder order, LocalDateTime closedAt) {
+        if (order.getStartedAt() != null) {
+            return;
+        }
+        LocalDateTime tolerance = order.getToleranceUntil();
+        LocalDateTime start = tolerance == null || closedAt.isBefore(tolerance) ? closedAt : tolerance;
+        order.setStartedAt(start);
+        order.setExpectedFinishAt(start.plusMinutes(
+                order.getEstimateMinutes() == null ? 60 : order.getEstimateMinutes()));
+        var scheduler = taskScheduler.getIfAvailable();
+        if (scheduler != null) {
+            scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.OVERDUE_PICKUP,
+                    order.getOrderNo(), order.getTenantId(),
+                    order.getExpectedFinishAt().plusMinutes(holdGraceMinutes));
+        }
+    }
+
+    /**
+     * 能不能做关门校验。<b>判据是“有没有一扇开着的门要关”，而不是“单在哪个状态”</b>。
+     *
+     * <p>为什么不能只看状态：容错期满时巡检会把单推进到 ACTIVE（开始计费），而用户后来
+     * 还是会回来关门——如果只允许 OPENING/TEMP_OPEN 做校验，那“门开着超时了、人又回来关上”
+     * 这条必然会发生的路就推不动了，而它恰恰是新规则下最常见的一种收场。
+     */
+    private boolean mayCloseVerify(BizStorageOrder order) {
+        if (order.getStatus() == OrderStatus.OPENING || order.getStatus() == OrderStatus.TEMP_OPEN) {
+            return true;
+        }
+        // 已在计费但门还开着：该让他关上（关上后才能结束）
+        BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        return order.getStatus() == OrderStatus.ACTIVE && slot != null && slot.doorOpen();
+    }
+
+    /** 登记“门开未关”看管，并把容错到期时刻定下来（两者是同一个时刻）。 */
     private void scheduleDoorWatch(BizStorageOrder order) {
+        LocalDateTime toleranceUntil = LocalDateTime.now().plusMinutes(toleranceMinutes);
+        if (order.getToleranceUntil() == null) {
+            // 临时开柜时早已有过容错期：不得把起点刷新，否则“又开一次门”会把计费起点往后推
+            order.setToleranceUntil(toleranceUntil);
+        }
         var scheduler = taskScheduler.getIfAvailable();
         if (scheduler == null) {
             return;
         }
         scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.DOOR_NOT_CLOSED,
-                order.getOrderNo(), order.getTenantId(), LocalDateTime.now().plusMinutes(doorGraceMinutes));
+                order.getOrderNo(), order.getTenantId(), order.getToleranceUntil());
+    }
+
+    /**
+     * 容错期满的收敛（由“门开未关”巡检调用）：把“不关门”从一个人工事件变成一个<b>计费事件</b>。
+     *
+     * <p>门还开着时做三件事：落定计费起点、把单推进到 ACTIVE（他确实在占用这个格子）、返回 true
+     * 让 worker 续排下一轮提醒。<b>不转 ABNORMAL、不自动撤销</b>（S-16）：
+     * 全城多点位派一次人工的成本远高于一个格口被占的损耗，而钱会把人叫回来。
+     *
+     * <p>门已经关了（他关上了却没点确认）：走与关门校验同一段收敛，不另写一遍——
+     * 写两遍就会出现“巡检认为已存、实时路径认为没存”这种同事件不同结果。
+     *
+     * @param sensing 调用方（巡检 handler）在**事务外**探好的传感器读数。<b>故意不在这里探</b>：
+     *                接真实设备后探测就是一次 RPC，把它放进 @Transactional 里等于拿一条
+     *                数据库连接等柜机回答（第 9 刀量过的瓶颈，第 11 刀已经为这件事拆过一次事务）
+     * @return true 表示还要继续盯着（下一轮提醒）；false 表示这条看管到此为止
+     */
+    @Transactional
+    public boolean toleranceExpired(String orderNo, CompartmentStateService.Sensing sensing) {
+        BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
+                .eq(BizStorageOrder::getOrderNo, orderNo));
+        if (order == null || order.getStatus().isTerminal()) {
+            return false;
+        }
+        if (order.getToleranceUntil() == null) {
+            // 这单从未开过门（例如测试直接埋了一条任务、或开柜失败后退回 RESERVED）：
+            // 没有容错期可到期，也不该拿“门未关”去推它——推了就会造出“没开门却记了已存”的假现场
+            log.debug("容错收敛跳过：该单没有开过门 orderNo={}", orderNo);
+            return false;
+        }
+        if (sensing.doorClosed()) {
+            // 门关了但没人点确认：按关门收敛推进（没人在场作证，所以拿不到凭据时标待确认）
+            applyCloseVerified(order, sensing, false);
+        } else {
+            if (order.getStatus() == OrderStatus.OPENING) {
+                order.transitTo(OrderStatus.ACTIVE);
+            }
+            LocalDateTime start = order.getToleranceUntil() == null ? LocalDateTime.now() : order.getToleranceUntil();
+            startBilling(order, start);
+            // 到这里才真的是异常：门开着已超出容错、计费已经起计，必须进台账而不是只进日志
+            states.markDoorOpenPastTolerance(order.getSlotId(),
+                    java.time.Duration.between(start, LocalDateTime.now()).toMinutes());
+        }
+        if (orderMapper.updateById(order) == 0) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，容错收敛下一轮再来 orderNo=" + orderNo);
+        }
+        return true;
     }
 
     /**
@@ -431,7 +632,7 @@ public class StorageOrderService {
             log.info("回扫收敛跳过：单不存在或已终态 orderId={}", orderId);
             return;
         }
-        applyDeviceOutcome(order, action, outcome);
+        applyDeviceOutcome(order, action, outcome, false);
         if (orderMapper.updateById(order) == 0) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，回扫下一轮再来 orderId=" + orderId);
         }

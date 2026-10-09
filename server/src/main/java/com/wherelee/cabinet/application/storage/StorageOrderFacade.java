@@ -83,6 +83,21 @@ public class StorageOrderFacade {
         return syncService.pickup(customerId, orderNo);
     }
 
+    /**
+     * 声明放弃柜内物品后结束。
+     *
+     * <p>不分流到异步路径：它与取件一样要面对“已落库的单 + 当前门磁与物检”，
+     * 而异步路径的待落库窗口里这些全部未知（第 9 刀定的“写与资金动作只认已落库行”）。
+     */
+    public StorageOrderView abandon(Long customerId, String orderNo) {
+        return syncService.abandon(customerId, orderNo);
+    }
+
+    /** 远程结束订单（人不在现场，同一套判据 + 加收）。 */
+    public StorageOrderView remoteClose(Long customerId, String orderNo) {
+        return syncService.remoteClose(customerId, orderNo);
+    }
+
     public String activeStrategy() {
         return strategy;
     }

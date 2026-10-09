@@ -15,6 +15,7 @@ import com.wherelee.cabinet.domain.entity.BizFaultEvent;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
+import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.CommandAction;
 import com.wherelee.cabinet.domain.enums.CommandState;
 import com.wherelee.cabinet.domain.enums.FaultType;
@@ -44,6 +45,7 @@ import javax.sql.DataSource;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -218,18 +220,25 @@ class DeviceFaultInjectionTest {
     }
 
     @Test
-    @DisplayName("谎报关门：指令层成功但业务不认账，订单进异常等人工")
-    void lyingCloseRequiresManual() {
+    @DisplayName("谎报关门：指令层成功但业务不认账，格口标传感器矛盾（S-16 后不再直接转人工）")
+    void lyingCloseIsNotRecordedAsStored() {
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.OPEN));
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.LYING_CLOSED);
 
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
 
-        assertEquals("ABNORMAL", order().getStatus().name(),
-                "设备说门关了但门磁没确认：件已在柜内，必须人工核验，不能记为已存");
+        assertEquals("OPENING", order().getStatus().name(),
+                "设备说门关了但门磁没确认：绝不能记为已存（记了就会把这格卖给下一位）");
+        assertEquals(SlotStatus.RESERVED, slotStatus(), "没确认关门就不能把格口标成已有件");
         assertEquals(CommandState.SUCCEEDED, lastCommand(CommandAction.CLOSE_VERIFY).getStatus(),
                 "指令层面设备确实执行完了——两个层次的\"成功\"必须分开");
-        assertEquals(FaultType.DOOR_NOT_CLOSED, firstFault());
+        assertEquals(FaultType.DOOR_NOT_CLOSED, firstFault(), "谎报必须进台账，不能只进日志");
+        Long slotId = order().getSlotId();
+        assertEquals(CompartmentAnomaly.SENSOR_CONFLICT,
+                TenantContext.callAs(TENANT, () -> slotMapper.selectById(slotId)).getAnomaly(),
+                "系统判不了到底是门没关还是门磁坏了，就如实记矛盾而不是猜一边：两边猜错的代价都不可逆");
+        // 旧口径是直接转 ABNORMAL 等人工；现在是“计费继续 + 巡检接手”，所以单不能是终态
+        assertFalse(order().getStatus().isTerminal(), "谎报不能把一张正在计费的单推到无人管的终态");
     }
 
     @Test

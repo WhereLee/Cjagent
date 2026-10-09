@@ -8,6 +8,7 @@ import com.wherelee.cabinet.domain.entity.BizDeposit;
 import com.wherelee.cabinet.domain.entity.BizPointAccount;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.DepositStatus;
+import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.PointTxnType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
@@ -94,14 +95,31 @@ public class OrderFundService {
     }
 
     /**
-     * 取件结算。
+     * 取件结算（正常结束）。
      *
-     * @param actualMinutes 必须由服务端算（下单到取件的墙钟），<b>不能信客户端上报</b>
+     * @param actualMinutes 必须由服务端算（计费起点到此刻），<b>不能信客户端上报</b>
      */
     @Transactional
     public Settlement settle(BizStorageOrder order, long actualMinutes) {
+        return settle(order, actualMinutes, OrderCloseReason.NORMAL);
+    }
+
+    /**
+     * 结算的完整入口：带上“这单是怎么结的”，因为不同结束原因的<b>价格不一样</b>。
+     *
+     * <p>加收单独走一条流水（{@code 单号:remote-fee}）而不是合进计时费用里，有三个理由：
+     * ① 账单要能拆开解释“哪一部分是租金、哪一部分是未关门加收”；
+     * ② 幂等键分开，重跑结算时不会因 bizNo 相同而把两笔当成一笔；
+     * ③ 报表与对账能直接按类型查出“加收收了多少钱”。
+     */
+    @Transactional
+    public Settlement settle(BizStorageOrder order, long actualMinutes, OrderCloseReason reason) {
         PricingPolicy.Quote quote = pricing.fromSnapshot(order.getPricingSnapshot(), actualMinutes);
         long need = quote.consumePoints();
+        long penalty = reason != null && reason.chargesPenalty() ? pricing.remoteFeePoints(order.getPricingSnapshot()) : 0L;
+        if (penalty > 0) {
+            order.setRemoteClosePoints(penalty);
+        }
         long frozen = order.getFrozenPoints() == null ? 0L : order.getFrozenPoints();
         long arrears = 0L;
         long charged = 0L;
@@ -129,9 +147,26 @@ public class OrderFundService {
             log.warn("押金为 0 的单被标记退还，需核对 orderNo={}", order.getOrderNo());
         }
 
+        // 加收与计时费同路走“扣不到就记欠费”，但绝不为这笔钱锁件（防呆红线不变）
+        if (penalty > 0) {
+            var feeAttempt = points.tryPost(order.getCustomerId(), PointTxnType.CONSUME, penalty,
+                    REF_ORDER, order.getId(), order.getOrderNo() + ":remote-fee",
+                    "未关门离开加收费用（按该格口小时单价折算）");
+            if (feeAttempt.status() == PointAccountService.PostStatus.POSTED) {
+                charged += penalty;
+            } else {
+                long feeCharged = chargeWhatWeCan(order, penalty, ":remote-fee-partial");
+                charged += feeCharged;
+                arrears += penalty - feeCharged;
+                log.warn("加收扣不足，记欠费待追缴 orderNo={} penalty={} charged={}",
+                        order.getOrderNo(), penalty, feeCharged);
+            }
+        }
+
         order.setSettledPoints(charged);
         order.setArrearsPoints(arrears);
         order.setFrozenPoints(0L);
+        order.setCloseReason(reason == null ? OrderCloseReason.NORMAL : reason);
         if (order.getStatus() != OrderStatus.SETTLING) {
             order.transitTo(OrderStatus.SETTLING);
         }
@@ -148,11 +183,19 @@ public class OrderFundService {
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，需人工核对 slotId="
                     + order.getSlotId());
         }
-        return new Settlement(need, arrears, quote.billedHours(), actualMinutes);
+        return new Settlement(need, arrears, quote.billedHours(), actualMinutes, penalty);
     }
 
     /** 扣不到全款时，能扣多少扣多少（余额为 0 就一分不扣），返回实际扣到的点数。 */
     private long chargeWhatWeCan(BizStorageOrder order, long need) {
+        return chargeWhatWeCan(order, need, ":consume-partial");
+    }
+
+    /**
+     * 按可用额量扣。<b>bizNo 后缀必须由调用方给</b>：租金与加收共用一个后缀的话，
+     * 唯一幂等键会让第二笔被当成“已处理”静默丢弃（收不到钱还不报错）。
+     */
+    private long chargeWhatWeCan(BizStorageOrder order, long need, String suffix) {
         BizPointAccount account = points.accountOf(order.getCustomerId());
         long available = account == null || account.getPoints() == null ? 0L : account.getPoints();
         long tryNow = Math.min(available, need);
@@ -160,7 +203,7 @@ public class OrderFundService {
             return 0L;
         }
         var attempt = points.tryPost(order.getCustomerId(), PointTxnType.CONSUME, tryNow,
-                REF_ORDER, order.getId(), order.getOrderNo() + ":consume-partial", "余额不足，按可用额扣");
+                REF_ORDER, order.getId(), order.getOrderNo() + suffix, "余额不足，按可用额扣");
         if (attempt.status() == PointAccountService.PostStatus.POSTED) {
             return tryNow;
         }
@@ -234,6 +277,11 @@ public class OrderFundService {
         return count == null ? 0L : count;
     }
 
-    public record Settlement(long consumePoints, long arrearsPoints, int billedHours, long actualMinutes) {
+    /**
+     * @param consumePoints 计时应缴（不含加收）
+     * @param penaltyPoints 加收应缴（远程结束/超窗重开），0 = 没收这一笔
+     */
+    public record Settlement(long consumePoints, long arrearsPoints, int billedHours, long actualMinutes,
+                             long penaltyPoints) {
     }
 }

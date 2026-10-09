@@ -1,10 +1,8 @@
 package com.wherelee.cabinet.application.storage;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.enums.SlotStatus;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -37,10 +35,10 @@ public class RedissonSlotAllocator implements SlotAllocator {
     @Override
     public AllocatedSlot allocate(Long cabinetId, SizeType required, Long orderId) {
         List<SizeType> acceptable = SizeType.acceptanceOrder(required);
-        List<BizCompartment> candidates = slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                .eq(BizCompartment::getCabinetId, cabinetId)
-                .eq(BizCompartment::getStatus, SlotStatus.FREE)
-                .in(BizCompartment::getSizeType, acceptable));
+        // 候选定义共用 SlotCandidateQuery：锁只能减少冲突，不能把“门开着/有遗留物”
+        // 的格子说成可用——那会把它真分出去
+        List<BizCompartment> candidates = slotMapper.selectList(
+                SlotCandidateQuery.assignable(cabinetId, acceptable));
         if (candidates.isEmpty()) {
             throw new BizException(ResultCode.SLOT_UNAVAILABLE, "该柜机没有可用格口");
         }

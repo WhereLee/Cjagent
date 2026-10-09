@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.Version;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
+import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import lombok.Getter;
@@ -56,6 +57,22 @@ public class BizStorageOrder extends BaseEntity {
     private Integer estimateMinutes;
     private LocalDateTime startedAt;
     private LocalDateTime expectedFinishAt;
+
+    /**
+     * 开门容错到期时刻（第 13B 刀，docs/门态与物品争议设计.md §2）。
+     *
+     * <p>它在单上而不是现算“开门时刻 + 配置值”：运营中途把容错从 5 分钟改成了 10 分钟，
+     * 不得追溯改变进行中那张单该从几点开始计。<b>非空也是“这单曾经开过门”的凭据</b>：
+     * 超时自动释放只释“从未开过门”的单，开过门的单件可能已在柜内，不能被默默取消。
+     */
+    private LocalDateTime toleranceUntil;
+
+    /** 结束原因：不同结束方式<b>价格不同</b>且格口后续处置不同，不能只记“已关闭”。 */
+    private OrderCloseReason closeReason;
+
+    /** 未关门加收的点数（= 该格口单价 × remote-close-hours），冷数据在单上以便账单直读。 */
+    private Long remoteClosePoints;
+
     private LocalDateTime finishedAt;
     private Integer tempOpenCount;
 

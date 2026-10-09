@@ -1,6 +1,8 @@
 package com.wherelee.cabinet.infrastructure.device;
 
 import com.wherelee.cabinet.application.device.DeviceChannel;
+import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.ReportEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +61,18 @@ public class SimulatedCabinetChannel implements DeviceChannel {
         /** 设备明确执行失败 */
         EXEC_FAIL,
         /** 柜机离线 */
-        OFFLINE
+        OFFLINE,
+        // 下面三类不还原物理，只让传感器“回答得不一样”——结束判据（§3）全靠这三种回答
+
+        /** 门磁卡住：无论实不实际关上，永远回答“开着”。
+         * 业务必须保守：不可售、计费不停，最终只能靠运维而不是靠猜。 */
+        SENSOR_STUCK_OPEN,
+        /** 这台柜机没有柜内物检（或传感器脏）：回答 UNKNOWN，而不是“没东西”。
+         * 真实柜机大多只有门磁，这一类是常态不是意外。 */
+        SENSOR_NO_ITEM,
+        /** 漏检：里面有东西却回答“没有”。小件、透明物、吸光物的现实盲区，
+         * 用它证明“卖错格子”的底线不靠传感器守住（不变量 I12 的入题）。 */
+        ITEM_UNDETECTED
     }
 
     /** 错报目标时用的偏移：只要与真实 slotId 不同即可，不必有意义。 */
@@ -76,6 +89,17 @@ public class SimulatedCabinetChannel implements DeviceChannel {
 
     /** 每个 (cabinet:slot) 的单调序号，模拟设备侧 seq。 */
     private final Map<String, AtomicLong> seqBySlot = new ConcurrentHashMap<>();
+
+    /**
+     * 模拟器的物理记忆：门关了没（缺省 true，新格口与清柜后都是关着的）。
+     *
+     * <p>它存在的唯一理由：让“回执里说了什么”与“传感器现在是什么”可以不相等。
+     * 没这个区分，谎报关门就测不出来。
+     */
+    private final Map<String, Boolean> doorClosedBySlot = new ConcurrentHashMap<>();
+
+    /** 模拟器的柜内记忆：里面有东西没（缺省 false，即顺利路径为“无物”）。 */
+    private final Map<String, Boolean> itemInsideBySlot = new ConcurrentHashMap<>();
 
     /** 设备端幂等表的上限：真实柜机内存有限，这里同理，超量按插入序丢最旧。 */
     private static final int IDEMPOTENCY_CACHE = 512;
@@ -120,6 +144,10 @@ public class SimulatedCabinetChannel implements DeviceChannel {
         long seq = nextSeq(ticket.cabinetId(), ticket.slotId());
         CompletableFuture<CommandReceipt> future = new CompletableFuture<>();
         Runnable reply = () -> {
+            // 顺序不能反：**先改物理，再算回执**。我先把这两步换了（觉得“回执决定物理”更自然），
+            // 结果 normalOpenThenCloseVerify 全红：算 sensorOk 时读到的还是“开柜那一步留下的开着”，
+            // 于是每一次正常关门都被报成谎报。这个错很典型：两个状态谁先谁后不是风格问题。
+            applyPhysics(ticket, fault);
             CommandReceipt receipt = receiptFor(fault, ticket, seq);
             // 只在真拿到回执时入表：没回执（超时）不能被记成“首次结果”，
             // 否则一次网络抖动会把这条指令永远钉在“没做过”上
@@ -144,16 +172,113 @@ public class SimulatedCabinetChannel implements DeviceChannel {
                     STALE_SEQ_VALUE, true, ticket.slotId(), "序号早于已记录（乱序重放）");
             case EXEC_FAIL -> new CommandReceipt(ticket.requestId(), false, ReportEvent.FAULT,
                     seq, true, ticket.slotId(), "电机阻塞，开柜失败");
-            case NORMAL, NO_RECEIPT, OFFLINE -> new CommandReceipt(ticket.requestId(), true,
-                    ticket.action().isRetrieveLike() || ticket.action() == com.wherelee.cabinet.domain.enums.CommandAction.OPEN
-                            ? ReportEvent.DOOR_OPENED : ReportEvent.DOOR_CLOSED,
-                    seq, true, ticket.slotId(), null);
+            default -> {
+                boolean opening = ticket.action() == CommandAction.OPEN
+                        || ticket.action() == CommandAction.OPEN_TEMP;
+                // “门关了”这个结论由传感器答，而不是由“这条指令是关门”定：
+                // 门磁卡住时它就不认，业务必须不能拿“我发了关门命令”当成“门已关”
+                boolean sensorOk = ticket.action() != CommandAction.CLOSE_VERIFY
+                        || sensorDoorClosed(ticket.cabinetId(), ticket.slotId(), fault);
+                yield new CommandReceipt(ticket.requestId(), true,
+                        opening ? ReportEvent.DOOR_OPENED : ReportEvent.DOOR_CLOSED,
+                        seq, sensorOk, ticket.slotId(),
+                        sensorOk ? null : "门磁未确认关闭（传感器卡住，或门确实没关）");
+            }
+        };
+    }
+
+    /**
+     * 物理变化按“这条指令在现实中真做了什么”算：
+     * <ul>
+     *   <li>{@code OFFLINE / NO_RECEIPT / EXEC_FAIL} —— 根本没执行，不动；</li>
+     *   <li>{@code WRONG_TARGET} —— 真开的是<b>另一个</b>格子，所以只能改那个；</li>
+     *   <li>{@code LYING_CLOSED} —— 它“说”关上了而物理上没关：关门那一步不动，
+     *       开柜那一步照旧要开（谎报只谎在“关上”这一件事上）；</li>
+     *   <li>其余注入（序号旧、物检缺失、物检漏检、门磁卡住）——只影响<b>传感器答案</b>，
+     *       不影响门与件的实际状态。</li>
+     * </ul>
+     *
+     * <p>这里吃过两次红：先把物理改成“只有 NORMAL 才动”，结果序号注入顺带把门变成了没关；
+     * 再把 SENSOR_NO_ITEM 落到 default 之外，又让“没有物检”把门态也一并报坏了。
+     * <b>一个故障只该影响它那一维</b>，否则测出来的结果描述的不是那个故障。
+     */
+    private void applyPhysics(CommandTicket ticket, Fault fault) {
+        switch (fault) {
+            case OFFLINE, NO_RECEIPT, EXEC_FAIL -> {
+                // 没执行，就没有物理变化
+            }
+            case WRONG_TARGET -> setDoor(ticket.cabinetId(), ticket.slotId() + WRONG_TARGET_OFFSET, ticket.action());
+            case LYING_CLOSED -> {
+                boolean opening = ticket.action() == CommandAction.OPEN || ticket.action() == CommandAction.OPEN_TEMP;
+                if (opening) {
+                    setDoor(ticket.cabinetId(), ticket.slotId(), ticket.action());
+                }
+            }
+            default -> setDoor(ticket.cabinetId(), ticket.slotId(), ticket.action());
+        }
+    }
+
+    /** 开柜类动作把门置开，关门校验把门置关。 */
+    private void setDoor(Long cabinetId, Long slotId, CommandAction action) {
+        boolean opening = action == CommandAction.OPEN || action == CommandAction.OPEN_TEMP;
+        doorClosedBySlot.put(key(cabinetId, slotId), !opening);
+    }
+
+    /** 门磁结论：注入优先于物理（卡住时物理已无意义）。 */
+    private boolean sensorDoorClosed(Long cabinetId, Long slotId, Fault fault) {
+        if (fault == Fault.SENSOR_STUCK_OPEN) {
+            return false;
+        }
+        return doorClosedBySlot.getOrDefault(key(cabinetId, slotId), Boolean.TRUE);
+    }
+
+    /**
+     * 柜内物检结论。注意缺省是“无物”而不是“不知道”：
+     * 模拟器默认走顺利路径，“没装物检”与“漏检”都由上面两个注入专门表达。
+     */
+    private Presence sensorPresence(Long cabinetId, Long slotId, Fault fault) {
+        return switch (fault) {
+            case SENSOR_NO_ITEM -> Presence.UNKNOWN;
+            case ITEM_UNDETECTED -> Presence.ABSENT;   // 里面有东西也报没有
+            default -> Boolean.TRUE.equals(itemInsideBySlot.get(key(cabinetId, slotId)))
+                    ? Presence.PRESENT : Presence.ABSENT;
         };
     }
 
     @Override
     public boolean available(Long cabinetId) {
         return effectiveFault(cabinetId) != Fault.OFFLINE;
+    }
+
+    /**
+     * 读一次传感器现状。<b>只读不写</b>：业务不能靠这个调用替用户把门关上，
+     * 也不能靠它把“没东西”写成一个事实。
+     */
+    @Override
+    public SlotSensor probe(Long cabinetId, Long slotId) {
+        Fault fault = effectiveFault(cabinetId);
+        return new SlotSensor(sensorDoorClosed(cabinetId, slotId, fault),
+                sensorPresence(cabinetId, slotId, fault), java.time.LocalDateTime.now());
+    }
+
+    /**
+     * 测试钩子：把某格口“柜内有物”当真了。唯一用途是让测试能表达
+     * “用户结单了、东西还在里面”这个必须被拦下来的现场。
+     */
+    public void simulateItemInside(Long cabinetId, Long slotId, boolean inside) {
+        itemInsideBySlot.put(key(cabinetId, slotId), inside);
+    }
+
+    /**
+     * 测试钩子：强制物理门态（true=关）。用来制造“命令与传感器不相等”的组合，
+     * 比如“他推上门又拉开走了”。
+     */
+    public void simulateDoor(Long cabinetId, Long slotId, boolean closed) {
+        doorClosedBySlot.put(key(cabinetId, slotId), closed);
+    }
+
+    private static String key(Long cabinetId, Long slotId) {
+        return cabinetId + ":" + slotId;
     }
 
     private Fault effectiveFault(Long cabinetId) {
@@ -188,6 +313,10 @@ public class SimulatedCabinetChannel implements DeviceChannel {
         this.faultByCabinet.clear();
         this.seqBySlot.clear();
         this.receiptByRequestId.clear();
+        // 物理与柜内记忆也必须清：上一个用例留下的“门开着/有东西”会把下一个用例
+        // 卡在结束判据上，症状是“莫名结不了单”，而它跟并发、与业务代码都无关
+        this.doorClosedBySlot.clear();
+        this.itemInsideBySlot.clear();
     }
 
     public Fault currentFault(Long cabinetId) {

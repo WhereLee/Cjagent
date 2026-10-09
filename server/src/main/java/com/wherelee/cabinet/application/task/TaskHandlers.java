@@ -6,6 +6,8 @@ import com.wherelee.cabinet.application.point.OrderFundService;
 import com.wherelee.cabinet.application.device.DeviceCommandService;
 import com.wherelee.cabinet.application.reconcile.ReconcileReport;
 import com.wherelee.cabinet.application.reconcile.ReconcileService;
+import com.wherelee.cabinet.application.storage.CompartmentStateService;
+import com.wherelee.cabinet.application.storage.SlotCandidateQuery;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
@@ -91,6 +93,13 @@ public final class TaskHandlers {
                 log.info("超时释放跳过：当前状态 {}", order.getStatus());
                 return false;
             }
+            if (order.getToleranceUntil() != null) {
+                // 门曾经开过：件很可能已经在柜里。这时不能再“自动取消 + 退钱 + 释放格口”——
+                // 那正好造出最难处理的现场：“钱退了、件留下了、格子卖给了第三个人”。
+                // 接手的是门未关看管（落定计费）→ 逾期（转 EXPIRED）→ 封顶后交对账与运维清单。
+                log.info("超时释放跳过：该单已开过门，改由门未关/逾期看管接手 orderNo={}", order.getOrderNo());
+                return false;
+            }
             orders.cancel(order.getCustomerId(), order.getOrderNo());
             log.info("超时未投件，已自动释放 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
             return false;
@@ -98,58 +107,70 @@ public final class TaskHandlers {
     }
 
     /**
-     * 门开太久：两种现场分两处理，共同点是“绝不自动记为已存”。
-     * <ul>
-     *   <li>OPENING（投件那一次）——件到底在不在柜里无法判断，只能 ABNORMAL 等人工；
-     *       规划 §5.6 写的是“自动撤销”，这里改成转人工并明写理由：自动撤销会把一个
-     *       可能真有件的格口标成可分配，下一个用户开开的就是别人那件。</li>
-     *   <li>TEMP_OPEN（中途取物）——件一定在里面（否则进不了这一步），所以只告警不动状态，
-     *       用户仍可继续取。<b>本刀故意为不把格口标 FAULT</b>：标了以后取件释放走
-     *       {@code where status='OCCUPIED'} 就推不动，单反而被锁死；标故障与故障恢复流程
-     *       是一个闭环，归第 14 刀的运维侧一起做，而不是在这里先写一半。</li>
-     * </ul>
+     * 门开太久的看管：S-16 之后它不再是“人工事件”，而是<b>计费事件</b>。
+     *
+     * <p>做三件事：落定计费起点、让单进入计费态、告警并续排提醒；到封顶就停止自转，
+     * 交对账与运维清单。<b>不转 ABNORMAL、不自动撑销</b>。
+     *
+     * <p>原来这里的行为是“OPENING 超时转 ABNORMAL 等人工”。改的理由是经济的：柜机散布全城
+     * 多点位，派一次出勤的成本远高于一个格口被占的损耗；而“每次未关门都找人”最后一定
+     * 变成没人接的工单——等于没有规则。钱会把人叫回来，不需要人盯屏幕。
+     *
+     * <p>也不自动撑销：那会把一个可能真有件的格口标成可分配，下一个用户开开的就是别人那件。
+     *
+     * <p>{@link #transactional()} 返回 false：设备探测在真接上 MQTT 后是一次 RPC，
+     * 不能拿着数据库连接等它回答（第 11 刀拆事务的同一理由）；收敛自己在
+     * {@code StorageOrderService.toleranceExpired} 里成一个短事务。
      */
     @Component
     public static class DoorNotClosedHandler implements TaskHandler {
-
+    
         private final BizStorageOrderMapper orderMapper;
         private final BizFaultEventMapper faultMapper;
-
-        DoorNotClosedHandler(BizStorageOrderMapper orderMapper, BizFaultEventMapper faultMapper) {
+        private final StorageOrderService orders;
+        private final CompartmentStateService states;
+        private final PricingPolicy pricing;
+    
+        DoorNotClosedHandler(BizStorageOrderMapper orderMapper, BizFaultEventMapper faultMapper,
+                             StorageOrderService orders, CompartmentStateService states, PricingPolicy pricing) {
             this.orderMapper = orderMapper;
             this.faultMapper = faultMapper;
+            this.orders = orders;
+            this.states = states;
+            this.pricing = pricing;
         }
-
+    
         @Override
         public TaskType type() {
             return TaskType.DOOR_NOT_CLOSED;
         }
-
+    
+        @Override
+        public boolean transactional() {
+            return false;
+        }
+    
         @Override
         public boolean handle(BizDelayTask task) {
             BizStorageOrder order = find(orderMapper, task.getBizKey());
-            if (order == null) {
+            if (order == null || order.getStatus().isTerminal()) {
                 return false;
             }
-            if (order.getStatus() == OrderStatus.OPENING) {
-                order.transitTo(OrderStatus.ABNORMAL);
-                orderMapper.updateById(order);
-                recordFault(order, "开柜后超时未关门，需现场核验");
-                log.warn("门开超时转人工 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
+            // 到顶就停：再盯下去也不会多收一分，继续自转只会刷日志。
+            // 停看管不等于丢现场：格口的 DOOR_OPEN 异常还在，对账会把未关门数计成指标。
+            if (order.getStartedAt() != null && pricing.isCapped(order.getPricingSnapshot(),
+                    java.time.Duration.between(order.getStartedAt(), LocalDateTime.now()).toMinutes())) {
+                recordFault(order, "柜门长时间未关且计费已到顶，转对账与运维清单");
                 return false;
             }
-            if (order.getStatus() == OrderStatus.TEMP_OPEN) {
-                // 件一定在里面，不该把人的东西卷进异常；但门开着必须响（不静默），状态不动以便用户自己关回来
-                recordFault(order, "临时开柜后超时未关门，需现场确认门已关");
-                log.warn("临时开柜超时未关，已告警 orderNo={} slotId={}",
-                        order.getOrderNo(), order.getSlotId());
-                return false;
+            boolean remindAgain = orders.toleranceExpired(order.getOrderNo(),
+                    states.sense(order.getCabinetId(), order.getSlotId()));
+            if (remindAgain) {
+                recordFault(order, "柜门仍未关闭：已开始计费，直到关门或用户远程结束");
             }
-            // 已关门（ACTIVE）或已取消：本任务什么都不该做（重入的关键，不是"跳过报错"）
-            log.debug("门未关看管无需处理：当前状态 {}", order.getStatus());
-            return false;
+            return remindAgain;
         }
-
+    
         private void recordFault(BizStorageOrder order, String reason) {
             BizFaultEvent event = new BizFaultEvent();
             event.setCabinetId(order.getCabinetId());
@@ -293,10 +314,10 @@ public final class TaskHandlers {
                     .eq(BizCabinet::getTenantId, TenantContext.current()));
             for (BizCabinet cabinet : cabinets) {
                 for (SizeType size : SizeType.values()) {
-                    List<Long> free = slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                                    .eq(BizCompartment::getCabinetId, cabinet.getId())
-                                    .eq(BizCompartment::getSizeType, size)
-                                    .eq(BizCompartment::getStatus, SlotStatus.FREE))
+                    // 共用同一条“可分配”判据：校准若把“门开着/有遗留物”的格口写回集合，
+                    // 就是把“DB 已经拦住了”这件事又放回 Redis 里放行
+                    List<Long> free = slotMapper.selectList(
+                                    SlotCandidateQuery.assignable(cabinet.getId(), size))
                             .stream().map(BizCompartment::getId).toList();
                     preDeduction.replaceFreeSet(cabinet.getId(), size, free);
                 }

@@ -1,6 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wherelee.cabinet.application.storage.CompartmentStateService;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.application.task.DelayTaskService;
@@ -13,10 +14,12 @@ import com.wherelee.cabinet.domain.entity.BizFaultEvent;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
+import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.DepositStatus;
 import com.wherelee.cabinet.domain.enums.FaultType;
 import com.wherelee.cabinet.domain.enums.OnlineState;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
+import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.domain.enums.SlotStatus;
 import com.wherelee.cabinet.domain.enums.TaskStatus;
@@ -54,7 +57,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -86,6 +91,8 @@ class DelayTaskTest {
     private BizDelayTaskMapper taskMapper;
     @Autowired
     private StorageOrderService orderService;
+    @Autowired
+    private CompartmentStateService states;
     @Autowired
     private PointAccountService points;
     @Autowired
@@ -429,8 +436,8 @@ class DelayTaskTest {
     }
 
     @Test
-    @DisplayName("门开超时：订单转 ABNORMAL 并留下故障事件（件可能在里面，不自动收尾）")
-    void doorNotClosedMarksAbnormal() {
+    @DisplayName("门开超过容错期：转成计费事件而不是人工工单（S-16）")
+    void doorOpenPastToleranceStartsBilling() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         // 走到 OPENING：开柜成功（模拟器正常回执）
@@ -439,18 +446,60 @@ class DelayTaskTest {
         assertEquals(OrderStatus.OPENING, TenantContext.callAs(TENANT,
                 () -> orderMapper.selectById(order.getId())).getStatus());
 
+        // 把容错到期时刻也推到过去：真实运行中巡检不会提前跑，而“现在就是到期后的第一眼”
+        // 才是这条用例要描述的时刻。不推就会拿一个未来的起点去断言，测不到真东西。
+        jdbc.update("update biz_storage_order set tolerance_until = date_sub(now(3), interval 1 second) "
+                + "where id = ?", order.getId());
         scheduleNow(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
         TenantContext.callAs(TENANT, tasks::runDue);
 
         BizStorageOrder after = TenantContext.callAs(TENANT, () -> orderMapper.selectById(order.getId()));
-        assertEquals(OrderStatus.ABNORMAL, after.getStatus(), "门开着状态未知必须转人工，不能自动记为已存");
+        // 旧口径是“转 ABNORMAL 等人工”。现在：全城多点位派一次人工的成本远高于一个格口被占的损耗，
+        // 所以不关门靠钱来处置：起计、推进到计费态、进台账，而不是给人派活
+        assertEquals(OrderStatus.ACTIVE, after.getStatus(),
+                "门开超容错应转成计费中，而不是转人工");
+        assertNotNull(after.getStartedAt(), "计费起点必须已落定（不落定就是无限免费）");
+        assertFalse(after.getStartedAt().isAfter(java.time.LocalDateTime.now()),
+                "起点不能落在未来：那等于这一分钟仍然不计费");
+
+        BizCompartment slot = TenantContext.callAs(TENANT, () -> slotMapper.selectById(order.getSlotId()));
+        assertEquals(CompartmentAnomaly.DOOR_OPEN, slot.getAnomaly(), "门未关必须标成异常，不得被分给下一位");
+        assertNotNull(slot.getDoorOpenAt(), "开门起点要留着：计费时长与提醒都据它");
+
         BizFaultEvent event = TenantContext.callAs(TENANT, () -> faultMapper.selectOne(
                 Wrappers.<BizFaultEvent>lambdaQuery().eq(BizFaultEvent::getCabinetId, cabinetId)
                         .orderByDesc(BizFaultEvent::getId).last("limit 1")));
-        assertNotNull(event);
+        assertNotNull(event, "异常必须同时进台账（只写日志等于没人看）");
         assertEquals(FaultType.DOOR_NOT_CLOSED, event.getFaultType());
-        // ABNORMAL 仍有出口：人工核验后可以关掉，不是死端
-        assertTrue(after.getStatus().canTransitTo(OrderStatus.CLOSED));
+
+        // 到顶之前这条看管不能停：“DONE”就是再没人盯，而用户可能永远不回来关门
+        BizDelayTask watched = task(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
+        assertEquals(TaskStatus.PENDING, watched.getStatus(), "计费还在走，看管就必须续排");
+    }
+
+    @Test
+    @DisplayName("门关上后异常自动解除：只看门、不看物")
+    void doorClosedClearsAnomalyEvenWithoutItemSensor() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
+                com.wherelee.cabinet.domain.enums.CommandAction.OPEN));
+        jdbc.update("update biz_storage_order set tolerance_until = date_sub(now(3), interval 1 second) "
+                + "where id = ?", order.getId());
+        scheduleNow(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
+        TenantContext.callAs(TENANT, tasks::runDue);
+        assertEquals(CompartmentAnomaly.DOOR_OPEN,
+                TenantContext.callAs(TENANT, () -> slotMapper.selectById(order.getSlotId())).getAnomaly(),
+                "先确认异常真的标上了（不然后面的“解除了”只是从未发生）");
+
+        // 拿一个“门关了但柜内测不到”的读数去解除：现实里大多数柜机只有门磁没有物检，
+        // 如果把“测不到”也算成解除阻碍，整柜会越用越多地永久卡在异常里。
+        // runAs 不能省：服务内部要读格口，没有租户上下文会被守卫直接拒执（本会话第 6 次踩这条）
+        TenantContext.runAs(TENANT, () -> states.tryAutoRecover(order.getSlotId(),
+                new CompartmentStateService.Sensing(true, Presence.UNKNOWN, LocalDateTime.now())));
+
+        assertNull(TenantContext.callAs(TENANT, () -> slotMapper.selectById(order.getSlotId())).getAnomaly(),
+                "DOOR_OPEN 的解除判据只能是门本身；“里面有没有东西”是另外两类异常的责任");
     }
 
     @Test

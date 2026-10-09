@@ -302,6 +302,10 @@ class CommandRescanTest {
         jdbc.update("update biz_device_command set status = 'SENT', sent_at = date_sub(now(3), interval 10 minute)"
                 + " where request_id = ?", requestId);
         jdbc.update("delete from biz_delay_task where task_type = 'COMMAND_RESCAN'");
+        // 上一轮跑挂/上下文被拆时留下的“在飞”扫街任务必须先清掉：同一个 (类型, bizKey) 处于 RUNNING
+        // 且租约未到期时，登记是故意什么都不做的（不能被刷成新一轮，否则两个 worker 会同时扫）——
+        // 不清就是在测“残留状态”，症状是“扫街没登记任何回扫”而业务其实是对的
+        jdbc.update("delete from biz_delay_task where task_type = 'COMMAND_SWEEP'");
 
         TenantContext.runAs(TENANT, () -> tasks.schedule(TaskType.COMMAND_SWEEP, String.valueOf(TENANT),
                 TENANT, LocalDateTime.now().minusSeconds(5)));

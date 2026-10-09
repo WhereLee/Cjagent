@@ -73,6 +73,16 @@ public class PricingPolicy {
     @Value("${cabinet.pricing.cap-days:3}")
     private int capDays;
 
+    /**
+     * 远程结束/超窗重开的加收小时数（docs/门态与物品争议设计.md §3）。
+     *
+     * <p>为什么用“几小时单价”而不是单独一张罚款价目表：它就是计时计费的一个延伸，
+     * 随尺寸与策略自动变（小 30 / 中 50 / 大 80 点），账单上一句话能说清；
+     * 而单独维护一张价目表就会与计时价漂移（改了小时价忘了改罚款）。
+     */
+    @Value("${cabinet.pricing.remote-close-hours:2}")
+    private int remoteCloseHours;
+
     public PricingPolicy() {
     }
 
@@ -97,11 +107,27 @@ public class PricingPolicy {
         Snap snap = readSnapshot(snapshotJson);
         // 结算用快照里的参数而不是当前配置：否则“运营今日改封顶”会追溯改掉进行中那张单的价格
         return buildQuote(snap.unit(), actualMinutes, snap.freeMinutes(), snap.dailyCapHours(),
-                snap.capDays(), snap.depositPoints());
+                snap.capDays(), snap.depositPoints(), snap.remoteCloseHours());
     }
 
     private Quote quoteWith(long unit, long minutes) {
-        return buildQuote(unit, minutes, freeMinutes, dailyCapHours, capDays, depositPoints);
+        return buildQuote(unit, minutes, freeMinutes, dailyCapHours, capDays, depositPoints, remoteCloseHours);
+    }
+
+    /**
+     * 这笔单“未关门离开”该加收多少。
+     *
+     * <p>读快照而不读当前配置，与结算同一理由：改加收不得追溯改变已发生的单。
+     *
+     * <p><b>旧快照（第 12/13 刀那批单）读不出这个字段时收 0</b>，而不是拿今天的配置补上：
+     * 给历史单凭空加一笔它当时不存在的费用，是整份定价约定里最不能做的事。
+     */
+    public long remoteFeePoints(String snapshotJson) {
+        Snap snap = readSnapshot(snapshotJson);
+        if (snap.remoteCloseHours() <= 0) {
+            return 0L;
+        }
+        return snap.unit() * snap.remoteCloseHours();
     }
 
     /**
@@ -128,11 +154,12 @@ public class PricingPolicy {
     }
 
     /** 快照里算得出价格所需的全部输入。 */
-    private record Snap(long unit, int freeMinutes, int dailyCapHours, int capDays, long depositPoints) {
+    private record Snap(long unit, int freeMinutes, int dailyCapHours, int capDays, long depositPoints,
+                        int remoteCloseHours) {
     }
 
     private Quote buildQuote(long unit, long minutes, int freeMinutes,
-                             int dailyCapHours, int capDays, long depositPoints) {
+                             int dailyCapHours, int capDays, long depositPoints, int remoteCloseHours) {
         int rawHours = billedHours(minutes, freeMinutes);
         int chargeable = chargeableHours(rawHours, dailyCapHours, capDays);
         long consume = chargeable * unit;
@@ -143,6 +170,8 @@ public class PricingPolicy {
         // 阶梯参数必须一起进快照：否则“封顶改了”会追溯改变进行中订单的价格
         snapshot.put("dailyCapHours", dailyCapHours);
         snapshot.put("capDays", capDays);
+        // 加收小时数也是价格的一部分：它变了就是改价，同样不得追溯
+        snapshot.put("remoteCloseHours", remoteCloseHours);
         snapshot.put("rawHours", rawHours);
         snapshot.put("billedHours", chargeable);
         snapshot.put("depositPoints", depositPoints);
@@ -206,7 +235,9 @@ public class PricingPolicy {
                     (int) readLong(node, "freeMinutes", this.freeMinutes),
                     (int) readLong(node, "dailyCapHours", 0L),
                     (int) readLong(node, "capDays", 0L),
-                    readLong(node, "depositPoints", this.depositPoints));
+                    readLong(node, "depositPoints", this.depositPoints),
+                    // 缺字段 = 0 加收（旧单当时的价就是没有这一笔），而不是拿今天的配置补
+                    (int) readLong(node, "remoteCloseHours", 0L));
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {

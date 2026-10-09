@@ -1,11 +1,9 @@
 package com.wherelee.cabinet.application.storage;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.domain.enums.SlotStatus;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
@@ -46,10 +44,9 @@ public class CasSlotAllocator implements SlotAllocator {
     public AllocatedSlot allocate(Long cabinetId, SizeType required, Long orderId) {
         List<SizeType> acceptable = SizeType.acceptanceOrder(required);
 
-        List<BizCompartment> candidates = slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                .eq(BizCompartment::getCabinetId, cabinetId)
-                .eq(BizCompartment::getStatus, SlotStatus.FREE)
-                .in(BizCompartment::getSizeType, acceptable));
+        // 候选定义共用 SlotCandidateQuery（四个分配器 + 预扣集合 + 校准同一条判据）
+        List<BizCompartment> candidates = slotMapper.selectList(
+                SlotCandidateQuery.assignable(cabinetId, acceptable));
 
         if (candidates.isEmpty()) {
             throw new BizException(ResultCode.SLOT_UNAVAILABLE, "该柜机没有可用格口");
@@ -70,11 +67,10 @@ public class CasSlotAllocator implements SlotAllocator {
             }
         }
 
-        // 一轮都没抢到：还有空闲就是竞争失败（可重试），真一个不剩才是缺货
-        long stillFree = slotMapper.selectCount(Wrappers.<BizCompartment>lambdaQuery()
-                .eq(BizCompartment::getCabinetId, cabinetId)
-                .eq(BizCompartment::getStatus, SlotStatus.FREE)
-                .in(BizCompartment::getSizeType, acceptable));
+        // 一轮都没抢到：还有可分配位就是竞争失败（可重试），真一个不剩才是缺货。
+        // 这里的“可用”故意用同一条判据：“有位但门开着/有遗留物”算缺货而不是“抢输了”——
+        // 告诉用户重试有机会，而他重试一万次也赢不了，比告诉他没位更坑
+        long stillFree = slotMapper.selectCount(SlotCandidateQuery.assignable(cabinetId, acceptable));
         throw new BizException(stillFree > 0 ? ResultCode.SLOT_RACE_LOST : ResultCode.SLOT_UNAVAILABLE,
                 stillFree > 0 ? "格口刚刚被占用，请重试" : "该柜机没有可用格口");
     }
