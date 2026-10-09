@@ -28,16 +28,25 @@ import java.util.List;
 @Mapper
 public interface BizLockerConsoleMapper {
 
-    /** 台账行：格口 + 异常原因 + 停留分钟 + 柜机/点位与当前占用人。 */
+    /**
+     * 台账行：格口 + 异常原因 + 停留分钟 + 柜机/点位与当前占用人。
+     *
+     * <p><b>别名一律用下划线</b>：{@code PageSupport} 会把排序属性 {@code stuckMinutes} 转成
+     * {@code stuck_minutes} 拼进 ORDER BY，用驼峰别名就会“能查不能排”（unknown column）；
+     * 而下划线别名正好也能被 MyBatis 映射回驼峰属性。
+     *
+     * <p>SQL 里不放 {@code --} 注释：分页插件会重写这条语句取 count，拼成一行时注释会吃掉后面的 SQL。
+     */
     @Select("""
             select c.id, c.tenant_id, c.cabinet_id, c.slot_no, c.size_type, c.status, c.current_order_id,
                    c.door_open_at, c.door_closed_at, c.presence, c.presence_checked_at,
                    c.anomaly, c.anomaly_at, c.anomaly_reason, c.version,
                    c.create_time, c.update_time, c.deleted,
-                   cab.cabinet_no                                  as cabinetNo,
-                   cab.site_id                                     as siteId,
-                   s.name                                          as siteName,
-                   timestampdiff(MINUTE, c.anomaly_at, now(3))    as stuckMinutes
+                   cab.cabinet_no                                  as cabinet_no,
+                   cab.id                                          as cabinet_id,
+                   cab.site_id                                     as site_id,
+                   s.name                                          as site_name,
+                   timestampdiff(MINUTE, c.anomaly_at, now(3))    as stuck_minutes
               from biz_compartment c
               join biz_cabinet cab on cab.id = c.cabinet_id and cab.deleted = 0
               join biz_site s      on s.id  = cab.site_id   and s.deleted = 0
@@ -53,8 +62,8 @@ public interface BizLockerConsoleMapper {
 
     /** 台账按原因码计数：后台顶部的"哪类积压多少"，让排片有依据而不是逐条翻页。 */
     @Select("""
-            select c.anomaly as anomaly, count(*) as rowsCount,
-                   coalesce(max(timestampdiff(MINUTE, c.anomaly_at, now(3))), 0) as longestMinutes
+            select c.anomaly as anomaly, count(*) as rows_count,
+                   coalesce(max(timestampdiff(MINUTE, c.anomaly_at, now(3))), 0) as longest_minutes
               from biz_compartment c
               join biz_cabinet cab on cab.id = c.cabinet_id and cab.deleted = 0
              where c.deleted = 0 and c.anomaly is not null
@@ -65,9 +74,9 @@ public interface BizLockerConsoleMapper {
 
     /** 未退押金清单：凭证仍是 HELD/REFUNDING/FAILED，且订单已进终态（在线单挂着押金是正常态）。 */
     @Select("""
-            select d.id as depositId, d.order_id as orderId, d.customer_id as customerId,
-                   d.points as points, d.status as depositStatus, o.order_no as orderNo,
-                   o.status as orderStatus, timestampdiff(HOUR, d.held_at, now(3)) as heldHours
+            select d.id as deposit_id, d.order_id as order_id, d.customer_id as customer_id,
+                   d.points as points, d.status as deposit_status, o.order_no as order_no,
+                   o.status as order_status, timestampdiff(HOUR, d.held_at, now(3)) as held_hours
               from biz_deposit d
               join biz_storage_order o on o.id = d.order_id and o.deleted = 0
              where d.deleted = 0
@@ -79,8 +88,8 @@ public interface BizLockerConsoleMapper {
 
     /** 欠费客户清单：按客户汇总未缴金额，追缴与禁用判断都看这张表。 */
     @Select("""
-            select o.customer_id as customerId, sum(o.arrears_points) as arrearsPoints,
-                   count(*) as arrearsOrders, max(o.finished_at) as lastFinishedAt
+            select o.customer_id as customer_id, sum(o.arrears_points) as arrears_points,
+                   count(*) as arrears_orders, max(o.finished_at) as last_finished_at
               from biz_storage_order o
              where o.deleted = 0 and o.arrears_points > 0
              group by o.customer_id
@@ -104,12 +113,15 @@ public interface BizLockerConsoleMapper {
     /** 台账行（继承格口实体字段，附柜机/点位与停留时长）。 */
     class LedgerRow extends BizCompartment {
         private String cabinetNo;
+        private Long cabinetId;
         private Long siteId;
         private String siteName;
         private Long stuckMinutes;
 
         public String getCabinetNo() { return cabinetNo; }
         public void setCabinetNo(String cabinetNo) { this.cabinetNo = cabinetNo; }
+        public Long getCabinetId() { return cabinetId; }
+        public void setCabinetId(Long cabinetId) { this.cabinetId = cabinetId; }
         public Long getSiteId() { return siteId; }
         public void setSiteId(Long siteId) { this.siteId = siteId; }
         public String getSiteName() { return siteName; }

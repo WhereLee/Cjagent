@@ -45,6 +45,22 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '账号列表', perm: 'system:user:list', inMenu: true },
       },
       {
+        path: 'locker/anomalies',
+        name: 'locker-anomalies',
+        component: () => import('@/views/AnomalyLedgerView.vue'),
+        // 权限码与后端 @PreAuthorize 用同一字符串；菜单里只在有权限时出现，
+        // 但“能不能调”仍由服务端 40300 决定（前端隐藏不是门禁）
+        meta: { title: '异常格口台账', perm: 'locker:ledger:list', inMenu: true },
+      },
+      {
+        path: 'locker/funds',
+        name: 'locker-funds',
+        component: () => import('@/views/FundTodoView.vue'),
+        // 故意不写 perm：这一页两个 tab 各需一个权限点，挂任一个都会误挡只有另一个权限的人；
+        // 可见性由页内 hasAuthority 控制，接口调用仍逐个受服务端校验
+        meta: { title: '资金待办', inMenu: true },
+      },
+      {
         path: 'account',
         name: 'account',
         component: () => import('@/views/AccountView.vue'),

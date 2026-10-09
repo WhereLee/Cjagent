@@ -254,15 +254,15 @@ public class LockerConsoleService {
      * 台账行视图。<b>接口层不得直接用 mapper 的行对象</b>（ArchUnit 有这条规则，今天就是它拦下来的）：
      * 行对象跟着 SQL 列变，一变就把 SQL 细节透给了前端契约。
      */
-    public record LedgerView(Long compartmentId, String cabinetNo, String slotNo, String anomaly,
+    public record LedgerView(Long compartmentId, Long cabinetId, String cabinetNo, String slotNo, String anomaly,
                              LocalDateTime anomalyAt, Long stuckMinutes, String anomalyReason,
-                             String siteName, Long currentOrderId) {
+                             Long siteId, String siteName, Long currentOrderId) {
 
         static LedgerView from(BizLockerConsoleMapper.LedgerRow row) {
-            return new LedgerView(row.getId(), row.getCabinetNo(), row.getSlotNo(),
+            return new LedgerView(row.getId(), row.getCabinetId(), row.getCabinetNo(), row.getSlotNo(),
                     row.getAnomaly() == null ? null : row.getAnomaly().name(),
                     row.getAnomalyAt(), row.getStuckMinutes(), row.getAnomalyReason(),
-                    row.getSiteName(), row.getCurrentOrderId());
+                    row.getSiteId(), row.getSiteName(), row.getCurrentOrderId());
         }
     }
 
