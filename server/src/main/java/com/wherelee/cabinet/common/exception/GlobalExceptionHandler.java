@@ -147,6 +147,22 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(R.fail(ResultCode.METHOD_NOT_ALLOWED));
     }
 
+    /**
+     * 不支持的 Content-Type（历史上掉到兜底分支变成 500/50000）。
+     *
+     * <p>这也是一类可预期的使用错误（前端忘带 <code>Content-Type: application/json</code>、
+     * 或用了后端没注册的媒体类型），不配拿到 5xx：那会把告警弄成噪声，
+     * 也会让前端按“系统异常、稍后重试”去处理一个重试一万次也不会好的问题。
+     */
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<R<Void>> handleUnsupportedMediaType(
+            org.springframework.web.HttpMediaTypeNotSupportedException e) {
+        log.warn("请求体类型不支持：{}", e.getMessage());
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(R.fail(ResultCode.PARAM_INVALID,
+                        echoDetail ? e.getMessage() : "请求体 Content-Type 不支持，应使用 application/json"));
+    }
+
     /** 未匹配到任何路由（Boot 3.2+ 抛此异常），不当成系统故障记录。 */
     @ExceptionHandler(NoResourceFoundException.class)
     public ResponseEntity<R<Void>> handleNotFound(NoResourceFoundException e) {

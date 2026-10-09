@@ -102,6 +102,28 @@ public class PricingPolicy {
         return quoteWith(unit, minutes);
     }
 
+    /**
+     * 按发布的计价策略算价（第 14D 刀）。
+     *
+     * <p>只多了一个“参数从哪里来”，<b>公式仍走同一个 {@code buildQuote}</b>：
+     * 否则“预览价”与“结算价”迟早不一样，而那种差异只会以“页面说 6 块、扣了我 9 块”的形式被发现。
+     *
+     * <p>策略 id 与版本一并写进快照：结算仍然只读快照参数（不反查策略表），但审计能回答
+     * “这单当时按哪一版算的”——回滚与改价都不能追溯，但必须能回渣。
+     */
+    public Quote quoteByRule(SizeType size, long minutes, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
+        Map<String, Object> extra = new LinkedHashMap<>();
+        extra.put("priceRuleId", rule.getId());
+        extra.put("priceRuleVersion", rule.getVersion());
+        return buildQuote(rule.unitOf(size), minutes, rule.getFreeMinutes(), rule.getDailyCapHours(),
+                rule.getCapDays(), rule.getDepositPoints(), rule.getRemoteCloseHours(), extra);
+    }
+
+    /** 没发布策略时的押金默认值（预览要用它说清“现在吃的是配置默认价”）。 */
+    public long defaultDepositPoints() {
+        return depositPoints;
+    }
+
     /** 结算入口：单价、免费窗口、阶梯与封顶参数全部取自快照，不读当前配置。 */
     public Quote fromSnapshot(String snapshotJson, long actualMinutes) {
         Snap snap = readSnapshot(snapshotJson);
@@ -160,6 +182,13 @@ public class PricingPolicy {
 
     private Quote buildQuote(long unit, long minutes, int freeMinutes,
                              int dailyCapHours, int capDays, long depositPoints, int remoteCloseHours) {
+        return buildQuote(unit, minutes, freeMinutes, dailyCapHours, capDays, depositPoints,
+                remoteCloseHours, Map.of());
+    }
+
+    private Quote buildQuote(long unit, long minutes, int freeMinutes,
+                             int dailyCapHours, int capDays, long depositPoints, int remoteCloseHours,
+                             Map<String, Object> extraSnapshot) {
         int rawHours = billedHours(minutes, freeMinutes);
         int chargeable = chargeableHours(rawHours, dailyCapHours, capDays);
         long consume = chargeable * unit;
@@ -176,6 +205,8 @@ public class PricingPolicy {
         snapshot.put("billedHours", chargeable);
         snapshot.put("depositPoints", depositPoints);
         snapshot.put("formula", "chargeableHours(ceil(max(0, minutes - freeMinutes) / 60), dailyCapHours, capDays) * unit");
+        // 策略版本等额外字段只往快照里追加，不参与任何计算（计算参已全部显式传进来）
+        snapshot.putAll(extraSnapshot);
         return new Quote(unit, chargeable, consume, depositPoints, write(snapshot));
     }
 

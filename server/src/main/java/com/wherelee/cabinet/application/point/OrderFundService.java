@@ -45,15 +45,19 @@ public class OrderFundService {
 
     private final PointAccountService points;
     private final PricingPolicy pricing;
+    /** 下单时取当前生效的计价策略（第 14D 刀）。拿不到则退回配置默认价，不是拿 0 当价。 */
+    private final com.wherelee.cabinet.application.billing.PriceRuleService priceRules;
     private final BizDepositMapper depositMapper;
     private final BizStorageOrderMapper orderMapper;
     private final BizCompartmentMapper slotMapper;
 
     public OrderFundService(PointAccountService points, PricingPolicy pricing,
+                            com.wherelee.cabinet.application.billing.PriceRuleService priceRules,
                             BizDepositMapper depositMapper, BizStorageOrderMapper orderMapper,
                             BizCompartmentMapper slotMapper) {
         this.points = points;
         this.pricing = pricing;
+        this.priceRules = priceRules;
         this.depositMapper = depositMapper;
         this.orderMapper = orderMapper;
         this.slotMapper = slotMapper;
@@ -66,7 +70,12 @@ public class OrderFundService {
      */
     @Transactional
     public PricingPolicy.Quote holdFunds(BizStorageOrder order, long estimateMinutes) {
-        PricingPolicy.Quote quote = pricing.quote(order.getSizeType(), estimateMinutes);
+        // 价只在这一刻读策略表：算完就写进快照，之后结算、逾期、封顶全读快照。
+        // 所以发布/回滚影响不到这张已经下出去的单（这是第 12 刀定的口径，本刀没改它）。
+        com.wherelee.cabinet.domain.entity.BizPriceRule rule = priceRules.effective(order.getSiteId());
+        PricingPolicy.Quote quote = rule == null
+                ? pricing.quote(order.getSizeType(), estimateMinutes)
+                : pricing.quoteByRule(order.getSizeType(), estimateMinutes, rule);
         long total = quote.depositPoints() + quote.consumePoints();
         if (total <= 0) {
             // 免费窗口内不冻结也要走通：只冻结押金

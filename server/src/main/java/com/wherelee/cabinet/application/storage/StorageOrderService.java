@@ -59,6 +59,8 @@ public class StorageOrderService {
     private final ItemDisputeService dispute;
     /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper;
+    /** 容错期也可以按点位发布（第 14D 刀）；没发布时仍用配置默认值。 */
+    private final com.wherelee.cabinet.application.billing.PriceRuleService priceRules;
     /**
      * 调度器延迟拿取：直接注入会形成循环依赖
      * （StorageOrderService → DelayTaskService → SlotReleaseHandler → StorageOrderService）。
@@ -91,6 +93,7 @@ public class StorageOrderService {
                                CompartmentStateService states,
                                ItemDisputeService dispute,
                                com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
+                               com.wherelee.cabinet.application.billing.PriceRuleService priceRules,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
@@ -103,6 +106,7 @@ public class StorageOrderService {
         this.states = states;
         this.dispute = dispute;
         this.consoleMapper = consoleMapper;
+        this.priceRules = priceRules;
         this.taskScheduler = taskScheduler;
     }
 
@@ -692,9 +696,20 @@ public class StorageOrderService {
         }
     }
 
+    /**
+     * 这张单的容错期：<b>算价与计时必须是同一版策略</b>。
+     *
+     * <p>不然会出现“按站点 A 的价收费，却用全局的容错时长”，两边都能自圆其说但没人能对账。
+     * 没发布过策略时退回配置默认值，与下单冻结时取价的回退路径一致。
+     */
+    private long toleranceOf(BizStorageOrder order) {
+        com.wherelee.cabinet.domain.entity.BizPriceRule rule = priceRules.effective(order.getSiteId());
+        return rule == null ? toleranceMinutes : rule.getToleranceMinutes();
+    }
+
     /** 登记“门开未关”看管，并把容错到期时刻定下来（两者是同一个时刻）。 */
     private void scheduleDoorWatch(BizStorageOrder order) {
-        LocalDateTime toleranceUntil = LocalDateTime.now().plusMinutes(toleranceMinutes);
+        LocalDateTime toleranceUntil = LocalDateTime.now().plusMinutes(toleranceOf(order));
         if (order.getToleranceUntil() == null) {
             // 临时开柜时早已有过容错期：不得把起点刷新，否则“又开一次门”会把计费起点往后推
             order.setToleranceUntil(toleranceUntil);
