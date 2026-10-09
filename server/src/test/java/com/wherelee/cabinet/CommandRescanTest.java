@@ -298,14 +298,19 @@ class CommandRescanTest {
         String requestId = order.getOrderNo() + ":OPEN:1";
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN));
-        // 模拟"下发写了、收敛没跑、进程死了"：指令留在 SENT，且没有任何回扫任务
-        jdbc.update("update biz_device_command set status = 'SENT', sent_at = date_sub(now(3), interval 10 minute)"
-                + " where request_id = ?", requestId);
-        jdbc.update("delete from biz_delay_task where task_type = 'COMMAND_RESCAN'");
-        // 上一轮跑挂/上下文被拆时留下的“在飞”扫街任务必须先清掉：同一个 (类型, bizKey) 处于 RUNNING
+        // 先把全局残留清掉，再把我们这条标成 SENT：扫街是“全库按 sent_at 排序 + limit 50”，
+        // 共享测试库里别人（含上一轮 mvn 剩下的）的旧 SENT/TIMEOUT 会把它挤到 limit 之外。
+        // 本会话第四次踩同一类坑：在全局机制上断言“我的那条”，就必须先清全局残留
+        // （全库账户必须平、整个 key 为空、两个事务各拿 4 条、这里）
+        jdbc.update("delete from biz_device_command where status in ('SENT', 'ACKED', 'TIMEOUT')");
+        // 上一轮跑挂/上下文被拆时留下的“在飞”扫街任务也必须清掉：同一个 (类型, bizKey) 处于 RUNNING
         // 且租约未到期时，登记是故意什么都不做的（不能被刷成新一轮，否则两个 worker 会同时扫）——
         // 不清就是在测“残留状态”，症状是“扫街没登记任何回扫”而业务其实是对的
         jdbc.update("delete from biz_delay_task where task_type = 'COMMAND_SWEEP'");
+        jdbc.update("delete from biz_delay_task where task_type = 'COMMAND_RESCAN'");
+        // 模拟"下发写了、收敛没跑、进程死了"：指令留在 SENT，且没有任何回扫任务
+        jdbc.update("update biz_device_command set status = 'SENT', sent_at = date_sub(now(3), interval 10 minute)"
+                + " where request_id = ?", requestId);
 
         TenantContext.runAs(TENANT, () -> tasks.schedule(TaskType.COMMAND_SWEEP, String.valueOf(TENANT),
                 TENANT, LocalDateTime.now().minusSeconds(5)));

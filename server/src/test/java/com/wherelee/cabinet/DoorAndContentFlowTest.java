@@ -341,21 +341,34 @@ class DoorAndContentFlowTest {
     }
 
     @Test
-    @DisplayName("柜机没有物检：现场可以结束，远程不行（凭据缺失时的不对称）")
-    void unverifiableContentAllowsSiteCloseButNotRemote() {
+    @DisplayName("物检不可用：现场能结束但格口被锁住等确认，远程直接拒")
+    void unverifiableCloseLocksSlotButRefusesRemote() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        // 这台柜机只有门磁没有物检：关门时柜内情况报“不知道”
+        // 这台柜机的柜内传感器不报告结果（坏了/离线）：门磁照常说，但“有没有东西”只能答 UNKNOWN
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.SENSOR_NO_ITEM);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
-
         assertEquals(OrderStatus.ACTIVE, order(order.getOrderNo()).getStatus(),
-                "现实里大多数柜机没有物检，现场结束不能被“测不到”挡死");
+                "关门校验只判门，不判柜内：传感器坏了不该把投件流程卡死");
 
+        // 远程提交：拿不到凭据就不许停表（他看不见现场）
         BizException rejected = assertThrows(BizException.class,
                 () -> TenantContext.runAs(TENANT, () -> orderService.remoteClose(customerId, order.getOrderNo())));
         assertTrue(rejected.getMessage().contains("无法确认"), "远程要凭据：" + rejected.getMessage());
+
+        // 现场当面结束：不拦人，但格子不能不设防地回到可售池
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(), "现场不该被一台坏传感器钉在柜机前");
+        assertEquals(CompartmentAnomaly.CONTENT_UNVERIFIED, slot(closed.getSlotId()).getAnomaly(),
+                "没有凭据的结束必须把格口锁住（否则就是无凭据地把格子放回可售池）");
+        List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
+                .selectList(SlotCandidateQuery.assignable(cabinetId, SizeType.SMALL)))
+                .stream().map(BizCompartment::getId).toList();
+        assertFalse(candidates.contains(closed.getSlotId()),
+                "待确认清空的格口不得出现在候选集里：下一位拿到的可能是别人没取走的箱子");
     }
 
     @Test

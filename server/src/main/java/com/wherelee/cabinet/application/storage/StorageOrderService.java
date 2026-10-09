@@ -193,6 +193,12 @@ public class StorageOrderService {
             // 状态说该释放却释放不掉：说明格口已被他人改写，必须报错回滚而不是"取消成功但格口仍占着"
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，请联系运营处理");
         }
+        if (order.getToleranceUntil() != null && !emptyEvidence(sensing)) {
+            // 门曾经开过（他可能已经放了东西进去）而柜内又确认不了：“取消”不能比“结束”拿到更少的凭据。
+            // 不拦他取消（未计费阶段拦人无意义），但格口锁成待确认，等一次人来看看
+            states.markContentUnverified(order.getSlotId(),
+                    "开过门的单被取消且柜内无法确认，需现场确认后才能重新分配");
+        }
         // 取消同样要把押金与预估全额解冻；与取件共用同一段代码，避免两处各自维护把押金退漏
         funds.cancelHold(order);
         if (orderMapper.updateById(order) == 0) {
@@ -298,14 +304,17 @@ public class StorageOrderService {
             throw new BizException(ResultCode.BIZ_ERROR, "当前状态不可结束：" + order.getStatus());
         }
         CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
+        CloseCriteria.Verdict verdict;
         if (reason == OrderCloseReason.ABANDONED) {
             // 放弃只豁免“无物”，门没关仍不能结束
             if (!sensing.doorClosed()) {
                 throw new BizException(ResultCode.BIZ_ERROR,
                         "柜门还没关上：请先关好门再结束（声明放弃物品不能代替代关门）");
             }
+            // 放弃本身就是“无凭据也结束”，所以调用方要锁格（leavesAnomaly）
+            verdict = CloseCriteria.Verdict.closeWithoutEvidence(null);
         } else {
-            CloseCriteria.Verdict verdict = CloseCriteria.evaluate(sensing.doorClosed(), sensing.presence(),
+            verdict = CloseCriteria.evaluate(sensing.doorClosed(), sensing.presence(),
                     states.fresh(sensing), atSite);
             if (!verdict.closable()) {
                 throw new BizException(ResultCode.BIZ_ERROR, verdict.userMessage());
@@ -318,8 +327,14 @@ public class StorageOrderService {
 
         if (reason.leavesAnomaly()) {
             states.markContentLeft(order.getSlotId(), "用户声明放弃柜内物品，需业务运维清柜后才能重新分配");
+        } else if (!verdict.evidenceBacked()) {
+            // 现场没有拿到“柜内已空”的凭据（传感器坏了）：人可以走，不能把他的脚钉在柜机前；
+            // 但这个格子必须锁住等一次人来确认——否则就是“无凭据地把格子放回可售池”，
+            // 而整条结束判据当初要防的就是这件事
+            states.markContentUnverified(order.getSlotId(),
+                    "现场结束订单时设备无法确认柜内已清空（物检不可用），需现场确认");
         } else {
-            // 门关且确认空：能自动解除的就解除（只有 DOOR_OPEN 这一类可自动，见 I9）
+            // 凭据齐全：能自动解除的异常就解除（只有 DOOR_OPEN 这一类可自动，见 I9）
             states.tryAutoRecover(order.getSlotId(), sensing);
         }
 
@@ -385,7 +400,7 @@ public class StorageOrderService {
             throw e;
         }
 
-        applyDeviceOutcome(order, action, outcome, true);
+        applyDeviceOutcome(order, action, outcome);
         if (orderMapper.updateById(order) == 0) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + orderNo);
         }
@@ -409,15 +424,10 @@ public class StorageOrderService {
      *   <li>{@code CLOSE_VERIFY} 失败/谎报 → 不推进也不回退，只标传感器矛盾（S-16 后它有自己的自助出口）；</li>
      *   <li>{@code OPEN_TEMP} 失败 → 件在里面但没丢 → 保持 {@code ACTIVE}，用户可再试。</li>
      * </ul>
-     *
-     * @param atSite <b>这次收敛是不是“用户本人在柜机前”发起的</b>。实时路径是，回扫路径不是。
-     *               这个区分影响“柜内情况测不到时能不能信”：现场的人就是凭据，
-     *               而系统事后收敛时没有人作证，就不能把拿不到凭据的格口放回可售池。
      */
     private void applyDeviceOutcome(BizStorageOrder order,
                                     com.wherelee.cabinet.domain.enums.CommandAction action,
-                                    com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome,
-                                    boolean atSite) {
+                                    com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome) {
         if (outcome.stale()) {
             // 旧事件：什么都不改（设备重放不得把新状态覆盖成旧事件）
             return;
@@ -438,7 +448,7 @@ public class StorageOrderService {
                     states.afterDoorOpened(states.reload(order.getSlotId()), order.getCustomerId());
                     scheduleDoorWatch(order);
                 }
-                case CLOSE_VERIFY -> closeVerified(order, atSite);
+                case CLOSE_VERIFY -> closeVerified(order);
                 default -> throw new BizException(ResultCode.PARAM_INVALID, "不支持的动作：" + action);
             }
             return;
@@ -476,12 +486,16 @@ public class StorageOrderService {
      * @param atSite true=用户当面点“我关好了”（他就在柜子前）；
      *               false=事后回扫替系统收敛（没有一个活人在现场作证）
      */
-    private void closeVerified(BizStorageOrder order, boolean atSite) {
-        applyCloseVerified(order, states.sense(order.getCabinetId(), order.getSlotId()), atSite);
+    private void closeVerified(BizStorageOrder order) {
+        applyCloseVerified(order, states.sense(order.getCabinetId(), order.getSlotId()));
     }
 
-    /** 关门收敛的真身：读数由参数进来，这样巡检路径能复用同一个方法而不重探一次设备。 */
-    private void applyCloseVerified(BizStorageOrder order, CompartmentStateService.Sensing sensing, boolean atSite) {
+    /**
+     * 关门收敛。<b>它只回答“门关了没有”，不回答“柜内空了没有”</b>：
+     * 后者只在结束订单那一刻判（结束三条件），拿它卡住投件/临时开柜的关门是错的——
+     * 投件时柜内本来就该有东西。
+     */
+    private void applyCloseVerified(BizStorageOrder order, CompartmentStateService.Sensing sensing) {
         if (!sensing.doorClosed()) {
             // 指令层成功而门磁不认：不推进。宁可让用户再点一次，也不能把“没关上”记成已存
             states.markSensorConflict(order.getSlotId(), "收到关门校验但门磁仍报开着，需现场确认");
@@ -503,13 +517,9 @@ public class StorageOrderService {
             order.transitTo(OrderStatus.ACTIVE);
         }
         startBilling(order, LocalDateTime.now());
-        if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.ABSENT && states.fresh(sensing)) {
-            states.tryAutoRecover(order.getSlotId(), sensing);
-        } else if (!atSite) {
-            // 没人在场又得不出“柜内空”的凭据：不能把这一格放回可售池，等人确认（I9）
-            states.markContentUnverified(order.getSlotId(),
-                    "系统收敛了关门事件，但拿不出柜内已清空的凭据，需现场确认");
-        }
+        // 门关了就解除“门未关”异常（这类可以自动，判据只看门）；
+        // “柜内有没有东西”到这里不判：它属于结束时的凭据，不属于关门这件事
+        states.tryAutoRecover(order.getSlotId(), sensing);
     }
 
     /**
@@ -597,8 +607,8 @@ public class StorageOrderService {
             return false;
         }
         if (sensing.doorClosed()) {
-            // 门关了但没人点确认：按关门收敛推进（没人在场作证，所以拿不到凭据时标待确认）
-            applyCloseVerified(order, sensing, false);
+            // 门关了但没人点确认：按关门收敛推进（空不空的判定留给结束那一刻）
+            applyCloseVerified(order, sensing);
         } else {
             if (order.getStatus() == OrderStatus.OPENING) {
                 order.transitTo(OrderStatus.ACTIVE);
@@ -632,10 +642,15 @@ public class StorageOrderService {
             log.info("回扫收敛跳过：单不存在或已终态 orderId={}", orderId);
             return;
         }
-        applyDeviceOutcome(order, action, outcome, false);
+        applyDeviceOutcome(order, action, outcome);
         if (orderMapper.updateById(order) == 0) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，回扫下一轮再来 orderId=" + orderId);
         }
+    }
+
+    /** 这条读数能不能当“柜内已空”的凭据用（坏了、离线、结论过期都算不能用）。 */
+    private boolean emptyEvidence(CompartmentStateService.Sensing sensing) {
+        return sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.ABSENT && states.fresh(sensing);
     }
 
     private long countAttempts(String orderNo, com.wherelee.cabinet.domain.enums.CommandAction action) {

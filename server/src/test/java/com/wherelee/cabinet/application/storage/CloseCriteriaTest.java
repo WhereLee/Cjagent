@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -46,21 +47,30 @@ class CloseCriteriaTest {
     }
 
     @Test
-    @DisplayName("门关 + 确认无物：唯一放行的组合")
+    @DisplayName("门关 + 确认无物：唯一“拿着凭据”的放行组合")
     void closedAndEmptyCloses() {
-        assertTrue(CloseCriteria.evaluate(true, Presence.ABSENT, true, true).closable());
-        assertTrue(CloseCriteria.evaluate(true, Presence.ABSENT, true, false).closable(),
+        CloseCriteria.Verdict v = CloseCriteria.evaluate(true, Presence.ABSENT, true, true);
+        assertTrue(v.closable());
+        assertTrue(v.evidenceBacked(), "拿到凭据的结束才能让格口回到可售池");
+        CloseCriteria.Verdict remote = CloseCriteria.evaluate(true, Presence.ABSENT, true, false);
+        assertTrue(remote.closable() && remote.evidenceBacked(),
                 "远程结束在凭据齐全时应当被允许，否则远程出口形同虚设");
     }
 
     @Test
-    @DisplayName("测不到柜内：现场采信用户，远程不采信")
-    void unverifiableIsTrustedOnlyOnSite() {
-        // 现实里大多数柜机只有门磁没有物检。若这里也拦，主流程全线走不通。
-        assertTrue(CloseCriteria.evaluate(true, Presence.UNKNOWN, true, true).closable());
-        assertTrue(CloseCriteria.evaluate(true, null, true, true).closable(), "从没测过 = 现场由用户声明");
+    @DisplayName("测不到柜内：现场不拦人但拿不到凭据（格口必须被锁），远程直接拦")
+    void unverifiableNeverYieldsEvidence() {
+        // 物检是本设备形态的必备能力，“测不到”只在传感器坏了时发生；
+        // 它不该把人的脚钉在柜机前，但也绝对不能当成“柜子是空的”的证据
+        CloseCriteria.Verdict onSite = CloseCriteria.evaluate(true, Presence.UNKNOWN, true, true);
+        assertTrue(onSite.closable(), "现场不该被一台坏传感器卡死");
+        assertFalse(onSite.evidenceBacked(), "没凭据就不是凭据：调用方必须锁格而不是直接放回可售池");
+        assertNotNull(onSite.userMessage(), "这种情况必须告知用户“需要现场确认”");
 
-        // 反过来，人不在现场时"看不见"不能当成"里面是空的"：那正是最难处理的现场
+        assertTrue(CloseCriteria.evaluate(true, null, true, true).closable(), "从没测过同样不拦现场");
+        assertFalse(CloseCriteria.evaluate(true, null, true, true).evidenceBacked());
+
+        // 人不在现场时，“看不见”不能当成“里面没东西”
         assertEquals(CloseCriteria.Blocker.CONTENT_UNVERIFIED,
                 CloseCriteria.evaluate(true, Presence.UNKNOWN, true, false).blocker());
         assertEquals(CloseCriteria.Blocker.CONTENT_UNVERIFIED,
@@ -70,12 +80,11 @@ class CloseCriteriaTest {
     @Test
     @DisplayName("陈年读数等于没测过：新鲜度不是一个可以忽略的细节")
     void staleEvidenceDegradesToUnverified() {
-        // 新鲜的 ABSENT 才放行
-        assertTrue(CloseCriteria.evaluate(true, Presence.ABSENT, true, false).closable());
-        // 超龄的 ABSENT 在远程路径上当“没凭据”处理；现场仍可由用户声明结束
+        assertTrue(CloseCriteria.evaluate(true, Presence.ABSENT, false, true).closable());
+        assertFalse(CloseCriteria.evaluate(true, Presence.ABSENT, false, true).evidenceBacked(),
+                "超龄的“没东西”不能当凭据：否则一次三天前的读数能替这个格口永远作证");
         assertEquals(CloseCriteria.Blocker.CONTENT_UNVERIFIED,
                 CloseCriteria.evaluate(true, Presence.ABSENT, false, false).blocker());
-        assertTrue(CloseCriteria.evaluate(true, Presence.ABSENT, false, true).closable());
     }
 
     @Test
