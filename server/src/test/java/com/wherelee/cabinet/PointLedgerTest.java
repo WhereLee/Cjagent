@@ -319,9 +319,12 @@ class PointLedgerTest {
         assertEquals(OrderStatus.CLOSED.name(), view.status(), "欠费不能阻塞取件——东西是用户的");
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "件必须能拿出来");
         BizStorageOrder after = order(orderNo);
-        // 1000 分 - 10 = 990 → ceil(990/60)=17 小时 × 25 = 425；可用只有 250 → 欠 175
+        // 1000 分 - 10 = 990 → ceil(990/60) = 17 小时，但第 13 刀上了单日封顶 12 小时：
+        // 12 × 25 = 300（线性计价会是 425）；可用只有 250 → 欠 50
         assertEquals(250L, after.getSettledPoints(), "能扣的先扣完");
-        assertEquals(175L, after.getArrearsPoints(), "扣不到的部分必须记成欠费，不能抹掉");
+        assertEquals(50L, after.getArrearsPoints(), "扣不到的部分必须记成欠费，不能抹掉");
+        assertEquals(300L, after.getSettledPoints() + after.getArrearsPoints(),
+                "应缴总额 = 封顶后的 12 小时价；超过一天的那 5 小时不得再收（规划 §5.10）");
 
         // 押金退还仍然发生（不与欠费互相抵扣，这是 S-03 的定义）
         BizDeposit deposit = TenantContext.callAs(TENANT, () -> depositMapper.selectOne(

@@ -2,6 +2,10 @@ package com.wherelee.cabinet.application.device;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
+import com.wherelee.cabinet.application.task.DelayTaskService;
+import com.wherelee.cabinet.domain.enums.TaskType;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizDeviceCommand;
@@ -31,13 +35,17 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * 设备指令用例：下发 → 等回执 → 收敛状态 → 记录故障。
+ * 设备指令用例：下发 → 等回执 → 收敛状态 → 记录故障 → 超时回扫。
  *
  * <p><b>本类最重要的一行设计是"等回执时不开事务"</b>。
  * 如果在 {@code @Transactional} 方法里 future.get(3s)，每个等待中的请求都会<b>占着一个数据库连接</b>；
  * 第 9 刀压测已经量出连接池只有 10 个、事务时长一长吞吐就崩。所以这里用
  * {@link TransactionTemplate} 显式切成两个短事务：写指令 / 收敛回执，中间那段等待<b>不持有连接</b>。
  * 这也是没有把方法标成事务注解的原因——看起来"少写了一层保护"，实际上是拿掉了瓶颈。
+ *
+ * <p><b>拆事务的代价由回扫支付</b>（第 11 刀欠的账，本刀结清）：中途崩溃会留下
+ * “设备开了门但订单没变”的现场，所以 {@link #rescan} 必须能从上报流水重放收敛，
+ * 而不是假设“总会有人再点一次”。
  *
  * <p>故障矩阵与这里的分支一一对应（规划 §8）：无回执、谎报关门、错报目标、乱序重放、
  * 离线降级、连续失败停用。每种都有用例断言，不是"写了个 switch 就算支持"。
@@ -47,6 +55,12 @@ public class DeviceCommandService {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceCommandService.class);
     private static final String FAIL_KEY_PREFIX = "cab:dev:fail:";
+
+    /** 上报 payload 读写专用 mapper：与定价快照同一条约定（展示层编码器不参与业务算术/往返）。 */
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /** dedup_key 前缀，改这里就要改 {@code selectLatestForCommand} 的 like。 */
+    private static final String REPORT_PREFIX = "cmd:";
 
     private final BizDeviceCommandMapper commandMapper;
     private final BizDeviceReportMapper reportMapper;
@@ -64,6 +78,19 @@ public class DeviceCommandService {
     @Value("${cabinet.device.fail-threshold:3}")
     private int failThreshold;
 
+    /** 无回执指令多久后回扫（也是重试间隔）。 */
+    @Value("${cabinet.scheduler.command-rescan-seconds:30}")
+    private long rescanSeconds;
+
+    /** 回扫重试上限：超了就判死交人工，不能无限重发（对开门这种物理动作，无限重发是风险）。 */
+    @Value("${cabinet.device.rescan-max-retry:2}")
+    private int rescanMaxRetry;
+
+    /**
+     * 调度器延迟拿取（同 StorageOrderService：超时回扫的登记会绕回本类，构造期不能互依赖）。
+     */
+    private final org.springframework.beans.factory.ObjectProvider<DelayTaskService> taskScheduler;
+
     public DeviceCommandService(BizDeviceCommandMapper commandMapper,
                                 BizDeviceReportMapper reportMapper,
                                 BizFaultEventMapper faultMapper,
@@ -71,7 +98,8 @@ public class DeviceCommandService {
                                 BizCabinetMapper cabinetMapper,
                                 DeviceChannel channel,
                                 StringRedisTemplate redis,
-                                TransactionTemplate txTemplate) {
+                                TransactionTemplate txTemplate,
+                                org.springframework.beans.factory.ObjectProvider<DelayTaskService> taskScheduler) {
         this.commandMapper = commandMapper;
         this.reportMapper = reportMapper;
         this.faultMapper = faultMapper;
@@ -80,6 +108,7 @@ public class DeviceCommandService {
         this.channel = channel;
         this.redis = redis;
         this.txTemplate = txTemplate;
+        this.taskScheduler = taskScheduler;
     }
 
     /**
@@ -155,6 +184,8 @@ public class DeviceCommandService {
             recordFault(cabinet.getId(), slotId, FaultType.NO_REPORT, FaultType.Action.ALARM,
                     failureCount(cabinet.getId()) + 1, "回执超时，等待重试或人工");
             int fails = countFailure(cabinet.getId());
+            // 登记回扫：此刻用户已经拿到“请重试”的回复走了，但现场必须有人收
+            scheduleRescan(cabinet.getTenantId(), command.getRequestId());
             return maybeDisable(cabinet, slotId, fails, command.getId(), CommandState.TIMEOUT, FaultType.NO_REPORT,
                     "开柜超时，请稍后重试或联系工作人员");
         }
@@ -168,6 +199,19 @@ public class DeviceCommandService {
             return new CommandOutcome(command.getId(), command.getStatus(), false, true, null,
                     "设备上报为旧事件，未改变状态");
         }
+
+        return converge(command, cabinet, receipt);
+    }
+
+    /**
+     * 把一次回执收敛到指令状态与故障计数。<b>正常路径与回扫重放共用这一段</b>：
+     * 两处各写一遍判据，迟早出现“实时能判谎报、回扫把谎报当成功”。
+     *
+     * <p>调用前提：回执已经过幂等/乱序判定（不在这里写流水），本方法只改指令与故障。
+     */
+    private CommandOutcome converge(BizDeviceCommand command, BizCabinet cabinet,
+                                    DeviceChannel.CommandReceipt receipt) {
+        Long slotId = command.getSlotId();
 
         if (receipt.executedSlotId() != null && !receipt.executedSlotId().equals(slotId)) {
             transit(command, CommandState.FAILED);
@@ -212,6 +256,150 @@ public class DeviceCommandService {
         return new CommandOutcome(command.getId(), CommandState.SUCCEEDED, true, false, null, null);
     }
 
+    /**
+     * 回扫结果：调用方（调度 handler）需要知道“还要不要再排一轮”与“订单该怎么推”。
+     *
+     * @param action 本次回扫做了什么（不是指令最终状态，那是 outcome 里的事）
+     * @param outcome 收敛结果；{@code null} 表示本条无需处理（已终态或不存在）
+     */
+    public record RescanResult(String requestId, Long commandId, RescanAction action, CommandOutcome outcome) {
+    }
+
+    /** 回扫的四种结局。 */
+    public enum RescanAction {
+        /** 已经收敛/无需处理 */
+        SETTLED,
+        /** 用上报流水重放收敛完成 */
+        CONVERGED_FROM_REPORT,
+        /** 重新下发并已处理 */
+        REDISPATCHED,
+        /** 重试耗尽，判死交人工 */
+        GAVE_UP
+    }
+
+    /**
+     * 回扫一条没收敛的指令。三种现场三条路，顺序不能换：
+     * <ol>
+     *   <li><b>有上报流水</b>（回执比超时判定晚到）→ 用流水重放收敛，<b>绝不再下发</b>：
+     *       门可能真的已经开过，再发一次就是对同一个逻辑操作执行两遍；</li>
+     *   <li>没流水但还有重试预算 → 用<b>同一个 requestId</b> 重新下发（设备端对同 requestId 幂等），
+     *       换 ID 等于放弃幂等；</li>
+     *   <li>预算用尽 → <b>判死</b>：状态停在 TIMEOUT 不再自动流转，留故障事件与 ERROR，
+     *       订单侧由调用方按“正在执行哪个动作”退回可重试或转人工。</li>
+     * </ol>
+     *
+     * <p>为什么等回执不在事务里而回扫也在等：与 dispatch 同一条约束（第 9 刀量过连接池）。
+     */
+    public RescanResult rescan(String requestId) {
+        BizDeviceCommand command = commandMapper.selectByRequestId(requestId);
+        if (command == null) {
+            log.info("回扫跳过：指令不存在 requestId={}", requestId);
+            return new RescanResult(requestId, null, RescanAction.SETTLED, null);
+        }
+        if (command.getStatus().isTerminal()) {
+            return new RescanResult(requestId, command.getId(), RescanAction.SETTLED, null);
+        }
+        BizCabinet cabinet = cabinetMapper.selectById(command.getCabinetId());
+        if (cabinet == null) {
+            log.error("回扫无法进行：柜机不存在 cabinetId={} requestId={}", command.getCabinetId(), requestId);
+            return new RescanResult(requestId, command.getId(), RescanAction.SETTLED, null);
+        }
+
+        DeviceChannel.CommandReceipt late = receiptFrom(reportMapper.selectLatestForCommand(requestId));
+        if (late != null) {
+            log.info("回扫发现迟到的回执，按流水重放收敛 requestId={} seq={}", requestId, late.seq());
+            CommandOutcome outcome = txTemplate.execute(status -> converge(command, cabinet, late));
+            return new RescanResult(requestId, command.getId(), RescanAction.CONVERGED_FROM_REPORT, outcome);
+        }
+
+        int retries = command.getRetryCount() == null ? 0 : command.getRetryCount();
+        if (retries >= rescanMaxRetry) {
+            CommandOutcome outcome = txTemplate.execute(status -> giveUp(command, cabinet, retries));
+            return new RescanResult(requestId, command.getId(), RescanAction.GAVE_UP, outcome);
+        }
+
+        // 占用本轮重试名额：影响 0 行说明另一个实例已经先一步动了这条指令，本次不重复做
+        Boolean claimed = txTemplate.execute(status -> {
+            if (command.getStatus() == CommandState.TIMEOUT) {
+                command.transitTo(CommandState.SENT);
+            }
+            command.setRetryCount(retries + 1);
+            return commandMapper.updateById(command) == 1;
+        });
+        if (!Boolean.TRUE.equals(claimed)) {
+            log.info("回扫重试被人抢先，本次放弃 requestId={}", requestId);
+            return new RescanResult(requestId, command.getId(), RescanAction.SETTLED, null);
+        }
+
+        DeviceChannel.CommandReceipt receipt = awaitReceipt(cabinet.getId(), command.getSlotId(),
+                command.getAction(), requestId);
+        final Long commandId = command.getId();
+        CommandOutcome outcome = txTemplate.execute(status ->
+                applyReceipt(commandId, cabinet, command.getSlotId(), receipt));
+        return new RescanResult(requestId, commandId, RescanAction.REDISPATCHED, outcome);
+    }
+
+    /** 重试耗尽：不再自动流转，但要把“为什么停”写清楚（没这条记录，事后就是一个无人知道的黑洞）。 */
+    private CommandOutcome giveUp(BizDeviceCommand command, BizCabinet cabinet, int retries) {
+        command.setLastError("重试 " + retries + " 次仍无回执，转人工");
+        if (commandMapper.updateById(command) == 0) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "指令已被并发修改，回扫下一轮重试 id=" + command.getId());
+        }
+        recordFault(cabinet.getId(), command.getSlotId(), FaultType.NO_REPORT, FaultType.Action.ALARM,
+                failureCount(cabinet.getId()), "重试 " + retries + " 次仍无回执，需人工核验现场");
+        log.error("指令判死需人工处理 requestId={} cabinetId={} slotId={} action={} 重试次数={}",
+                command.getRequestId(), cabinet.getId(), command.getSlotId(), command.getAction(), retries);
+        return new CommandOutcome(command.getId(), command.getStatus(), false, false, FaultType.NO_REPORT,
+                "开柜结果未能确认，已转人工处理");
+    }
+
+    /**
+     * 从上报流水重建一个回执（重放收敛的输入）。
+     *
+     * <p>读不出来就返回 {@code null}，让调用方走“重试/判死”那两条保守路径：
+     * <b>宁可重新下发一次（设备端幂等），也不能拿一个猜出来的成功去推订单状态</b>。
+     */
+    private DeviceChannel.CommandReceipt receiptFrom(BizDeviceReport report) {
+        if (report == null) {
+            return null;
+        }
+        try {
+            JsonNode node = JSON.readTree(report.getPayload());
+            return new DeviceChannel.CommandReceipt(requestIdOf(report.getDedupKey()),
+                    node.path("success").asBoolean(false),
+                    report.getEventType(),
+                    report.getSeq() == null ? 0L : report.getSeq(),
+                    node.path("sensorConfirmed").asBoolean(false),
+                    node.hasNonNull("executedSlotId") ? node.get("executedSlotId").asLong() : null,
+                    node.hasNonNull("detail") ? node.get("detail").asText() : null);
+        } catch (Exception e) {
+            log.error("上报流水 payload 解析失败，改走重试/判死路径 dedupKey={}", report.getDedupKey(), e);
+            return null;
+        }
+    }
+
+    /** {@code cmd:<requestId>} 或 {@code cmd:<requestId>#rN} → requestId。 */
+    private String requestIdOf(String dedupKey) {
+        String value = dedupKey.startsWith(REPORT_PREFIX) ? dedupKey.substring(REPORT_PREFIX.length()) : dedupKey;
+        int round = value.indexOf('#');
+        return round > 0 ? value.substring(0, round) : value;
+    }
+
+    /** 登记回扫提醒（失败不能影响主链路：没提醒只是收敛得慢，而下发失败会让用户卡在柜机前）。 */
+    private void scheduleRescan(Long tenantId, String requestId) {
+        DelayTaskService scheduler = taskScheduler.getIfAvailable();
+        if (scheduler == null) {
+            log.warn("没有可用的调度器，超时指令不会自动回扫 requestId={}", requestId);
+            return;
+        }
+        try {
+            scheduler.schedule(TaskType.COMMAND_RESCAN, requestId, tenantId,
+                    LocalDateTime.now().plusSeconds(rescanSeconds));
+        } catch (RuntimeException e) {
+            log.error("登记指令回扫失败（等扫街保底补上）requestId={}", requestId, e);
+        }
+    }
+
     /** 离线时的处置：存件方向直接拒，取件方向判异常留人工出口（降级方向"不可存、可取"）。 */
     private CommandOutcome offlineOutcome(BizCabinet cabinet, Long slotId, CommandAction action, String requestId) {
         recordFault(cabinet.getId(), slotId, FaultType.OFFLINE, FaultType.Action.ALARM,
@@ -242,9 +430,15 @@ public class DeviceCommandService {
         report.setOrderId(command.getOrderId());
         report.setSeq(receipt.seq());
         report.setEventType(receipt.event());
-        report.setDedupKey("cmd:" + receipt.requestId());
-        report.setPayload("{\"requestId\":\"" + receipt.requestId() + "\",\"detail\":"
-                + jsonString(receipt.detail()) + ",\"sensorConfirmed\":" + receipt.sensorConfirmed()
+        int round = command.getRetryCount() == null ? 0 : command.getRetryCount();
+        // dedup_key 带轮次后缀：“同一轮内的重复送达”才算重复（挡重放），
+        // 跳轮是新的一次物理事件，必须各自入库。否则回扫重试拿到的回执会撞上第一轮的空
+        // 幂等键而被判成旧事件，结果就是“重试永远成功不了”（本刀实测）。
+        report.setDedupKey(REPORT_PREFIX + receipt.requestId() + (round > 0 ? "#r" + round : ""));
+        // success 必须进 payload：回扫时要从流水重建一个能驱动状态机的回执，
+        // 缺这一列就分不清“设备说失败”与“设备没报”，回扫只能一律重发
+        report.setPayload("{\"requestId\":\"" + receipt.requestId() + "\",\"success\":" + receipt.success()
+                + ",\"detail\":" + jsonString(receipt.detail()) + ",\"sensorConfirmed\":" + receipt.sensorConfirmed()
                 + ",\"executedSlotId\":" + receipt.executedSlotId() + "}");
         // 设备声称时间只用于对账；权威时间是 received_at（S-07）
         report.setReportedAt(now);

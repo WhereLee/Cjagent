@@ -5,6 +5,10 @@ cabinet:
   mini:
     # 生产必须走真实 code2session；mock 实现另受 @Profile("!prod") 限制，不会装配
     mock-login: false
+  pay:
+    # 真实通道接入前（S-11），生产不装配任何通道：充值直接回“通道未配置”，
+    # 而不是默认拿到一个 mock 通道默默给人加点数
+    channel: none
   cors:
     # 正式域名必须显式列在这里；留空等于关闭跨域（宁可拒绝请求也不放开来源）
     allowed-origin-patterns: []

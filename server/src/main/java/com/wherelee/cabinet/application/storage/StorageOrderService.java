@@ -52,6 +52,19 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands;
     private final com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper;
     private final com.wherelee.cabinet.application.point.OrderFundService funds;
+    /**
+     * 调度器延迟拿取：直接注入会形成循环依赖
+     * （StorageOrderService → DelayTaskService → SlotReleaseHandler → StorageOrderService）。
+     * 用 ObjectProvider 把解析推迟到第一次使用时，而不是用 @Lazy 把设计问题遮起来：
+     * 这个环本身是有意的（超时释放就是取消），但构造期不能互相依赖。
+     */
+    private final org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler;
+
+    @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.hold-grace-minutes:5}")
+    private long holdGraceMinutes;
+
+    @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.door-grace-minutes:2}")
+    private long doorGraceMinutes;
 
     public StorageOrderService(BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper,
@@ -60,7 +73,8 @@ public class StorageOrderService {
                                SlotPreDeductionService preDeduction,
                                com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands,
                                com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper,
-                               com.wherelee.cabinet.application.point.OrderFundService funds) {
+                               com.wherelee.cabinet.application.point.OrderFundService funds,
+                               org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
@@ -69,6 +83,7 @@ public class StorageOrderService {
         this.deviceCommands = deviceCommands;
         this.deviceCommandMapper = deviceCommandMapper;
         this.funds = funds;
+        this.taskScheduler = taskScheduler;
     }
 
     @Transactional
@@ -121,6 +136,18 @@ public class StorageOrderService {
             log.error("订单落库失败，格口占用将随事务回滚 orderId={} slotId={} strategy={}",
                     orderId, allocated.slotId(), allocator.strategy(), e);
             throw e;
+        }
+
+        // 超时释放任务：它与下单**同一个事务**（本方法标了 @Transactional），所以不存在
+        // “单已落库但没人看”的窗口：要一起成，要一起不成。提醒（Redis/MQ）是 best-effort，
+        // 丢了只影响延迟不影响正确性（执行权在任务表上的租约条件更新）。
+        var scheduler = taskScheduler.getIfAvailable();
+        if (scheduler != null) {
+            scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.SLOT_RELEASE, order.getOrderNo(),
+                    order.getTenantId(), LocalDateTime.now().plusMinutes(holdGraceMinutes));
+            // 押金退还任务不在这里登记：此时押金“挂着”是正常态，提前登记只会每张单都进
+            // “未终态→退避重试→判死”的循环，把 DEAD 变成噪声。真正需要它的是对账发现悬挂押金后
+            // 现场登记（见 LedgerReconcileHandler）
         }
 
         return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), slotNoOf(allocated.slotId()),
@@ -321,10 +348,14 @@ public class StorageOrderService {
                 case OPEN -> {
                     // 门已开，等用户投件 + 关门校验；此时仍是 OPENING，不能提前记为已存
                     log.info("格口已开门 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
+                    // “门开了没人关”的看管必须从这里登记：OPEN 之后如果用户走了，
+                    // 单会停在 OPENING、格口停在 RESERVED、押金一直冻着，而超时释放只认 RESERVED——没人收场
+                    scheduleDoorWatch(order);
                 }
                 case OPEN_TEMP -> {
                     order.setTempOpenCount(order.getTempOpenCount() == null ? 1 : order.getTempOpenCount() + 1);
                     order.transitTo(OrderStatus.TEMP_OPEN);
+                    scheduleDoorWatch(order);
                 }
                 case CLOSE_VERIFY -> {
                     order.transitTo(order.getStatus() == OrderStatus.TEMP_OPEN
@@ -340,6 +371,13 @@ public class StorageOrderService {
                         order.setStartedAt(LocalDateTime.now());
                         order.setExpectedFinishAt(order.getStartedAt()
                                 .plusMinutes(order.getEstimateMinutes() == null ? 60 : order.getEstimateMinutes()));
+
+                        var scheduler = taskScheduler.getIfAvailable();
+                        if (scheduler != null) {
+                            scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.OVERDUE_PICKUP,
+                                    order.getOrderNo(), order.getTenantId(),
+                                    order.getExpectedFinishAt().plusMinutes(holdGraceMinutes));
+                        }
                     }
                 }
                 default -> throw new BizException(ResultCode.PARAM_INVALID, "不支持的动作：" + action);
@@ -363,6 +401,39 @@ public class StorageOrderService {
             // 关门校验失败：件已经在柜里，谎报与错乱目标都必须人工，绝不能再自动流转
             case CLOSE_VERIFY, FORCE_OPEN -> order.transitTo(OrderStatus.ABNORMAL);
             default -> order.transitTo(OrderStatus.ABNORMAL);
+        }
+    }
+
+    /** 登记“门开未关”看管（OPEN 与 OPEN_TEMP 共用）。 */
+    private void scheduleDoorWatch(BizStorageOrder order) {
+        var scheduler = taskScheduler.getIfAvailable();
+        if (scheduler == null) {
+            return;
+        }
+        scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.DOOR_NOT_CLOSED,
+                order.getOrderNo(), order.getTenantId(), LocalDateTime.now().plusMinutes(doorGraceMinutes));
+    }
+
+    /**
+     * 超时回扫后的订单收敛：与实时路径共用同一张“按动作判”的映射表。
+     *
+     * <p>为什么开这个方法而不是让调度 handler 自己改状态：另写一遍映射就会有两个真相，
+     * 迟早出现“实时把 OPEN 失败退回 RESERVED、回扫把它转成 ABNORMAL”这种同事件不同结果。
+     *
+     * <p>单已终态就不动（历史不回改）；并发修改让 updateById 影响 0 行时直接抛，
+     * 让任务退避重跑而不是默不作声。
+     */
+    @Transactional
+    public void convergeDeviceOutcome(Long orderId, com.wherelee.cabinet.domain.enums.CommandAction action,
+                                      com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome) {
+        BizStorageOrder order = orderMapper.selectById(orderId);
+        if (order == null || order.getStatus().isTerminal()) {
+            log.info("回扫收敛跳过：单不存在或已终态 orderId={}", orderId);
+            return;
+        }
+        applyDeviceOutcome(order, action, outcome);
+        if (orderMapper.updateById(order) == 0) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，回扫下一轮再来 orderId=" + orderId);
         }
     }
 

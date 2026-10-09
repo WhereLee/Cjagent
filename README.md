@@ -42,6 +42,9 @@ stress/run-round.ps1        跑一轮压测并按业务码出统计（纯 ASCII�
 deploy/jvm.opts         JVM 参数单一来源（本地脚本与 systemd 单元共用，非密钥文件）
 ci/                     CI 用的 broker 配置
 docs/架构约定.md         分层/命名/错误码/配置的唯一约定来源
+docs/储物柜业务规划.md     领域决策（S-01~S-15）、不变量、失败模式矩阵、切刀计划
+docs/压测报告-格口分配.md  四种并发控制策略的 JMeter 三档对比（含间隙锁取证）
+docs/调度三实现对比.md     扫表 / Redis ZSet / MQ 定时：实测延迟、档位误差、多实例抢占取舍
 ```
 
 ## 本地启动

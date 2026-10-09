@@ -201,6 +201,32 @@ public class OrderFundService {
         order.setFrozenPoints(0L);
     }
 
+    /**
+     * 回收悬挂押金（不变量 4 的安全网，由延迟任务/对账重试触发）。
+     *
+     * @return 本次退还的押金点数；0 表示本来就没得退（幂等重跑的正常分支）
+     */
+    @Transactional
+    public int refundHangingDeposit(BizStorageOrder order) {
+        BizDeposit deposit = depositMapper.selectOne(Wrappers.<BizDeposit>lambdaQuery()
+                .eq(BizDeposit::getOrderId, order.getId()));
+        if (deposit == null || deposit.getStatus() == DepositStatus.REFUNDED) {
+            return 0;
+        }
+        long frozen = order.getFrozenPoints() == null ? 0L : order.getFrozenPoints();
+        if (frozen > 0) {
+            // 还有冻结在账上：走同一段解冻+改凭证逻辑，不另写一遍退钱路径
+            unfreezeAndRefundDeposit(order, "押金退还重试");
+            if (orderMapper.updateById(order) == 0) {
+                throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，押金重试待下一轮");
+            }
+        } else {
+            // 钱已经不在冻结栏（正常结算路径已解冻），只差凭证没改态：补改即可，不能重复退钱
+            depositMapper.markRefunded(deposit.getId(), deposit.getHeldTxnId(), LocalDateTime.now());
+        }
+        return deposit.getPoints() == null ? 0 : deposit.getPoints().intValue();
+    }
+
     /** 是否存在未退押金（不变量 4 的判据之一）。 */
     public long unfinishedDeposits() {
         Long count = depositMapper.selectCount(Wrappers.<BizDeposit>lambdaQuery()

@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +33,9 @@ import java.util.concurrent.atomic.AtomicLong;
  *     测试之间互相污染，最后只能靠运气跑绿；</li>
  *   <li>{@link #NO_RECEIPT} 返回<b>永不完成</b>的 future（而不是抛异常）：真实设备的"没回执"就是这样，
  *       超时判定必须由调用方做。</li>
+ *   <li><b>设备端幂等</b>：同一 requestId 的重复下发返回首次结果，不会把门再开一次。
+ *       服务端的重试（第 13 刀回扫）就建立在这个约定上；模拟器不实现它，就等于
+ *       “重试安全”是个只存在于文档里的假设。</li>
  * </ul>
  */
 @Component
@@ -72,6 +77,18 @@ public class SimulatedCabinetChannel implements DeviceChannel {
     /** 每个 (cabinet:slot) 的单调序号，模拟设备侧 seq。 */
     private final Map<String, AtomicLong> seqBySlot = new ConcurrentHashMap<>();
 
+    /** 设备端幂等表的上限：真实柜机内存有限，这里同理，超量按插入序丢最旧。 */
+    private static final int IDEMPOTENCY_CACHE = 512;
+
+    /** requestId → 首次回执（重复下发不再执行物理动作，只回首次结果）。 */
+    private final Map<String, CommandReceipt> receiptByRequestId = Collections.synchronizedMap(
+            new LinkedHashMap<>(64, 0.75f, false) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, CommandReceipt> eldest) {
+                    return size() > IDEMPOTENCY_CACHE;
+                }
+            });
+
     /** 默认故障模式（volatile：测试线程改，模拟线程读）。 */
     private volatile Fault defaultFault = Fault.NORMAL;
 
@@ -83,6 +100,13 @@ public class SimulatedCabinetChannel implements DeviceChannel {
 
     @Override
     public CompletableFuture<CommandReceipt> send(CommandTicket ticket) {
+        CommandReceipt remembered = receiptByRequestId.get(ticket.requestId());
+        if (remembered != null) {
+            // 重试/回扫再发一次：设备不重做物理动作，只把首次结果重新送回去
+            log.info("模拟器命中设备端幂等表，返回首次结果 requestId={} success={}",
+                    ticket.requestId(), remembered.success());
+            return CompletableFuture.completedFuture(remembered);
+        }
         Fault fault = effectiveFault(ticket.cabinetId());
         if (fault == Fault.OFFLINE) {
             // 离线时通道应当"发不出去"，但业务侧已先查过 available()；真到这里的场景是"离线瞬间竞态"，
@@ -95,7 +119,13 @@ public class SimulatedCabinetChannel implements DeviceChannel {
 
         long seq = nextSeq(ticket.cabinetId(), ticket.slotId());
         CompletableFuture<CommandReceipt> future = new CompletableFuture<>();
-        Runnable reply = () -> future.complete(receiptFor(fault, ticket, seq));
+        Runnable reply = () -> {
+            CommandReceipt receipt = receiptFor(fault, ticket, seq);
+            // 只在真拿到回执时入表：没回执（超时）不能被记成“首次结果”，
+            // 否则一次网络抖动会把这条指令永远钉在“没做过”上
+            receiptByRequestId.put(ticket.requestId(), receipt);
+            future.complete(receipt);
+        };
         if (replyDelayMs <= 0) {
             reply.run();
         } else {
@@ -157,6 +187,7 @@ public class SimulatedCabinetChannel implements DeviceChannel {
         this.defaultFault = Fault.NORMAL;
         this.faultByCabinet.clear();
         this.seqBySlot.clear();
+        this.receiptByRequestId.clear();
     }
 
     public Fault currentFault(Long cabinetId) {

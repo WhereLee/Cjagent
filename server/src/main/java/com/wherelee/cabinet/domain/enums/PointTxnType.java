@@ -78,4 +78,17 @@ public enum PointTxnType {
     public static PointTxnType of(String value) {
         return valueOf(value.trim().toUpperCase(Locale.ROOT));
     }
+
+    /**
+     * 某一栏全部类型名（供 SQL 的 {@code in (...)} 用）。
+     *
+     * <p>为什么由枚举而不是 SQL 决定：把枚举串写死在 SQL 里，新增一个类型时忘了归类，
+     * 账平校验会<b>静默漏算那一笔</b>——比直接不过校验更危险（第 12 刀的结论）。
+     */
+    public static java.util.List<String> namesOf(Bucket bucket) {
+        return java.util.Arrays.stream(values())
+                .filter(type -> type.bucket() == bucket)
+                .map(Enum::name)
+                .toList();
+    }
 }

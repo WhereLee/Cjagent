@@ -120,6 +120,9 @@ cabinet:
     receipt-timeout-ms: 2500
     # 连续失败到这个次数就标故障格口 + 停用柜机（阈值取低：坏柜机接客的用户损失比误停用大）
     fail-threshold: 3
+    # 回扫重发同一条 requestId 的预算：设备端对同 requestId 幂等（只执行一次），
+    # 所以重发不会多开门；但无限重发对物理动作是风险，用完就判死交人工
+    rescan-max-retry: 2
   simulator:
     # 柜机模拟器（进程内，仅 dev/test/integration 装配）：它是可控故障源，不是设备仿真
     reply-delay-ms: 60
@@ -132,9 +135,60 @@ cabinet:
       LARGE: 40
       MEDIUM: 25
       SMALL: 15
+    # 阶梯与封顶（第 13 刀）：每 24 个计费小时算一个计费日，单日最多收这么多个小时的价；
+    # 超过 cap-days 天的部分不再计费。两个值都填 0 = 不限（旧快照的语义就是这个）。
+    # 它们和单价一起进快照：改这两个数不得追溯影响进行中的单
+    daily-cap-hours: 12
+    cap-days: 3
+  pay:
+    # 支付通道：mock | none。**这里默认 mock 是因为 dev 需要能充值**；
+    # application-prod.yml 显式改成 none（不靠运行时的判断拦，而是让通道 bean 根本不存在，
+    # 充值接口会明确返回“通道未配置”而不是默默加点数）
+    channel: mock
+    # 单笔充值上限（点数 = 分）：10 万点 = 1000 元。没上限就是刷金额的入口
+    max-points-per-txn: 100000
   ratelimit:
     # 默认开。只允许本地压测时临时置 false（第 9 刀压测口径会标注），真实环境不得关闭
     enabled: true
+  scheduler:
+    # 触发方式：poll（纯 DB 轮询，默认）| zset（Redis 索引加速）| mq（RocketMQ 延迟消息）。
+    # 三者都只起“提醒”作用，能不能执行由 biz_delay_task 上的租约条件更新决定（跳存储无事务）
+    trigger: poll
+    # 轮询开关（zset/mq 模式下也建议保留作为兜底）；集成测试关掉它，由用例自己调 runDue()
+    poll-enabled: true
+    poll-interval-ms: 15000
+    initial-delay-ms: 20000
+    zset-interval-ms: 1000
+    batch-size: 20
+    # 租约必须明显长于单任务耗时；否则任务还在跑就被别人接管，变成双执行
+    lease-seconds: 60
+    backoff-base-seconds: 30
+    # 占位超时释放与门开未关的宽限（都是“向上”的时间，宁晚不误）
+    hold-grace-minutes: 5
+    door-grace-minutes: 2
+    overdue-remind-minutes: 60
+    # 无回执指令多久后回扫（也是重试间隔）：太短会把一台抖动中的柜机反复摇，
+    # 太长则用户已经走了才收敛
+    command-rescan-seconds: 30
+    # 指令扫街：盖“下发写了、收敛没跑、进程就被杀”这一类逐条提醒盖不到的现场
+    sweep-interval-minutes: 5
+    sweep-stale-minutes: 2
+    sweep-batch-size: 50
+    # 对账每轮最多接多少条悬挂押金（剩下下一轮再接，避免一轮写出万个任务）
+    deposit-sweep-limit: 200
+    # 逾期看管的硬兜底：盯到这里就停止续排并转人工（正常情况先被 cap-days 的封顶收口，
+    # 这一条只兼顾“封顶配成不限”的租户）；停看管不等于丢现场，滞留数进对账指标
+    stranded-days: 7
+    sync-interval-minutes: 10
+    reconcile-interval-minutes: 30
+    # 对账分批大小：按账户 id 游标取一批再做聚合，单批代价与总行数无关。
+    # 开大“少跑几次”在十万账户上是真事故（一条巨型 group by），不要调大
+    reconcile-batch-size: 500
+    # 差异日志里最多带几条样本（定位用，不是全量）
+    reconcile-sample-size: 5
+    bootstrap-interval-ms: 300000
+    bootstrap-initial-delay-ms: 60000
+    wake-topic: storage-task-wake
   tenant:
     # 全库统一的租户列名；白名单表自己读不到别人数据，但查它们时拦截器不会加条件，需手工过滤
     column: tenant_id

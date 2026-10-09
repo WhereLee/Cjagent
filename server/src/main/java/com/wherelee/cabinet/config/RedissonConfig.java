@@ -41,7 +41,13 @@ public class RedissonConfig {
                 .setDatabase(database)
                 // 命令超时给短值：锁竞争失败要快速返回，不能让请求线程挂在慢命令上
                 .setTimeout(3000)
-                .setConnectTimeout(3000);
+                .setConnectTimeout(3000)
+                // 重试间隔固定：默认的 EqualJitterDelay(1s,2s) 会算出 500~1000ms 的**随机**值，
+                // 而 Redisson 用 min(retryDelay, timeout) 推导 HashedWheelTimer 的 tick：
+                // tick = (x % 100) / 2，只要随机值落在 501/601/701… 上就得用 0，
+                // 启动直接抱 IllegalArgumentException: tickDuration : 0（实测约 1% 的启动会中，
+                // 且完全不可复现）。不显式定住这个值，就是在把“应用能不能起来”交给随机数。
+                .setRetryDelay(new org.redisson.config.ConstantDelay(java.time.Duration.ofMillis(100)));
         if (StringUtils.hasText(password)) {
             server.setPassword(password);
         }
