@@ -123,6 +123,15 @@ cabinet:
   simulator:
     # 柜机模拟器（进程内，仅 dev/test/integration 装配）：它是可控故障源，不是设备仿真
     reply-delay-ms: 60
+  pricing:
+    # 轻档计费（S-02/S-03）：按尺寸小时价 + 每单固定押金；1 点 = 1 分，全链路整型不得用浮点
+    # 下单时写进 pricing_snapshot，结算只能读快照：改价不得追溯影响已发的单
+    deposit-points: 200
+    free-minutes: 10
+    unit-points-per-hour:
+      LARGE: 40
+      MEDIUM: 25
+      SMALL: 15
   ratelimit:
     # 默认开。只允许本地压测时临时置 false（第 9 刀压测口径会标注），真实环境不得关闭
     enabled: true

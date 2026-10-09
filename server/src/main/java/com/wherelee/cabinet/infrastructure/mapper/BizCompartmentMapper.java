@@ -31,4 +31,20 @@ public interface BizCompartmentMapper extends BaseMapper<BizCompartment> {
             + "version = version + 1, update_time = NOW(3) "
             + "where id = #{slotId} and current_order_id = #{orderId} and status = 'RESERVED' and deleted = 0")
     int releaseSlot(@Param("slotId") Long slotId, @Param("orderId") Long orderId);
+
+    /**
+     * 取件后释放（OCCUPIED → FREE）。与 {@link #releaseSlot} 分开而不是写成
+     * {@code status in ('RESERVED','OCCUPIED')}：这两个状态对应两件不同的事
+     * （未投件取消 vs 已投件取走），混在一条里就丢掉了“件在不在柜里”这个关键信息，
+     * 一旦出事故无法从数据上判断发生过什么。
+     */
+    @Update("update biz_compartment set status = 'FREE', current_order_id = null, "
+            + "version = version + 1, update_time = NOW(3) "
+            + "where id = #{slotId} and current_order_id = #{orderId} and status = 'OCCUPIED' and deleted = 0")
+    int releaseOccupiedSlot(@Param("slotId") Long slotId, @Param("orderId") Long orderId);
+
+    /** 投件完成（关门校验通过）：RESERVED → OCCUPIED，只有自己的单能推自己的格口。 */
+    @Update("update biz_compartment set status = 'OCCUPIED', version = version + 1, update_time = NOW(3) "
+            + "where id = #{slotId} and current_order_id = #{orderId} and status = 'RESERVED' and deleted = 0")
+    int markOccupied(@Param("slotId") Long slotId, @Param("orderId") Long orderId);
 }

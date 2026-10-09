@@ -79,6 +79,10 @@ public class StorageOrderFacade {
         return syncService.openDoor(customerId, orderNo, action);
     }
 
+    public StorageOrderView pickup(Long customerId, String orderNo) {
+        return syncService.pickup(customerId, orderNo);
+    }
+
     public String activeStrategy() {
         return strategy;
     }

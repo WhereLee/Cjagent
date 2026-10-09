@@ -66,6 +66,8 @@ class AsyncPersistFlowTest {
     @Autowired
     private AsyncStorageOrderAppService asyncService;
     @Autowired
+    private com.wherelee.cabinet.application.point.PointAccountService points;
+    @Autowired
     private SlotPreDeductionService preDeduction;
     @Autowired
     private BizSiteMapper siteMapper;
@@ -131,6 +133,9 @@ class AsyncPersistFlowTest {
             redis.delete("cab:alloc:free:" + cabinetId + ":" + size.name());
         }
         jdbc.update("delete from biz_msg_consume where tenant_id = ? and msg_key like 'SO%'", TENANT);
+        // 先清引用订单的流水与押金，再删订单（顺序反了子查询查不到，残留会污染下个用例）
+        jdbc.update("delete from biz_point_txn where ref_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
+        jdbc.update("delete from biz_deposit where order_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
         jdbc.update("delete from biz_storage_order where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_compartment where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_cabinet where id = ?", cabinetId);
@@ -146,6 +151,10 @@ class AsyncPersistFlowTest {
         Long orderId = IdWorker.getId();
         String orderNo = "SO" + orderId;
         holdKeys.add(orderNo);
+
+        // 消费者落库时要冻押金与预估，没钱的账户会让落库失败（这不是链路 bug，是用例缺前提）
+        TenantContext.runAs(TENANT, () -> points.recharge(customerId, 20000L,
+                "FUND-" + orderNo, "异步用例 funding"));
 
         var deducted = TenantContext.callAs(TENANT, () -> preDeduction.tryPreDeduct(
                 cabinetId, SizeType.acceptanceOrder(required), orderNo, Duration.ofSeconds(180), customerId));

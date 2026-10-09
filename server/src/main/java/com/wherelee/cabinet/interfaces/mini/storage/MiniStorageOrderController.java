@@ -88,4 +88,20 @@ public class MiniStorageOrderController {
         return R.ok(storageOrderFacade.openDoor(current.subjectId(), orderNo,
                 com.wherelee.cabinet.domain.enums.CommandAction.of(action)));
     }
+
+    /**
+     * 取件：结算 + 退押金 + 释放格口。
+     *
+     * <p>没挂 @Idempotent：它是“按单号结算”，本身就是幂等的（重复到达会因
+     * 状态已 CLOSED 而被状态机拒绝），再加一层幂等键只会把正常的“再查一次”也拦掉。
+     */
+    @Operation(summary = "取件结算", description = "时长按服务端时间算；点数不足记欠费但不锁件")
+    @OperationLog(module = "storage", operation = "取件结算")
+    @RateLimit(limit = 12, windowSeconds = 60)
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @PostMapping("/{orderNo}/pickup")
+    public R<StorageOrderView> pickup(@AuthenticationPrincipal VerifiedToken current,
+                                      @PathVariable @NotBlank @Size(max = 32) String orderNo) {
+        return R.ok(storageOrderFacade.pickup(current.subjectId(), orderNo));
+    }
 }

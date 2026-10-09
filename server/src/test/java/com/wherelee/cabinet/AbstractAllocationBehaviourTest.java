@@ -62,6 +62,8 @@ abstract class AbstractAllocationBehaviourTest {
     @Autowired
     protected StorageOrderFacade facade;
     @Autowired
+    protected com.wherelee.cabinet.application.point.PointAccountService points;
+    @Autowired
     protected SlotAllocator allocator;
     @Autowired
     private BizSiteMapper siteMapper;
@@ -155,9 +157,11 @@ abstract class AbstractAllocationBehaviourTest {
                     start.await();
                     // requestId 每线程唯一：不能被幂等注解当作同一请求合并，否则测的是幂等不是并发
                     String requestId = "rt-" + UUID.randomUUID();
-                    Object outcome = TenantContext.callAs(TENANT, () -> facade.create(
-                            900001L + seq,
-                            new CreateOrderCommand(requestId, cabinetNo, requested.name(), 120)));
+                    Object outcome = TenantContext.callAs(TENANT, () -> {
+                        fund(900001L + seq);
+                        return facade.create(900001L + seq,
+                                new CreateOrderCommand(requestId, cabinetNo, requested.name(), 120));
+                    });
                     results.add(outcome);
                 } catch (BizException e) {
                     results.add(e);
@@ -253,7 +257,18 @@ abstract class AbstractAllocationBehaviourTest {
                 + allocator.strategy() + "）");
     }
 
-    /** status 传 null 表示统计该机全部格口。必须包在租户上下文里：断言跑在主线程，而租户守卫会拒绝无上下文的查询。 */
+    /**
+     * 建单现在要先有钱（押金 + 预估冻结）。
+     *
+     * <p><b>辅助方法自己包租户上下文</b>：“记得包一层”这件事在这个项目里已经踩过五次，
+     * 靠自律不如靠默认安全。
+     */
+    protected void fund(long customerId) {
+        TenantContext.runAs(TENANT, () -> points.recharge(customerId, 20000L,
+                "FUND-" + customerId + "-" + UUID.randomUUID(), "压测/用例 funding"));
+    }
+    
+    /** status 传 null 表示统计该机全部格口。必须包在租户上下文里：断言跑在主线程，而租户守卫会拒无上下文的查询。 */
     protected int countByStatus(SlotStatus status) {
         return TenantContext.callAs(TENANT, () -> {
             Long count = slotMapper.selectCount(Wrappers.<BizCompartment>lambdaQuery()
@@ -266,6 +281,7 @@ abstract class AbstractAllocationBehaviourTest {
     @Test
     @DisplayName("取消后格口立刻可复用，且不出现 current_order_id 残留")
     void cancelReleasesSlotCleanly() throws Exception {
+        fund(900777L);
         var view = TenantContext.callAs(TENANT, () -> storageOrderService.create(
                 900777L, new CreateOrderCommand("cancel-" + UUID.randomUUID(), cabinetNo, "LARGE", 60)));
         assertNotNull(view.orderNo());

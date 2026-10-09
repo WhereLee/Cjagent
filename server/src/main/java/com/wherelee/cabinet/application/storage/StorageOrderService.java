@@ -21,6 +21,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
+
 /**
  * 寄存单用例：占位（create）与取消（cancel）。
  *
@@ -48,6 +51,7 @@ public class StorageOrderService {
     private final SlotPreDeductionService preDeduction;
     private final com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands;
     private final com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper;
+    private final com.wherelee.cabinet.application.point.OrderFundService funds;
 
     public StorageOrderService(BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper,
@@ -55,7 +59,8 @@ public class StorageOrderService {
                                SlotAllocator allocator,
                                SlotPreDeductionService preDeduction,
                                com.wherelee.cabinet.application.device.DeviceCommandService deviceCommands,
-                               com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper) {
+                               com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper,
+                               com.wherelee.cabinet.application.point.OrderFundService funds) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
@@ -63,6 +68,7 @@ public class StorageOrderService {
         this.preDeduction = preDeduction;
         this.deviceCommands = deviceCommands;
         this.deviceCommandMapper = deviceCommandMapper;
+        this.funds = funds;
     }
 
     @Transactional
@@ -103,6 +109,11 @@ public class StorageOrderService {
         order.transitTo(OrderStatus.RESERVED);
 
         try {
+            // 先算钱再插单：holdFunds 只往订单对象上写快照与冻结额，一次 insert 就带着它们落库。
+            // 之前先 insert 再补一次 updateById，因为 BizStorageOrder 带 @Version，
+            // 那次 update 影响 0 行却被忽略，定价快照静默丢失（结算时才发现）——
+            // 顺序改对比“记住检查每个 updateById”更可靠。
+            funds.holdFunds(order, command.estimateMinutes());
             orderMapper.insert(order);
         } catch (RuntimeException e) {
             // 罕见但必须留痕：格口已绑单而订单没落库。事务会回滚掉占用，
@@ -135,7 +146,11 @@ public class StorageOrderService {
             // 状态说该释放却释放不掉：说明格口已被他人改写，必须报错回滚而不是"取消成功但格口仍占着"
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，请联系运营处理");
         }
-        orderMapper.updateById(order);
+        // 取消同样要把押金与预估全额解冻；与取件共用同一段代码，避免两处各自维护把押金退漏
+        funds.cancelHold(order);
+        if (orderMapper.updateById(order) == 0) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + orderNo);
+        }
         // 预扣策略下 DB 回 FREE 了就必须让 Redis 空闲集合也看到它，否则这个位置从此“谁也算不到”。
         // 失败只影响准入精度（少卖），不影响正确性，所以这里只告警不阻断取消。
         if ("prealloc".equals(allocator.strategy())) {
@@ -187,6 +202,30 @@ public class StorageOrderService {
     public boolean orderExists(String orderNo) {
         return orderMapper.exists(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getOrderNo, orderNo));
+    }
+
+    /**
+     * 取件：结算 + 退押金 + 释放格口。
+     *
+     * <p>计费时长由**服务端时间**算（started_at → 此刻），不接受客户端上报的时长：
+     * 设备与手机时钟都不可信，而这里是真金白银（S-07）。
+     */
+    @Transactional
+    public StorageOrderView pickup(Long customerId, String orderNo) {
+        BizStorageOrder order = findOwned(customerId, orderNo);
+        if (order.getStatus() != OrderStatus.ACTIVE && order.getStatus() != OrderStatus.TEMP_OPEN
+                && order.getStatus() != OrderStatus.EXPIRED) {
+            throw new BizException(ResultCode.BIZ_ERROR, "当前状态不可取件：" + order.getStatus());
+        }
+        LocalDateTime from = order.getStartedAt() != null ? order.getStartedAt() : order.getCreateTime();
+        long actualMinutes = Math.max(0L, Duration.between(from, LocalDateTime.now()).toMinutes());
+
+        funds.settle(order, actualMinutes);
+
+        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
+        return new StorageOrderView(order.getOrderNo(), cabinet == null ? "-" : cabinet.getCabinetNo(),
+                slotNoOf(order.getSlotId()), order.getSizeType().name(), order.getStatus().name(),
+                order.getEstimateMinutes(), 0, allocator.strategy());
     }
 
     /**
@@ -246,7 +285,9 @@ public class StorageOrderService {
         }
 
         applyDeviceOutcome(order, action, outcome);
-        orderMapper.updateById(order);
+        if (orderMapper.updateById(order) == 0) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + orderNo);
+        }
 
         return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), slotNoOf(order.getSlotId()),
                 order.getSizeType().name(), order.getStatus().name(), order.getEstimateMinutes(),
@@ -285,8 +326,22 @@ public class StorageOrderService {
                     order.setTempOpenCount(order.getTempOpenCount() == null ? 1 : order.getTempOpenCount() + 1);
                     order.transitTo(OrderStatus.TEMP_OPEN);
                 }
-                case CLOSE_VERIFY -> order.transitTo(order.getStatus() == OrderStatus.TEMP_OPEN
-                        ? OrderStatus.ACTIVE : OrderStatus.STORED);
+                case CLOSE_VERIFY -> {
+                    order.transitTo(order.getStatus() == OrderStatus.TEMP_OPEN
+                            ? OrderStatus.ACTIVE : OrderStatus.STORED);
+                    if (order.getStatus() == OrderStatus.STORED) {
+                        // 格口从"预占"变"真有件"：状态分开存，事故时才能分辨件在不在柜里
+                        if (slotMapper.markOccupied(order.getSlotId(), order.getId()) == 0) {
+                            throw new BizException(ResultCode.SYSTEM_ERROR,
+                                    "格口状态与订单不一致，需人工核对 slotId=" + order.getSlotId());
+                        }
+                        // 计费开始：时间一律用服务端时间（设备时钟不可信，S-07）
+                        order.transitTo(OrderStatus.ACTIVE);
+                        order.setStartedAt(LocalDateTime.now());
+                        order.setExpectedFinishAt(order.getStartedAt()
+                                .plusMinutes(order.getEstimateMinutes() == null ? 60 : order.getEstimateMinutes()));
+                    }
+                }
                 default -> throw new BizException(ResultCode.PARAM_INVALID, "不支持的动作：" + action);
             }
             return;

@@ -63,6 +63,7 @@ public class AsyncStorageOrderAppService {
     private final SlotPreDeductionService preDeduction;
     private final OrderPersistPublisher publisher;
     private final ConsumeIdempotencyGuard guard;
+    private final com.wherelee.cabinet.application.point.OrderFundService funds;
 
     @Value("${cabinet.alloc.hold-ttl:180s}")
     private Duration holdTtl;
@@ -75,13 +76,15 @@ public class AsyncStorageOrderAppService {
                                        BizStorageOrderMapper orderMapper,
                                        SlotPreDeductionService preDeduction,
                                        OrderPersistPublisher publisher,
-                                       ConsumeIdempotencyGuard guard) {
+                                       ConsumeIdempotencyGuard guard,
+                                       com.wherelee.cabinet.application.point.OrderFundService funds) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
         this.preDeduction = preDeduction;
         this.publisher = publisher;
         this.guard = guard;
+        this.funds = funds;
     }
 
     public StorageOrderView createAsync(Long customerId, CreateOrderCommand command) {
@@ -198,6 +201,8 @@ public class AsyncStorageOrderAppService {
 
         BizStorageOrder order = buildOrder(message, cabinet);
         try {
+            // 先算钱再插单（与同步路径一致）：补一次 updateById 会因为 @Version 影响 0 行而静默丢快照
+            funds.holdFunds(order, message.estimateMinutes() == null ? 60 : message.estimateMinutes());
             orderMapper.insert(order);
         } catch (DuplicateKeyException e) {
             // 订单号唯一索引挡住重复落库：这是"已处理"而不是失败，不能让它进死信

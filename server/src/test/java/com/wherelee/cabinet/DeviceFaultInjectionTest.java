@@ -73,6 +73,8 @@ class DeviceFaultInjectionTest {
     @Autowired
     private StorageOrderFacade facade;
     @Autowired
+    private com.wherelee.cabinet.application.point.PointAccountService points;
+    @Autowired
     private DeviceCommandService commandService;
     @Autowired
     private SimulatedCabinetChannel simulator;
@@ -134,6 +136,9 @@ class DeviceFaultInjectionTest {
                 }
             }
 
+            // 建单要先有钱（押金 + 预估）；本类只验设备容错，资金用例在 PointLedgerTest
+            TenantContext.callAs(TENANT, () -> points.recharge(930001L, 20000L,
+                    "FUND-" + cabinetNo, "设备用例 funding"));
             orderNo = TenantContext.callAs(TENANT, () -> facade.create(930001L,
                     new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
         });
@@ -146,6 +151,10 @@ class DeviceFaultInjectionTest {
         jdbc.update("delete from biz_device_report where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_device_command where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
+        // 要先清掉引用订单的流水与押金凭证，再删订单本身：顺序反了子查询就查不到任何东西，
+        // 残留数据会污染下一个用例（不变量校验会算错）
+        jdbc.update("delete from biz_point_txn where ref_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
+        jdbc.update("delete from biz_deposit where order_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
         jdbc.update("delete from biz_storage_order where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_compartment where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_cabinet where id = ?", cabinetId);
@@ -187,7 +196,8 @@ class DeviceFaultInjectionTest {
         assertEquals(CommandState.SUCCEEDED, lastCommand(CommandAction.OPEN).getStatus());
 
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
-        assertEquals("STORED", order().getStatus().name());
+        // 第 12 刀把 STORED→ACTIVE 合成一步：关门校验通过即开始计费，中间不需要额外的用户动作
+        assertEquals("ACTIVE", order().getStatus().name());
         assertEquals(2, TenantContext.callAs(TENANT, () -> reportMapper.selectCount(
                 Wrappers.<BizDeviceReport>lambdaQuery().eq(BizDeviceReport::getCabinetId, cabinetId))),
                 "两次动作应各留一条上报流水");
@@ -305,10 +315,10 @@ class DeviceFaultInjectionTest {
         String secondId = lastCommand(CommandAction.OPEN).getRequestId();
         assertNotEquals(firstId, secondId, "重试必须换键，否则会拿回上一次的失败结果");
         assertTrue(firstId.endsWith(":1") && secondId.endsWith(":2"), "requestId 形如 单号:动作:第几次");
-        assertEquals("STORED", retryToStored(), "恢复后应能正常走完开柜与关门校验");
+        assertEquals("ACTIVE", retryToStored(), "恢复后应能正常走完开柜与关门校验");
     }
 
-    /** 第三次调用是 CLOSE_VERIFY，走完后应为 STORED。 */
+    /** 第三次调用是 CLOSE_VERIFY，走完后应为 ACTIVE（已开始计费）。 */
     private String retryToStored() {
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
         return order().getStatus().name();
