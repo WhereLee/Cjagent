@@ -57,6 +57,8 @@ public class StorageOrderService {
     private final CompartmentStateService states;
     /** 柜内物品争议阶梯（第 13C 刀）：只写证据与争议字段，不管钱与主态。 */
     private final ItemDisputeService dispute;
+    /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
+    private final com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper;
     /**
      * 调度器延迟拿取：直接注入会形成循环依赖
      * （StorageOrderService → DelayTaskService → SlotReleaseHandler → StorageOrderService）。
@@ -88,6 +90,7 @@ public class StorageOrderService {
                                com.wherelee.cabinet.application.point.OrderFundService funds,
                                CompartmentStateService states,
                                ItemDisputeService dispute,
+                               com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
@@ -99,6 +102,7 @@ public class StorageOrderService {
         this.funds = funds;
         this.states = states;
         this.dispute = dispute;
+        this.consoleMapper = consoleMapper;
         this.taskScheduler = taskScheduler;
     }
 
@@ -115,6 +119,15 @@ public class StorageOrderService {
         }
 
         SizeType required = parseSize(command.sizeType());
+        // 欠费拦截：**欠费 > 0 就不得再下单，没有阈值**（第 12 刀只做了“只记不锁件”，
+        // 拦下一环始终没落，所以始终“欠着钱还能一直下单”）。它不靠前端置灰：
+        // 那只是个提示，绕过一个 POST 就能白用。
+        // 取件仍绝不拦（欠的是债不是留置权），只拦住“新用户服务”这个入口。
+        long owing = consoleMapper.sumCustomerArrears(customerId);
+        if (owing > 0L) {
+            throw new BizException(ResultCode.BIZ_ERROR,
+                    "您有未缴清的费用（" + owing + " 点），请先在点数页补缴后再下单");
+        }
         Long orderId = IdWorker.getId();
         SlotAllocator.AllocatedSlot allocated = allocator.allocate(cabinet.getId(), required, orderId);
 
@@ -762,6 +775,36 @@ public class StorageOrderService {
         if (orderMapper.updateById(order) == 0) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，回扫下一轮再来 orderId=" + orderId);
         }
+    }
+
+    /**
+     * 后台确认设备误报后的免除与结束（第 14 刀的人工入口）：与 AI 复审放行走同一段结算代码，
+     * 金额依旧只算到争议起始时刻。
+     *
+     * <p>为什么不另写一套“人工免单”：两套算法迟早对不上账（同一张单，AI 放行免 15 点、
+     * 人工免 30 点）。“谁来点”是权限问题，“免多少”不是业务能商量的事。
+     */
+    @Transactional
+    public void waiveFalseAlarm(Long orderId) {
+        BizStorageOrder order = orderMapper.selectById(orderId);
+        if (order == null) {
+            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "寄存单不存在");
+        }
+        if (order.getStatus().isTerminal()) {
+            throw new BizException(ResultCode.BIZ_ERROR, "该单已结束，不能再次免除");
+        }
+        CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
+        if (!sensing.doorClosed()) {
+            // 门这条与凭据无关：误报免除只豁免“柜内无物”，不豁免“门关”
+            throw new BizException(ResultCode.BIZ_ERROR, "柜门尚未关闭，不能结束计费");
+        }
+        long actualMinutes = order.getStartedAt() == null ? 0L
+                : Math.max(0L, Duration.between(order.getStartedAt(),
+                order.getDisputeStartedAt() == null ? LocalDateTime.now() : order.getDisputeStartedAt()).toMinutes());
+        funds.settle(order, actualMinutes, OrderCloseReason.DISPUTE_WAIVED);
+        // 不额外标异常：免除的依据本身就是“AI 看图说没东西”这条凭据，
+        // 再锁一次格子等于否认自己刚用的判据（与 AI 复审放行那条路径保持一致，两处不得两套做法）
+        log.info("人工判定误报并免除争议期间费用 orderNo={} 计费分钟={}", order.getOrderNo(), actualMinutes);
     }
 
     /** 这条读数能不能当“柜内已空”的凭据用（坏了、离线、结论过期都算不能用）。 */

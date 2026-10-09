@@ -209,6 +209,34 @@ public class CompartmentStateService {
         markAnomalyAndLog(slotId, CompartmentAnomaly.SENSOR_CONFLICT, reason);
     }
 
+    /** 人工清柜完成：把这次解除落成 RECOVER 事件（状态列只存当前值，回答不了“谁什么时候清的”）。 */
+    public void recordManualRecovery(Long slotId, String note) {
+        BizCompartment slot = slotMapper.selectById(slotId);
+        if (slot == null) {
+            return;
+        }
+        logFault(slot, FaultType.Action.RECOVER, "人工清柜解除异常：" + note);
+    }
+
+    /**
+     * 后台强制开柜：门真的被开了，所以记下开门起点（它因此自动不可分配，正是开柜期间想要的状态）。
+     *
+     * <p><b>不拿 DOOR_OPEN 去盖掉已有的更强锁</b>：遗留物格口被打开取东西时，门只是“暂时开着”，
+     * 而“里面有别人东西”这件事不会因开一次门就消失。降级会让格子在下次关门时变回可卖。
+     */
+    public void markForcedOpen(Long slotId, Long adminId, String reason) {
+        BizCompartment slot = slotMapper.selectById(slotId);
+        if (slot == null) {
+            return;
+        }
+        afterDoorOpened(slot, null);
+        if (slot.getAnomaly() == null) {
+            markAnomalyAndLog(slotId, CompartmentAnomaly.DOOR_OPEN, "后台强制开柜，柜门开启中");
+        }
+        logFault(slot, FaultType.Action.ALARM,
+                "后台强制开柜：操作人 admin:" + adminId + "，事由：" + reason);
+    }
+
     public BizCompartment reload(Long slotId) {
         return slotMapper.selectById(slotId);
     }
