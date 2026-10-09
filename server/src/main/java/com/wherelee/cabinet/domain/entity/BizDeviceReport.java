@@ -23,7 +23,9 @@ import java.time.LocalDateTime;
  *       都会让 reportedAt 不可信——用它能算出"设备说 3 分钟前开的门"，但不能用它决定"要不要收超时费"。</li>
  * </ul>
  *
- * <p>{@code dedupKey}（cabinetId:seq）上有唯一索引：重复上报与乱序重放的收敛依据。
+ * <p>{@code dedupKey} 现在存的是 {@code cmd:<requestId>}：同一条指令的回执重复送达只留一条。
+ * 曾经用 {@code cabinetId:seq}，但设备重启会把 seq 归零，重启后的正常回执会被误判为重复而丢弃。
+ * 序号本身仍然入库，只用于对账与人工排查。
  */
 @Getter
 @Setter
@@ -60,8 +62,4 @@ public class BizDeviceReport {
     private LocalDateTime receivedAt;
 
     private LocalDateTime createTime;
-
-    public static String dedupKeyOf(Long cabinetId, Long seq) {
-        return cabinetId + ":" + seq;
-    }
 }

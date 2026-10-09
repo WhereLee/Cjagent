@@ -246,17 +246,21 @@ class DeviceFaultInjectionTest {
     }
 
     @Test
-    @DisplayName("乱序重放：旧序号只留证不改变状态")
-    void staleSeqDoesNotChangeState() {
+    @DisplayName("设备重启后 seq 归零：回执仍必须生效（否则上线后开柜全部无效）")
+    void seqResetAfterRebootStillApplies() {
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.OPEN));
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.STALE_SEQ);
 
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
 
-        assertEquals("OPENING", order().getStatus().name(),
-                "设备重启后 seq 归零重放，不得把新状态覆盖成旧事件");
-        assertEquals(CommandState.SENT, lastCommand(CommandAction.CLOSE_VERIFY).getStatus(),
-                "旧事件不该推进指令终态");
+        // 这条用例以前提的是“seq 旧就不推进状态”，那是错的规则：
+        // dedupKey 用 cabinetId:seq 时，设备（模拟器）重启后 seq 归零，第一条正常回执会撞唯一键
+        // 被当成重复丢弃——表现为“柜机上线后开柜全部无效”。真实设备必然重启，所以生产上必发。
+        // 现在幂等键改成 requestId、序号只入库对账，期望因此从“不推进”翻转成“必须推进”。
+        assertEquals("ACTIVE", order().getStatus().name(),
+                "序号小不代表事件旧：设备重启会重发 seq，拿它当判据会让上线后的柜机彻底不能用");
+        assertEquals(SlotStatus.OCCUPIED, slotStatus(), "格口状态要跟着推进");
+        assertEquals(CommandState.SUCCEEDED, lastCommand(CommandAction.CLOSE_VERIFY).getStatus());
     }
 
     @Test

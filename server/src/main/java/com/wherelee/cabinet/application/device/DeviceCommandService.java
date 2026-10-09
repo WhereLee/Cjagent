@@ -223,7 +223,15 @@ public class DeviceCommandService {
         throw new BizException(ResultCode.MIDDLEWARE_UNAVAILABLE, "柜机离线，暂不可存件，请换一台");
     }
 
-    /** 上报流水入库；返回是否"旧事件"（重复 dedupKey 或序号不高于已记录）。 */
+    /**
+     * 上报流水入库；返回是否“旧事件”（同一指令的回执重复送达）。
+     *
+     * <p><b>幂等键用 requestId，不用 {@code cabinetId:seq}</b>。后者看着自然其实错：
+     * 设备重启、刷固件、换主控都会把 seq 归零重发，于是重启后第一条<b>正常</b>回执会撞上
+     * 重启前的 dedupKey 而被当成重复丢弃——对外表现就是“柜机上线后所有开柜都不生效”。
+     * 真实设备一定会重启，所以这条规则在生产上必然发火。
+     * （本缺陷由 dev 环境端到端验证发现；集成测试每个用例新建柜机，恰好盖不到。）
+     */
     private boolean writeReport(BizCabinet cabinet, Long slotId, BizDeviceCommand command,
                                 DeviceChannel.CommandReceipt receipt) {
         LocalDateTime now = LocalDateTime.now();
@@ -234,7 +242,7 @@ public class DeviceCommandService {
         report.setOrderId(command.getOrderId());
         report.setSeq(receipt.seq());
         report.setEventType(receipt.event());
-        report.setDedupKey(BizDeviceReport.dedupKeyOf(cabinet.getId(), receipt.seq()));
+        report.setDedupKey("cmd:" + receipt.requestId());
         report.setPayload("{\"requestId\":\"" + receipt.requestId() + "\",\"detail\":"
                 + jsonString(receipt.detail()) + ",\"sensorConfirmed\":" + receipt.sensorConfirmed()
                 + ",\"executedSlotId\":" + receipt.executedSlotId() + "}");
@@ -246,14 +254,18 @@ public class DeviceCommandService {
         // 序号对比不能短路：设备重启后 seq 从 0 或 1 重放是真实场景，
         // “seq 很小”本身就是旧事件的信号（这里曾写过一个 `seq > 0` 的“优化”，恰好把最该判旧的样本放过了）
         Long maxSeq = reportMapper.selectMaxSeq(cabinet.getId(), slotId);
-        boolean staleBySeq = maxSeq != null && receipt.seq() <= maxSeq;
+        if (maxSeq != null && receipt.seq() <= maxSeq) {
+            // 序号较旧不再拦截业务：设备重启后 seq 会归零，旧≠重复；仅留证据供对账
+            log.info("回执序号不高于已记录（可能为设备重启重发），仍按本指令处理 requestId={} seq={} maxSeq={}",
+                    receipt.requestId(), receipt.seq(), maxSeq);
+        }
         try {
             reportMapper.insert(report);
         } catch (DuplicateKeyException e) {
-            log.info("重复上报已存在 dedupKey={}", report.getDedupKey());
+            log.info("同一指令回执重复送达，不重复推进状态 dedupKey={}", report.getDedupKey());
             return true;
         }
-        return staleBySeq;
+        return false;
     }
 
     /** 阈值到了就把格口标故障、柜机停用：别再往坏柜机里放新单。 */
