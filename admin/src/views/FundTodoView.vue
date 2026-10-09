@@ -47,6 +47,8 @@ async function load() {
       tasks.push(listArrears({ ...pageQuery }).then((result) => (arrears.value = result)))
     }
     await Promise.all(tasks)
+  } catch {
+    // 已经弹过了；不抛出去是为了不让列表刷新把页面弄成未处理错误
   } finally {
     loading.value = false
   }
@@ -75,9 +77,13 @@ async function onDisable(raw: unknown) {
   } catch {
     return
   }
-  await changeCustomerStatus(row.customerId, 0, reason)
-  ElMessage.success('已禁用该客户')
-  return load()
+  await changeCustomerStatus(row.customerId, 0, reason).then(() => {
+    ElMessage.success('已禁用该客户')
+    return load()
+  }).catch(() => {
+    // 失败原因已经由 http 层弹出来了（包括“没权限”与“并发修改”），
+    // 这里只吃掉 rejection，不让它变成 Vue 的未处理错误
+  })
 }
 
 onMounted(load)

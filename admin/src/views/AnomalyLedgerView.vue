@@ -45,8 +45,30 @@ const query = reactive({
 })
 
 const detail = ref<CompartmentDetail | null>(null)
+/** 抽屉标题区要给人看得懂的名字而不是雪藏 ID，所以把选中行也留着 */
+const detailRow = ref<LedgerView | null>(null)
 const detailVisible = ref(false)
 const detailLoading = ref(false)
+
+const SLOT_STATUS_LABEL: Record<string, string> = {
+  FREE: '空闲',
+  OCCUPIED: '占用中',
+  MAINTENANCE: '维护中',
+  FAULT: '故障停用',
+}
+const PRESENCE_LABEL: Record<string, string> = {
+  PRESENT: '检测到物品',
+  ABSENT: '已确认空',
+  UNKNOWN: '测不到',
+}
+
+function slotStatusLabel(v?: string): string {
+  return (v && SLOT_STATUS_LABEL[v]) || v || '—'
+}
+
+function presenceLabel(v?: string): string {
+  return (v && PRESENCE_LABEL[v]) || v || '未测'
+}
 
 const totalStuck = computed(() => summary.value.reduce((sum, item) => sum + item.rowsCount, 0))
 
@@ -79,10 +101,23 @@ function dangerLevel(raw: unknown): 'danger' | 'warning' | 'info' {
   return 'info'
 }
 
+/**
+ * 跑一个处置动作。http 层已经弹过错提示了，这里只负责两件事：
+ * 把异常吃掉（不然 Vue 报 Unhandled error，且后面的代码会跳），以及把“成功才刷新”分开。
+ */
+async function guarded(action: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await action()
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function load() {
   loading.value = true
-  try {
-    const [list, sums] = await Promise.all([
+  await guarded(() =>
+    Promise.all([
       listAnomalies({
         anomaly: query.anomaly,
         siteId: query.siteId,
@@ -90,14 +125,11 @@ async function load() {
         pageSize: query.pageSize,
         orderBy: query.orderBy,
         asc: query.asc,
-      }),
-      summarizeAnomalies(query.siteId),
-    ])
-    page.value = list
-    summary.value = sums
-  } finally {
-    loading.value = false
-  }
+      }).then((list) => (page.value = list)),
+      summarizeAnomalies(query.siteId).then((sums) => (summary.value = sums)),
+    ]),
+  )
+  loading.value = false
 }
 
 function onSearch() {
@@ -124,13 +156,13 @@ function onSortChange(payload: { prop: string | null; order: 'ascending' | 'desc
 
 async function openDetail(raw: unknown) {
   const row = asRow(raw)
+  detailRow.value = row
   detailVisible.value = true
   detailLoading.value = true
-  try {
+  await guarded(async () => {
     detail.value = await compartmentDetail(row.compartmentId)
-  } finally {
-    detailLoading.value = false
-  }
+  })
+  detailLoading.value = false
 }
 
 /** 清柜：只有后端确认门已关才会成功，所以这里不预先判断门状态，交给服务端说原因。 */
@@ -138,9 +170,11 @@ async function onResolve(raw: unknown) {
   const row = asRow(raw)
   const note = await promptText('清柜确认', `请写下现场处理结果（柜机 ${row.cabinetNo} / ${row.slotNo}）`)
   if (!note) return
-  await resolveAnomaly(row.compartmentId, note)
-  ElMessage.success('已解除异常，格口恢复可分配')
-  return load()
+  // 服务端可能因为“门还没关”拒绝：失败时不弹成功提示也不假装刷新
+  if (await guarded(() => resolveAnomaly(row.compartmentId, note))) {
+    ElMessage.success('已解除异常，格口恢复可分配')
+    await load()
+  }
 }
 
 async function onForceOpen(raw: unknown) {
@@ -156,9 +190,9 @@ async function onForceOpen(raw: unknown) {
   } catch {
     return
   }
-  await forceOpen(row.compartmentId, reason)
+  if (!(await guarded(() => forceOpen(row.compartmentId, reason)))) return
   ElMessage.success('开柜指令已下发')
-  return load()
+  await load()
 }
 
 /** 免除只对“当前详情里那张单”做，所以不取行参数：避免列表行与抽屉里看的不是同一张单。 */
@@ -169,7 +203,7 @@ async function onWaive() {
     return
   }
   try {
-    await waiveDisputeFee(orderNo)
+    if (!(await guarded(() => waiveDisputeFee(orderNo)))) return
     ElMessage.success('已按设备误报免除争议期间费用并结束该单')
   } finally {
     await load()
@@ -179,9 +213,9 @@ async function onWaive() {
 
 async function onRebuild(raw: unknown) {
   const row = asRow(raw)
-  await rebuildFreeSet(row.cabinetId)
+  if (!(await guarded(() => rebuildFreeSet(row.cabinetId)))) return
   ElMessage.success(`已按 DB 真相同步 ${row.cabinetNo} 的空闲集合`)
-  return load()
+  await load()
 }
 
 async function promptText(title: string, message: string): Promise<string | null> {
@@ -240,7 +274,9 @@ onMounted(load)
         <template #default="{ row }">{{ stuck(row) }}</template>
       </ElTableColumn>
       <ElTableColumn prop="anomalyReason" label="现场说明" min-width="220" show-overflow-tooltip />
-      <ElTableColumn label="操作" width="260" fixed="right">
+      <!-- 不把操作列 fixed="right"：窄屏下 sticky 列会盖住“卡住时长”与“现场说明”，
+           连排序箭头都物理上点不到（实测如此）。横向滚动比“看不见”诚实 -->
+      <ElTableColumn label="操作" width="230">
         <template #default="{ row }">
           <ElButton link type="primary" @click="openDetail(row)">详情</ElButton>
           <ElButton v-if="auth.hasAuthority('locker:compartment:resolve')" link type="primary" @click="onResolve(row)">
@@ -265,18 +301,19 @@ onMounted(load)
       @size-change="onSizeChange"
     />
 
-    <ElDrawer v-model="detailVisible" size="46%" title="格口现场详情">
+    <ElDrawer v-model="detailVisible" size="56%" title="格口现场详情">
       <div v-loading="detailLoading">
         <ElDescriptions v-if="detail" :column="1" border>
           <ElDescriptionsItem label="柜机 / 格口">
-            {{ detail.compartment.cabinetId }} / {{ detail.compartment.slotNo }}
+            {{ detailRow?.cabinetNo ?? detail.compartment.cabinetId }} / {{ detail.compartment.slotNo }}
+            <span v-if="detailRow?.siteName" class="mono">{{ detailRow.siteName }}</span>
           </ElDescriptionsItem>
-          <ElDescriptionsItem label="格口状态">{{ detail.compartment.status }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="格口状态">{{ slotStatusLabel(detail.compartment.status) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="异常">{{ label(detail.compartment.anomaly) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="门开着的时间点">{{ detail.compartment.doorOpenAt ?? '—（门已关）' }}</ElDescriptionsItem>
           <ElDescriptionsItem label="最近关门">{{ detail.compartment.doorClosedAt ?? '—' }}</ElDescriptionsItem>
           <ElDescriptionsItem label="柜内物检">
-            {{ detail.compartment.presence ?? '未测' }}
+            {{ presenceLabel(detail.compartment.presence) }}
             <span class="mono">{{ detail.compartment.presenceCheckedAt ?? '' }}</span>
           </ElDescriptionsItem>
           <ElDescriptionsItem label="当前活动单">
@@ -301,7 +338,12 @@ onMounted(load)
           <ElTableColumn prop="createTime" label="时刻" width="170" />
           <ElTableColumn prop="source" label="来源" width="110" />
           <ElTableColumn prop="presence" label="结论" width="90" />
-          <ElTableColumn prop="note" label="依据" min-width="180" show-overflow-tooltip />
+          <!-- 置信度必须看得见：判误报靠的就是“设备说 有 + AI 说 无”，
+               而 AI 那个“无”到底多有把握直接决定该不该信它（接口已返回，前一版我没建列） -->
+          <ElTableColumn prop="confidence" label="置信度" width="90">
+            <template #default="{ row }">{{ row.confidence ?? '—' }}</template>
+          </ElTableColumn>
+          <ElTableColumn prop="note" label="依据" min-width="220" show-overflow-tooltip />
         </ElTable>
         <p class="tip">
           免除金额由后端按「计费起点 → 争议起点」算出，页面上没有也无法填金额；证据不互相打脸时服务端会直接拒绝。

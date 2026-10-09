@@ -133,6 +133,22 @@ function messageFor(code: number, backendMessage: string): string {
   }
 }
 
+/**
+ * 失败提醒：按错误码分文案，并避开同一次失败弹两次。
+ *
+ * <b>为什么需要一个函数而不是只在拒绝分支里弹</b>：后端业务拒绝是
+ * `HTTP 200 + code != 0`（全局异常处理器按码族决定状态，很多业错误就是 200），
+ * 它在**成功分支**里被抛出，不经过拒绝分支。之前只弹拒绝分支时，
+ * “柜门未关不给清柜”“证据不足不能免除”这类可预期拒绝在页面上**什幺反馈都没有**：
+ * 弹窗关掉、数据没变、用户以为了不起作用，只能反复点（实测就是这样）。
+ * 业务拒绝恰恰是最需要把服务端原因原文给用户看的一类。
+ */
+function notifyFailure(code: number, backendMessage: string, silent: boolean): void {
+  if (!silent) {
+    ElMessage.error(messageFor(code, backendMessage))
+  }
+}
+
 http.interceptors.response.use(
   (response) => {
     const body = response.data as ApiResult<unknown> | undefined
@@ -144,6 +160,8 @@ http.interceptors.response.use(
       return response
     }
 
+    // 业务拒绝也要弹：抛之前先把服务端原文告知用户（错误码与 traceId 已在 body 里）
+    notifyFailure(body.code, body.message ?? '', response.config.silentError === true)
     throw new ApiError(body.code, body.message, body.traceId)
   },
   async (error) => {

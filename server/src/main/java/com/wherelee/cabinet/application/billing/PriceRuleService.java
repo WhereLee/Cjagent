@@ -113,22 +113,35 @@ public class PriceRuleService {
         return ruleMapper.listAll().stream().map(View::of).toList();
     }
 
-    /** 发布前的预览：与下单/结算走<b>同一个 PricingPolicy</b>，绝不在这里重算一遍公式。 */
+    /**
+     * 发布前的预览：与下单/结算走<b>同一个 PricingPolicy</b>，绝不在这里重算一遍公式。
+     *
+     * <p>草稿也要先过 {@code validate}：预览看似只读，但算价会把 null 直接拆箱成 int——
+     * 表单填一半就预览会把 500 系统异常报给用户（本条就是冷跑预览时发现的）。
+     * 拒绝它不只为了状态码好看：带缺参的“价”根本不是一个可比较的结果。
+     */
     public Map<String, Object> preview(Long siteId, BizPriceRule draft) {
-        BizPriceRule source = draft != null ? draft : effective(siteId);
-        boolean fromRule = source != null;
+        boolean fromDraft = draft != null;
+        if (fromDraft) {
+            validate(draft);
+        }
+        BizPriceRule source = fromDraft ? draft : effective(siteId);
+        if (source == null) {
+            throw new BizException(ResultCode.BIZ_ERROR, "该范围还没有已生效的策略，请带上草稿参数一起预览");
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, Object> sample = new LinkedHashMap<>();
         for (SizeType size : SizeType.values()) {
             for (long minutes : new long[]{30, 90, 60 * 26, 60 * 80}) {
-                var quote = fromRule
+                var quote = fromDraft
                         ? pricing.quoteByRule(size, minutes, source)
                         : pricing.quote(size, minutes);
                 sample.put(size.name() + "@" + minutes + "min", quote.consumePoints());
             }
         }
-        result.put("source", fromRule ? "rule:" + source.getVersion() : "config-default");
-        result.put("depositPoints", fromRule ? source.getDepositPoints() : pricing.defaultDepositPoints());
+        // 草稿没有版本号（还没发布）；把 null 写成 "rule:null" 会让人以为存在这样一版
+        result.put("source", fromDraft ? "draft" : "rule:v" + source.getVersion());
+        result.put("depositPoints", source.getDepositPoints());
         result.put("samples", sample);
         return result;
     }

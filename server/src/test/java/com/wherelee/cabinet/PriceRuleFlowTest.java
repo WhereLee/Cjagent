@@ -6,7 +6,9 @@ import com.wherelee.cabinet.application.billing.PriceRuleService;
 import com.wherelee.cabinet.application.point.PointAccountService;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
+import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
+import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizPriceRule;
@@ -39,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -106,8 +109,14 @@ class PriceRuleFlowTest {
         Object[] customers = customerIds.toArray();
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id in (select id from biz_cabinet where tenant_id = ?)", TENANT);
-        jdbc.update("delete from biz_point_txn where customer_id in (" + placeholders() + ")", customers);
-        jdbc.update("delete from biz_point_account where customer_id in (" + placeholders() + ")", customers);
+        // 不建客户的用例（比如只看预览价）会让 in (?) 没有参数可绑，报
+        // “No value specified for parameter 1”：这类删除必须先判空再拼占位符
+        if (!customerIds.isEmpty()) {
+            jdbc.update("delete from biz_point_txn where customer_id in (" + placeholders() + ")", customers);
+            jdbc.update("delete from biz_point_account where customer_id in (" + placeholders() + ")", customers);
+            // 很关键：不删客户就等于每次跑完在共享测试库里沉积一批孤儿账号（前一版本就是这样）
+            jdbc.update("delete from biz_customer where id in (" + placeholders() + ")", customers);
+        }
         jdbc.update("delete from biz_deposit where order_id in (select id from biz_storage_order where cabinet_id in (select id from biz_cabinet where tenant_id = ?))", TENANT);
         jdbc.update("delete from biz_storage_order where cabinet_id in (select id from biz_cabinet where tenant_id = ?)", TENANT);
         jdbc.update("delete from biz_compartment where cabinet_id in (select id from biz_cabinet where tenant_id = ?)", TENANT);
@@ -196,6 +205,30 @@ class PriceRuleFlowTest {
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
         return TenantContext.callAs(TENANT, () -> orderMapper.selectOne(
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
+    }
+
+    @Test
+    @DisplayName("预览：缺参数直接拒（不拆箱 null 算价），完整草稿的价与结算口径一致")
+    void previewRejectsHalfFilledDraftAndMatchesSettlement() {
+        // 实测发现的老 bug：表单填一半就预览会把 500 报给用户（null 拆箱）。
+        // 这里只缺单价一项，所以报错必须精确指到“小格口单价”，而不是泛泛一句“参数不正确”
+        BizPriceRule half = draft(20L, 300L);
+        half.setUnitSmall(null);
+        BizException rejected = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> priceRules.preview(siteA, half)));
+        assertEquals(ResultCode.PARAM_INVALID, rejected.getResultCode());
+        assertTrue(rejected.getMessage().contains("小格口单价"),
+                "报错要说清缺哪一项参数：" + rejected.getMessage());
+
+        var full = TenantContext.callAs(TENANT, () -> priceRules.preview(siteA, draft(20L, 300L)));
+        assertEquals("draft", full.get("source"), "草稿预览不能伪装成已存在的版本");
+        @SuppressWarnings("unchecked")
+        java.util.Map<String, Object> samples = (java.util.Map<String, Object>) full.get("samples");
+        // SMALL @ 90min：减 10 分钟免费窗口后剩 80 分钟→ 2 个计费小时 × 20 = 40
+        assertEquals(40L, samples.get("SMALL@90min"), "预览价必须与结算同一算法");
+        // LARGE @ 4800min（80 小时）：封顶 3 天 × 每日 12 小时 = 36 小时；draft 里 large = small+25 = 45
+        // → 36 × 45 = 1620。预览也要把阶梯封顶算进去，否则页面会承诺一个收不到的数
+        assertEquals(1620L, samples.get("LARGE@4800min"));
     }
 
     @Test
