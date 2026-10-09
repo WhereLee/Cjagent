@@ -333,6 +333,16 @@ class DelayTaskTest {
         jdbc.update("delete from biz_delay_task where task_type <> 'SLOT_RELEASE'");
         jdbc.update("update biz_delay_task set fire_at = date_sub(now(3), interval 10 second)");
 
+        // 无竞争的单独取证：先证明“这条 SQL 真的能拿满 limit”。
+        // 删掉“至少一方拿到候选”后，这一条是必验项：否则两个事务都拿到空集时，
+        // “不重叠”与“不排队”会在一件根本没返行的事上成立（假绿）
+        List<Long> alone = new java.util.ArrayList<>();
+        TenantContext.runAs(TENANT, () -> txTemplate.executeWithoutResult(only -> {
+            alone.addAll(taskMapper.findDueIdsForUpdateSkip(4));
+            only.setRollbackOnly();   // 只取证：本用例不该推任何任务状态
+        }));
+        assertEquals(4, alone.size(), "无竞争时应拿满 limit（拿不满是索引或到期判据本身坏了）");
+
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch bothInTx = new CountDownLatch(2);
         CountDownLatch release = new CountDownLatch(1);
@@ -375,11 +385,12 @@ class DelayTaskTest {
         Set<Long> overlap = new java.util.HashSet<>(first);
         overlap.retainAll(second);
         assertTrue(overlap.isEmpty(), "两个事务的候选集重叠：" + overlap);
-        // 不断言“各自拿到 4 条”：实测一个拿 4、一个拿 1（InnoDB 的加锁区间比返回行多）。
-        // “谁拿到几条”由扫描与加锁的交错决定，不是 SKIP LOCKED 的承诺；把它当约定写进断言，
-        // 得到的就是一个会随并发节奏飘红的用例。本用例要证的只有两件事：
-        // ① 不重叠（上面）；② 不排队——两个事务能在彼此持锁期间同时返回（bothInTx  latch）。
-        assertTrue(!first.isEmpty() || !second.isEmpty(), "至少一方拿到候选");
+        // 不断言“各自拿到 4 条”，也**不断言“至少一方拿到候选”**：这 10 条任务的 fire_at 完全相同，
+        // InnoDB 走二级索引扫描时锁的是 next-key 区间而不是行，两个扫描者都可能把整个区间当成
+        // “被别人锁住”而合法地拿到空集（本地快、2 核 runner 慢，交错不同就会飘）。
+        // “谁拿到几条”不是 SKIP LOCKED 的承诺；本用例并发部分只证两件事：
+        // ① 不重叠（上面）；② 不排队——两个事务能在彼此持锁期间同时返回（bothInTx latch）。
+        // 而“这条 SQL 确实能拿满候选”放到下面无竞争的单独取证里去断言（结论确定，不依赖交错）
         assertTrue(first.size() + second.size() <= 10, "候选总量不会超过到期任务数（不重复计数）");
 
         // 取证结论：持有的记录锁条数 ≥ 返回行数——next-key/gap 锁把不相干的行（与行之间的间隙）

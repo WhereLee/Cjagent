@@ -8,6 +8,14 @@ spring:
     clean-disabled: false   # 仅测试库允许 clean，方便必要时重建；生产永远 true
 
 cabinet:
+  scheduler:
+    # 集成测试默认关掉后台调度线程。默认上下文会被 Spring 缓存整个 JVM，那个线程会在别的
+    # 用例类运行期间继续扫库——worker 设计上就是不分租户、抢走任何到期任务的，于是随机出现
+    # “某条用例什么都没发生”（任务被别人抢了租约）或“扫街没登记回扫”。
+    # 本地快、CI 慢时更容易碰上。需要真实后台线程的用例类（SchedulerBackgroundPollTest /
+    # ZsetTriggerTest / MqTriggerTest）在自己的 @SpringBootTest 里显式打开，
+    # 并配 @DirtiesContext(AFTER_CLASS) 把线程随上下文一起关掉。
+    poll-enabled: false
   exception:
     echo-detail: true
   cors:
