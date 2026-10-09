@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 
 import javax.sql.DataSource;
@@ -40,6 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
+// 同 SchedulerBackgroundPollTest：drain 与兜底轮询线程会在上下文缓存期间抢走别的用例的任务
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(properties = {
         // 关掉纯轮询触发器，只留 ZSetTrigger（它的兜底轮询由 poll-interval-ms 控制）
         "cabinet.scheduler.poll-enabled=false",

@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 
 import javax.sql.DataSource;
@@ -54,6 +55,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
+// 本类故意不关轮询，于是它的调度线程会在上下文缓存期间继续抢**其他测试类**的到期任务
+// （同一个 cabinet_test、worker 又是跳租户的）。必须跑完就销毁上下文，
+// 否则症状是随机某个后续用例“什么都不发生”——这类跨类干扰比单类内飘红难查得多。
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(properties = {
         // 这次不关轮询：要测的就是它
         "cabinet.scheduler.poll-enabled=true",

@@ -234,7 +234,7 @@ class DelayTaskTest {
     }
 
     @Test
-    @DisplayName("多 worker 并发抢同一批任务：每个 bizKey 恰好执行一次")
+    @DisplayName("多 worker 并发抢同一批任务：每张单的业务副作用恰好发生一次")
     void concurrentWorkersNeverDoubleExecute() throws Exception {
         Long customerId = newCustomer();
         int orders = 12;
@@ -257,8 +257,17 @@ class DelayTaskTest {
                     start.await();
                     // 每个 worker 都在自己的租户上下文里跑（与真实实例一致）
                     TenantContext.runAs(TENANT, () -> {
-                        for (int round = 0; round < 3; round++) {
+                        // 跑到“没完”而不是“跑固定轮数”：一次瞬时冲突会让任务进入 FAILED + 退避，
+                        // 固定 3 轮在 2 核 CI 上就会把“还没轮到重试”算成失败（本地快、CI 慢就是这类飘红）
+                        long deadline = System.currentTimeMillis() + 60_000L;
+                        while (System.currentTimeMillis() < deadline && undoneSlotRelease() > 0) {
                             totalExecuted.addAndGet(tasks.runDue());
+                            try {
+                                Thread.sleep(50L);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                return;
+                            }
                         }
                     });
                 } catch (InterruptedException e) {
@@ -269,21 +278,42 @@ class DelayTaskTest {
             });
         }
         start.countDown();
-        assertTrue(done.await(90, TimeUnit.SECONDS), "并发 worker 未收敛");
+        assertTrue(done.await(120, TimeUnit.SECONDS), "并发 worker 未收敛");
+        // 必须等线程真终止：只 shutdownNow 就接着跑下一个用例，残留线程会在新用例开始后
+        // 抢走它的任务租约（60s），症状是下一个用例“什么都不发生”——本刀就这么把
+        // doorNotClosedMarksAbnormal 弄跳红了。测并发的用例不能给后面留活线程。
+        pool.shutdown();
+        assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS), "worker 线程未退出，会给后续用例留租约竞争");
         pool.shutdownNow();
 
-        // attempt 是“被抢了几次”的硬证据：执行一次就是 1，被两个 worker 重跑就会 >1
-        Integer claimedTwice = jdbc.queryForObject(
-                "select count(*) from biz_delay_task where task_type='SLOT_RELEASE' and attempt <> 1", Integer.class);
-        assertEquals(0, claimedTwice, "有任务被抢了不止一次（租约或条件更新失效）");
-        assertEquals(orders, totalExecuted.get(), "执行总数应等于任务数（不多不少）");
+        // 真正要证的不是“跑了几次”，而是“副作用发生了几次”：跑的次数会被合法重试污染，
+        // 而一张单的解冻出账只允许一条流水（双执行会多一条，或被 uk_txn_biz / 状态机当场拦下）
         Integer notDone = jdbc.queryForObject(
                 "select count(*) from biz_delay_task where task_type='SLOT_RELEASE' and status <> 'DONE'", Integer.class);
-        assertEquals(0, notDone, "所有到期任务都应被完成");
+        assertEquals(0, notDone, "并发下所有到期任务都应最终被完成（不丢不做两遍）");
+        Integer unfreezeOut = jdbc.queryForObject(
+                "select count(*) from biz_point_txn t join biz_storage_order o on o.id = t.ref_id "
+                        + "where o.cabinet_id = ? and t.biz_type = 'UNFREEZE_OUT'", Integer.class, cabinetId);
+        assertEquals(orders, unfreezeOut,
+                "每张单只能解冻一次：多了就是双执行（这是本用例的硬证据）");
+        assertTrue(totalExecuted.get() >= orders,
+                "被抢次数不应少于任务数；实测 " + totalExecuted.get() + "（>任务数部分=合法重试）");
         Integer cancelled = jdbc.queryForObject(
                 "select count(distinct order_no) from biz_storage_order where cabinet_id=? and status='CANCELLED'",
                 Integer.class, cabinetId);
         assertEquals(orders, cancelled, "每张单都被取消，且没有一张被取消两次");
+        assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getFrozenPoints(),
+                "12 张单的冻结必须全部退回，不重不漏");
+        assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)),
+                "并发取消后账仍必须平（不平就是多扣或多退）");
+    }
+
+    /** 本轮还没做完的超时释放任务数（驱动 worker 跑到收敛）。 */
+    private int undoneSlotRelease() {
+        Integer n = jdbc.queryForObject(
+                "select count(*) from biz_delay_task where task_type='SLOT_RELEASE' and status <> 'DONE'",
+                Integer.class);
+        return n == null ? 0 : n;
     }
 
     @Test
