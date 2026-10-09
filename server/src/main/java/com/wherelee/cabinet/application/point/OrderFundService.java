@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 订单侧的资金动作：下单冻结、取件结算与退押金。
@@ -29,7 +30,9 @@ import java.time.LocalDateTime;
  *   <li><b>先全额解冻、再按实际消耗扣</b>。反过来的话，冻结住的点数会挡住本次消耗，
  *       出现"明明有余额却扣不动"的假象；</li>
  *   <li><b>扣不到就记欠费，但不锁件</b>（防呆红线：用户的东西不能成为讨债的筹码）。
- *       欠费走 arrears 字段，追缴由后续风控/调度处理；</li>
+ *       欠费的清偿路径是<b>充值时自动抵扣</b>（见 {@link #repayArrears}）——因为平台侧
+ *       对欠费只有一道可执行的手段（挡住下次下单），而“挡住”必须配一个“还完就放行”的出口，
+ *       否则拦人就变成了永久拦人；</li>
  *   <li><b>押金与消耗分栏</b>：退押金是解冻，不能拿去抵欠费（否则押金就失去了担保语义）。</li>
  * </ol>
  *
@@ -219,6 +222,56 @@ public class OrderFundService {
         // 读余额与扣减之间被别人花掉了：少收而不是多收，方向安全，交给对账
         log.warn("补扣再次失败，本单全额计欠费 orderNo={}", order.getOrderNo());
         return 0L;
+    }
+
+    /**
+     * 欠费清偿：把该客户的欠费单按先欠先还的顺序逐张抵扣。
+     *
+     * <p><b>为什么必须有这一步</b>：业务规则是“欠费 > 0 就不得再下单”，而用户能做的只有充值。
+     * 充值不清欠费的话，这一道拦就变成永久拦——而且服务端文案还写着“请先补缴”，
+     * 指向一个不存在的动作（本方法就是补上这个洞）。
+     *
+     * <p><b>不足额就不动</b>（这是一个可推翻的设计选择，理由写在这里）：欠 200 而用户只充 50 时，
+     * 抵扣那 50 的结果是“钱被吃掉、仍然不能下单”，那是最容易被投诉的形态；
+     * 不抵则用户手里有钱、欠额不改，他要么充够、要么先用这 50 点干别的（但依旧不能下单）。
+     * 两种都拦着下单，但只有一种不会静默吞掉用户的钱。
+     *
+     * <p>整段一个事务：要么“扣款 + 减欠额”同成，要么同不成。失败回滚后欠费依旧 > 0，
+     * 下次充值会重试——这就是为什么 bizNo 能用固定的 {@code 单号:repay}：
+     * 上一轮滚回了连流水一起滚回，不会留下“扣了钱却没减欠额”的现场。
+     *
+     * @return 本次实际清偿的点数
+     */
+    @Transactional
+    public long repayArrears(Long customerId) {
+        List<BizStorageOrder> owed = orderMapper.listOwed(customerId);
+        if (owed.isEmpty()) {
+            return 0L;
+        }
+        long repaid = 0L;
+        for (BizStorageOrder order : owed) {
+            long need = order.getArrearsPoints() == null ? 0L : order.getArrearsPoints();
+            if (need <= 0) {
+                continue;
+            }
+            var attempt = points.tryPost(customerId, PointTxnType.CONSUME, need, REF_ORDER, order.getId(),
+                    order.getOrderNo() + ":repay", "欠费补缴");
+            if (attempt.status() == PointAccountService.PostStatus.INSUFFICIENT) {
+                log.info("余额不够清偿，本轮不抵扣 customer={} 待还={} 可用={}",
+                        customerId, need, attempt.balanceAfter());
+                break;
+            }
+            // POSTED 与 DUPLICATE 都表示这笔钱已经动了，所以欠额必须同步减；
+            // 把 DUPLICATE 当失败会造成“钱扣了、台账还挂着欠费”——那比报错危险
+            if (orderMapper.reduceArrears(order.getId(), need) == 0) {
+                throw new BizException(ResultCode.SYSTEM_ERROR,
+                        "欠费清偿状态不一致，已回滚本次抵扣 orderNo=" + order.getOrderNo());
+            }
+            repaid += need;
+            log.info("欠费清偿完成 orderNo={} 金额={} 类型={}",
+                    order.getOrderNo(), need, attempt.status());
+        }
+        return repaid;
     }
 
     /**

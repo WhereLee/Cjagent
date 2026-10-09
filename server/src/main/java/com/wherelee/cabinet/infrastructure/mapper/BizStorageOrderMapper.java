@@ -5,9 +5,11 @@ import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.DisputeState;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 寄存单 Mapper。
@@ -41,4 +43,22 @@ public interface BizStorageOrderMapper extends BaseMapper<BizStorageOrder> {
     @Update("update biz_storage_order set leftover_reported_at = #{at}, update_time = NOW(3) "
             + "where id = #{id} and leftover_reported_at is null and deleted = 0")
     int markLeftoverReported(@Param("id") Long id, @Param("at") LocalDateTime at);
+
+    /**
+     * 某客户待清偿的欠费单（按结算时间先后，**先欠的先还**）。
+     *
+     * <p>不设条数上限：一个客户的欠费单数天然有限，而“只还前 N 条”会制造
+     * “欠费台账有 40 条、系统只认 20 条”这种两边对不上的口径。
+     */
+    @Select("select * from biz_storage_order where deleted = 0 and customer_id = #{customerId} "
+            + "and arrears_points > 0 order by finished_at, id")
+    List<BizStorageOrder> listOwed(@Param("customerId") Long customerId);
+
+    /**
+     * 从一张单上减掉已补缴的欠额。<b>条件更新</b>：`arrears_points >= #{amount}` 把“超还”
+     * 在存储层就挡住——并发下两条路径同时还同一张单时，只可能有一条成立。
+     */
+    @Update("update biz_storage_order set arrears_points = arrears_points - #{amount}, update_time = NOW(3) "
+            + "where id = #{id} and deleted = 0 and arrears_points >= #{amount} and arrears_points > 0")
+    int reduceArrears(@Param("id") Long id, @Param("amount") long amount);
 }

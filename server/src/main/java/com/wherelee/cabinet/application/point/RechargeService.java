@@ -37,6 +37,7 @@ public class RechargeService {
 
     private final BizPayTxnMapper payTxnMapper;
     private final PointAccountService points;
+    private final OrderFundService funds;
     private final TransactionTemplate txTemplate;
     /** 通道可以完全没有实现（prod 默认不装配 mock）：用 ObjectProvider，缺失时明确拒绝而不是启动崩。 */
     private final ObjectProvider<PayChannel> channelProvider;
@@ -46,9 +47,11 @@ public class RechargeService {
     private long maxPointsPerTxn;
 
     public RechargeService(BizPayTxnMapper payTxnMapper, PointAccountService points,
-                           TransactionTemplate txTemplate, ObjectProvider<PayChannel> channelProvider) {
+                           OrderFundService funds, TransactionTemplate txTemplate,
+                           ObjectProvider<PayChannel> channelProvider) {
         this.payTxnMapper = payTxnMapper;
         this.points = points;
+        this.funds = funds;
         this.txTemplate = txTemplate;
         this.channelProvider = channelProvider;
     }
@@ -96,7 +99,7 @@ public class RechargeService {
             return new RechargeView(outTradeNo, requestPoints, 0L, channel.name(), PayTxnStatus.CREATED.name());
         }
 
-        Long balance = txTemplate.execute(status -> {
+        Long creditedBalance = txTemplate.execute(status -> {
             // 条件更新：0 行说明已经有别的路径（回调/重试）确认过这单，本次不能再入一次
             if (payTxnMapper.markPaid(payTxnId, outcome.tradeNo(), LocalDateTime.now()) == 0) {
                 throw new BizException(ResultCode.IDEMPOTENT_REJECT, "该笔收款已处理，请刷新查看余额");
@@ -109,7 +112,20 @@ public class RechargeService {
             return result.balanceAfter();
         });
 
-        return new RechargeView(outTradeNo, requestPoints, balance == null ? 0L : balance,
+        // 欠费清偿放在入账事务**之外**：钱已收进来是既成事实，不得因为抵扣失败而把充值一起回滚
+        // （那会变成“收了钱不入账”的资损方向）。失败只记日志：欠费依旧 > 0，下次充值会重试。
+        long after = creditedBalance == null ? 0L : creditedBalance;
+        try {
+            long repaid = funds.repayArrears(customerId);
+            if (repaid > 0) {
+                after = Math.max(0L, after - repaid);
+                log.info("充值附带清偿欠费 customerId={} 清偿={} 余额现={}", customerId, repaid, after);
+            }
+        } catch (RuntimeException e) {
+            log.warn("充值成功但欠费清偿失败（欠费仍挡单，下次充值重试）customerId={}", customerId, e);
+        }
+
+        return new RechargeView(outTradeNo, requestPoints, after,
                 channel.name(), PayTxnStatus.PAID.name());
     }
 }
