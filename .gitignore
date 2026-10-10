@@ -71,3 +71,6 @@ venv/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Redis 本地实例把 RDB 落在启动目录时产生的文件（不是构建产物，也不该入库）
+dump.rdb
