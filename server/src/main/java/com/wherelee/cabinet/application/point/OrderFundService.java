@@ -255,6 +255,9 @@ public class OrderFundService {
      * 只抵到 cap 为止，超出的欠款依旧挂着——这就是“押金不够仍是欠款状态”。
      */
     private long repayArrearsUpTo(Long customerId, long cap, String requestId) {
+        // biz_no 列宽有限（VARCHAR(64)），而单号本身就 17 位：拼上完整 requestId 会直接超宽插不进去。
+        // 取尾 8 位做区分就足够（端点层 @Idempotent 已按 requestId 挡住重复提交）
+        String tag = requestId.length() <= 8 ? requestId : requestId.substring(requestId.length() - 8);
         long used = 0L;
         for (BizStorageOrder owed : orderMapper.listOwed(customerId)) {
             if (used >= cap) {
@@ -266,7 +269,7 @@ public class OrderFundService {
                 continue;
             }
             points.post(customerId, PointTxnType.CONSUME, take, REF_ORDER, owed.getId(),
-                    owed.getOrderNo() + ":deposit-offset:" + requestId, "退押金时以押金抵欠");
+                    owed.getOrderNo() + ":doff:" + tag, "退押金时以押金抵欠");
             if (orderMapper.reduceArrears(owed.getId(), take) == 0) {
                 throw new BizException(ResultCode.SYSTEM_ERROR,
                         "抵扣欠款与订单状态不一致，已回滚 orderNo=" + owed.getOrderNo());

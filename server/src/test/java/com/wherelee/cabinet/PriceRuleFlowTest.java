@@ -235,8 +235,9 @@ class PriceRuleFlowTest {
     @DisplayName("没发布过策略时吃配置默认价；发布后新单按策略价，快照里留下版本号")
     void defaultPriceThenPublishedPrice() {
         BizStorageOrder before = createOrder(cabinetA);
-        // 默认：押金 200 + 1 小时 15 点（60 分钟减 10 免费窗口后向上取整）
-        assertEquals(215L, before.getFrozenPoints(), "未发布策略时必须是配置默认价");
+        // 默认价（测试库配置）：小格 15 点/小时，预估 60 分 → 1 小时 = 15；
+        // 账户押金不冻在单上（定-1），所以冻结额里不再有押金这一项
+        assertEquals(15L, before.getFrozenPoints(), "未发布策略时必须是配置默认价");
         // 列是 MySQL JSON 类型，存取会被重排成 `"key": 15`（冒号后多一个空格），
         // 所以比对先把空白剔掉——断言要盯的是内容，不是格式化细节
         assertTrue(noSpace(before.getPricingSnapshot()).contains("unitPointsPerHour\":15"),
@@ -246,12 +247,12 @@ class PriceRuleFlowTest {
                 LocalDateTime.now(), "双十一前统一调价", ADMIN));
 
         BizStorageOrder after = createOrder(cabinetA);
-        // 策略价：押金 300 + 1 小时 20 点
-        assertEquals(320L, after.getFrozenPoints(), "新单必须按刚发布的策略价冻结");
+        // 策略价：小格 20 点/小时 × 1 小时（押金已移到账户栅，不再计入冻结）
+        assertEquals(20L, after.getFrozenPoints(), "新单必须按刚发布的策略价冻结");
         assertTrue(noSpace(after.getPricingSnapshot()).contains("priceRuleVersion"), "快照要能回答这单按哪一版算的");
         // 回看上一张：它的快照与冻结额都没被新策略动过
         BizStorageOrder unchanged = TenantContext.callAs(TENANT, () -> orderMapper.selectById(before.getId()));
-        assertEquals(215L, unchanged.getFrozenPoints(), "发布不得追溯改变已下出去的单");
+        assertEquals(15L, unchanged.getFrozenPoints(), "发布不得追溯改变已下出去的单");
     }
 
     @Test
@@ -265,8 +266,8 @@ class PriceRuleFlowTest {
         BizStorageOrder onA = createOrder(cabinetA);
         BizStorageOrder onB = createOrder(cabinetB);
 
-        assertEquals(540L, onA.getFrozenPoints(), "A 点位走站点策略：押金 500 + 1 小时 40 点");
-        assertEquals(320L, onB.getFrozenPoints(), "B 点位仍走全局策略，不能被 A 的灰度带过去");
+        assertEquals(40L, onA.getFrozenPoints(), "A 点位走站点策略：小格 40 点/小时");
+        assertEquals(20L, onB.getFrozenPoints(), "B 点位仍走全局策略，不能被 A 的灰度带过去");
 
         var rulesA = TenantContext.callAs(TENANT, () -> priceRules.list());
         assertTrue(rulesA.stream().anyMatch(r -> siteA.equals(r.siteId()) && "LIVE".equals(r.status())));
@@ -281,14 +282,14 @@ class PriceRuleFlowTest {
                 LocalDateTime.now().plusMinutes(30), "半小时后切换", ADMIN));
 
         BizStorageOrder stillOld = createOrder(cabinetA);
-        assertEquals(320L, stillOld.getFrozenPoints(), "未到生效时刻必须仍用旧价（这是预约发布的全部意义）");
+        assertEquals(20L, stillOld.getFrozenPoints(), "未到生效时刻必须仍用旧价（这是预约发布的全部意义）");
 
         // 把预约版的生效时刻改为“就是现在”：它比旧版晚，所以到点后该选中它。
         // （不能把它挪到旧版之前——“已到生效时刻者中取最晚”的规则下，旧版赢才是正确行为）
         jdbc.update("update biz_price_rule set effective_at = now(3) "
                 + "where tenant_id = ? and unit_small = 60", TENANT);
         BizStorageOrder afterSwitch = createOrder(cabinetA);
-        assertEquals(960L, afterSwitch.getFrozenPoints(), "到点后自动切到预约的那版");
+        assertEquals(60L, afterSwitch.getFrozenPoints(), "到点后自动切到预约的那版");
 
         List<PriceRuleService.View> live = TenantContext.callAs(TENANT, () -> priceRules.list()).stream()
                 .filter(r -> "LIVE".equals(r.status()) && r.siteId() == null).toList();
@@ -310,11 +311,11 @@ class PriceRuleFlowTest {
         TenantContext.runAs(TENANT, () -> priceRules.rollback(v1.get(0).id(), "灰度失败，回退", ADMIN));
 
         BizStorageOrder afterRollback = createOrder(cabinetA);
-        assertEquals(320L, afterRollback.getFrozenPoints(), "回滚后新单应回到 v1 的价");
+        assertEquals(20L, afterRollback.getFrozenPoints(), "回滚后新单应回到 v1 的价");
 
         // 进行中的单不受影响：它下单时抄的快照仍是 v1
         BizStorageOrder untouched = TenantContext.callAs(TENANT, () -> orderMapper.selectById(v1Order.getId()));
-        assertEquals(320L, untouched.getFrozenPoints(), "发布 v2 与回滚都不能回头改这张单的冻结额");
+        assertEquals(20L, untouched.getFrozenPoints(), "发布 v2 与回滚都不能回头改这张单的冻结额");
         assertTrue(noSpace(untouched.getPricingSnapshot()).contains("unitPointsPerHour\":20"),
                 "快照里的单价必须还是 v1 的 20 点：结算读快照而不读策略表");
     }

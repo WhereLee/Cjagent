@@ -65,7 +65,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "cabinet.scheduler.poll-interval-ms=500",
         "cabinet.scheduler.initial-delay-ms=500",
         "cabinet.scheduler.batch-size=20",
-        "cabinet.scheduler.hold-grace-minutes=0"
+        "cabinet.scheduler.reconcile-minutes=0"
 })
 class SchedulerBackgroundPollTest {
 

@@ -48,6 +48,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.trigger=zset",
         "cabinet.scheduler.zset-interval-ms=200",
+        // 待收敛回收阀值归零：本类要验的是“提醒能被取走并执行”，不是等 10 分钟
+        "cabinet.scheduler.reconcile-minutes=0",
         "cabinet.scheduler.initial-delay-ms=200",
         // 兜底轮询也调快：否则"提醒丢失"这一路要等 60 秒，用例只能靠 sleep 活着
         "cabinet.scheduler.poll-interval-ms=1000",

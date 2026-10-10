@@ -609,6 +609,8 @@ class DelayTaskTest {
                 "attempt 必须真实累加，否则退避形同不存在");
     }
 
+    @org.junit.jupiter.api.Disabled("每单押金已随定-1 作废（新单不再产生押金行），本用例要重写为“历史单”场景："
+            + "先插一行 HELD 凭证 + 带押金的冻结与流水，再跑安全网。重写完之前宁可显式关掉，也不让它默默变绿")
     @Test
     @DisplayName("押金悬挂安全网：终态单被回收，重跑不重复退钱")
     void depositSafetyNetIsIdempotent() {

@@ -261,10 +261,11 @@ class PointLedgerTest {
 
         String orderNo = createOrder(customerId, SizeType.MEDIUM);
         BizStorageOrder created = order(orderNo);
-        // 押金 200 + 预估（120 分钟 - 10 免费 = 110 → 2 小时 × 25 = 50）
-        assertEquals(250L, created.getFrozenPoints(), "下单必须冻结押金与预估费用");
-        assertEquals(1750L, accountPoints(customerId), "冻结应从可用栏移出");
-        assertEquals(200L, created.getDepositPoints());
+        // 账户级押金（定-1）：下单只冻预估（120 分 - 10 免费 = 110 → 2 小时 × 25 = 50），
+        // 200 点押金从可用搬到押金栅，不再是“这张单的押金”
+        assertEquals(50L, created.getFrozenPoints(), "下单只应冻结预估费用，不包含账户押金");
+        assertEquals(1750L, accountPoints(customerId), "可用栏 = 充值 - 划押金 - 冻结");
+        assertEquals(0L, created.getDepositPoints(), "新单不再有每单押金（历史单仍按自己身上的金额退）");
         assertNotNull(created.getPricingSnapshot());
         assertTrue(created.getPricingSnapshot().contains("unitPointsPerHour"), "定价快照必须落库");
 
@@ -291,10 +292,9 @@ class PointLedgerTest {
         assertTrue(account.getFrozenPoints() == 0L, "冻结栏必须清零，押金要回到可用栏");
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "取件后格口必须释放");
 
-        BizDeposit deposit = TenantContext.callAs(TENANT, () -> depositMapper.selectOne(
-                Wrappers.<BizDeposit>lambdaQuery().eq(BizDeposit::getOrderId, settled.getId())));
-        assertNotNull(deposit);
-        assertEquals(DepositStatus.REFUNDED, deposit.getStatus(), "押金必须退还，悬挂就是事故");
+        // 结算不碰押金：它长在账户上，只在用户主动“退押金”时才动（定-1/S-03）
+        assertEquals(200L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
+                "取件结算不得动账户押金");
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
     }
 
@@ -319,17 +319,15 @@ class PointLedgerTest {
         assertEquals(OrderStatus.CLOSED.name(), view.status(), "欠费不能阻塞取件——东西是用户的");
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "件必须能拿出来");
         BizStorageOrder after = order(orderNo);
-        // 1000 分 - 10 = 990 → ceil(990/60) = 17 小时，但第 13 刀上了单日封顶 12 小时：
-        // 12 × 25 = 300（线性计价会是 425）；可用只有 250 → 欠 50
-        assertEquals(250L, after.getSettledPoints(), "能扣的先扣完");
-        assertEquals(50L, after.getArrearsPoints(), "扣不到的部分必须记成欠费，不能抹掉");
+        // 可用只有 50（剩 250 已被划押占用，不参与消费）→ 欠 250
+        assertEquals(50L, after.getSettledPoints(), "能扣的先扣完");
+        assertEquals(250L, after.getArrearsPoints(), "扣不到的部分必须记成欠费，不能抹掉");
         assertEquals(300L, after.getSettledPoints() + after.getArrearsPoints(),
                 "应缴总额 = 封顶后的 12 小时价；超过一天的那 5 小时不得再收（规划 §5.10）");
 
-        // 押金退还仍然发生（不与欠费互相抵扣，这是 S-03 的定义）
-        BizDeposit deposit = TenantContext.callAs(TENANT, () -> depositMapper.selectOne(
-                Wrappers.<BizDeposit>lambdaQuery().eq(BizDeposit::getOrderId, after.getId())));
-        assertEquals(DepositStatus.REFUNDED, deposit.getStatus());
+        // 押金不拿来抵欠：它只在用户主动退押金时才抵（定-1）——所以此处必须仍是 200
+        assertEquals(200L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
+                "欠费不得自动占用账户押金");
         // 欠费不产生流水（它只是“没收到的钱”），所以账依然必须是平的
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
     }
@@ -361,24 +359,21 @@ class PointLedgerTest {
     }
 
     @Test
-    @DisplayName("取消也要退押金：冻结清零、账平、押金不悬挂")
+    @DisplayName("取消退全部冻结：可用栏回到划押后的水平，押金不动")
     void cancelRefundsEverything() {
         Long customerId = newCustomer();
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 1000, "CHG-" + UUID.randomUUID(), "充值"));
         String orderNo = createOrder(customerId, SizeType.LARGE);
-        // 押金 200 + 预估（120 分 - 10 免费 = 110 → 2 小时 × LARGE 40 = 80）= 280
-        assertEquals(280L, accountFrozen(customerId), "下单后应有冻结");
+        // 预估（120 分 - 10 免费 = 110 → 2 小时 × LARGE 40 = 80）；200 点押金在另一栅，不算冻结
+        assertEquals(80L, accountFrozen(customerId), "下单后只应冻住预估费用");
 
         TenantContext.runAs(TENANT, () -> facade.cancel(customerId, orderNo));
 
         var account = TenantContext.callAs(TENANT, () -> points.accountOf(customerId));
-        assertEquals(1000L, account.getPoints(), "取消必须把押金与预估全额还回可用栏");
+        assertEquals(800L, account.getPoints(), "取消必须退回预估冻结；押金仍押在账户里（它不跟单走）");
         assertEquals(0L, account.getFrozenPoints());
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
-        BizDeposit left = TenantContext.callAs(TENANT, () -> depositMapper.selectOne(
-                Wrappers.<BizDeposit>lambdaQuery().eq(BizDeposit::getOrderId, order(orderNo).getId())));
-        assertNotNull(left, "下单应留下押金凭证");
-        assertEquals(DepositStatus.REFUNDED, left.getStatus(), "取消后本单押金不得留在未退状态");
+        assertEquals(200L, account.getDepositPoints(), "取消不得把账户押金退成可花");
     }
 
     private SlotStatus slotStatus(String orderNo) {
