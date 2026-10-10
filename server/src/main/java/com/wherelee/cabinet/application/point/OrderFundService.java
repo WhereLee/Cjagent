@@ -67,41 +67,35 @@ public class OrderFundService {
     }
 
     /**
-     * 下单资金冻结：押金 + 预估费用。点数不够直接失败（此时格口占用会随事务回滚释放）。
+     * 下单的资金动作（C 定案：2026-10-10 用户选定，<b>不再预冻任何费用</b>）。
      *
-     * @return 定价快照要回写到订单上，结算只能用它
+     * <p>只做一件事：把账户押金划足到门槛（交过就不重复划）。划不动就是余额不够，
+     * 整单失败——必须在同一个事务里，不能先占住格口再告诉用户“押金不够”，
+     * 那会白留一个已分配未支付的格口。
+     *
+     * <p>不冻结的代价说清：一张单最大敞口 = 封顶后的应缴（按当前价大格 36 小时 × 10 元 = 360 元），
+     * 而押金只有 50 元。收得回来靠三道：欠费 > 0 就不得再下单、充值入账时自动抵扣、
+     * 退押金时先拿押金抵欠。这是用户明选的方向，不是我的默认。
      */
     @Transactional
-    public PricingPolicy.Quote holdFunds(BizStorageOrder order, long estimateMinutes) {
-        // 价只在这一刻读策略表：算完就写进快照，之后结算、逾期、封顶全读快照。
-        // 所以发布/回滚影响不到这张已经下出去的单（这是第 12 刀定的口径，本刀没改它）。
+    public void holdFunds(BizStorageOrder order) {
         com.wherelee.cabinet.domain.entity.BizPriceRule rule = priceRules.effective(order.getSiteId());
-        PricingPolicy.Quote quote = rule == null
-                ? pricing.quote(order.getSizeType(), estimateMinutes)
-                : pricing.quoteByRule(order.getSizeType(), estimateMinutes, rule);
-        // 账户级押金（定-1）：交过就不重复划，没交够就从可用余额里划到门槛。
-        // 它必须在冻结之前、且在同一个事务里：划不动就是余额不够，整单失败；
-        // 不能先占住格口再告诉用户“押金不够”——那会白留一个已分配未支付的格口。
         points.holdAccountDeposit(order.getCustomerId(), depositThreshold(order, rule),
                 order.getOrderNo() + ":deposit", "账户级押金");
-        // 新单不再有“每单押金”，冻结只剩预估消耗（历史单的押金仍按它自己订单上的金额退）
-        long total = Math.max(0L, quote.consumePoints());
 
-        Long frozenTxnId = null;
-        if (total > 0) {
-            var frozen = points.freeze(order.getCustomerId(), total, REF_ORDER, order.getId(),
-                    order.getOrderNo() + ":hold", "预估费用");
-            frozenTxnId = frozen.txnId();
-        }
-
+        // 冻结栏归零；结算只读参数快照里的单价/封顶，按服务端算的实际用时收费
         order.setDepositPoints(0L);
-        order.setFrozenPoints(total);
+        order.setFrozenPoints(0L);
         order.setSettledPoints(0L);
         order.setArrearsPoints(0L);
-        order.setPricingSnapshot(quote.snapshot());
-        // 不再写 biz_deposit：押金已经是账户上的一栅，不是一行一笔“待退”的义务。
+        order.setPricingSnapshot(pricing.inputSnapshot(order.getSizeType(), rule));
+        // 不再写 biz_deposit：押金已经是账户上的一栏，不是一行一笔“待退”的义务。
         // （旧单的 BizDeposit 行仍由 settle/cancel 按 order.depositPoints 驱动退还，不追溯。）
-        return quote;
+    }
+
+    /** capDays 等快照参数的读取入口（不让 PricingPolicy 泄到订单服务里去，保持单一依赖面）。 */
+    public int capDaysOf(String snapshot) {
+        return pricing.capDaysOf(snapshot);
     }
 
     /** 这个单该押多少：按点位取生效策略里的门槛，没发布过就用配置默认值。 */
@@ -109,11 +103,7 @@ public class OrderFundService {
         return rule != null ? rule.getDepositPoints() : pricing.accountDepositPoints();
     }
 
-    /**
-     * 取件结算（正常结束）。
-     *
-     * @param actualMinutes 必须由服务端算（计费起点到此刻），<b>不能信客户端上报</b>
-     */
+    /** 取件结算（正常结束）。 */
     @Transactional
     public Settlement settle(BizStorageOrder order, long actualMinutes) {
         return settle(order, actualMinutes, OrderCloseReason.NORMAL);

@@ -130,6 +130,44 @@ public class PricingPolicy {
         return accountDepositPoints;
     }
 
+    /**
+     * 下单时写进订单的**纯参数快照**（C 定案：不再冻结预估，所以快照里不应出现一个凭空的预估金额）。
+     *
+     * <p>快照仍然是结算的唯一依据：里面只有“当时怎么算”的输入（单价、免费窗口、封顶、加收、
+     * 押金门槛、策略版本），实际用时由服务端在取件时算。这跟“把预估写迺快照”的区别很实在：
+     * 后者会让有人误把 consumePoints 当应收，而它基于一个用户根本没选过的时长。
+     */
+    public String inputSnapshot(SizeType size, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("strategy", "per-hour-daily-cap");
+        snapshot.put("sizeType", size.name());
+        if (rule == null) {
+            snapshot.put("unitPointsPerHour", unitOf(size));
+            snapshot.put("freeMinutes", freeMinutes);
+            snapshot.put("dailyCapHours", dailyCapHours);
+            snapshot.put("capDays", capDays);
+            snapshot.put("depositPoints", 0L);
+            snapshot.put("remoteCloseHours", remoteCloseHours);
+            snapshot.put("accountDepositPoints", accountDepositPoints);
+        } else {
+            snapshot.put("unitPointsPerHour", rule.unitOf(size));
+            snapshot.put("freeMinutes", rule.getFreeMinutes());
+            snapshot.put("dailyCapHours", rule.getDailyCapHours());
+            snapshot.put("capDays", rule.getCapDays());
+            snapshot.put("depositPoints", 0L);
+            snapshot.put("remoteCloseHours", rule.getRemoteCloseHours());
+            snapshot.put("accountDepositPoints", rule.getDepositPoints());
+            snapshot.put("priceRuleId", rule.getId());
+            snapshot.put("priceRuleVersion", rule.getVersion());
+        }
+        return write(snapshot);
+    }
+
+    /** 从快照里取“总额封顶天数”，给逾期看管算截止用（没预估时长后，这就是“多久算呆滞”的唯一依据）。 */
+    public int capDaysOf(String snapshotJson) {
+        return (int) readSnapshot(snapshotJson).capDays();
+    }
+
     /** 结算入口：单价、免费窗口、阶梯与封顶参数全部取自快照，不读当前配置。 */
     public Quote fromSnapshot(String snapshotJson, long actualMinutes) {
         Snap snap = readSnapshot(snapshotJson);

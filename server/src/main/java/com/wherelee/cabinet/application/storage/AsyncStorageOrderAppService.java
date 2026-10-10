@@ -202,7 +202,7 @@ public class AsyncStorageOrderAppService {
         BizStorageOrder order = buildOrder(message, cabinet);
         try {
             // 先算钱再插单（与同步路径一致）：补一次 updateById 会因为 @Version 影响 0 行而静默丢快照
-            funds.holdFunds(order, message.estimateMinutes() == null ? 60 : message.estimateMinutes());
+            funds.holdFunds(order);
             orderMapper.insert(order);
         } catch (DuplicateKeyException e) {
             // 订单号唯一索引挡住重复落库：这是"已处理"而不是失败，不能让它进死信

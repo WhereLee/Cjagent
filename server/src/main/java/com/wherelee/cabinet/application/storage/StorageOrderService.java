@@ -180,24 +180,23 @@ public class StorageOrderService {
         order.setSizeType(allocated.actualSize());
         order.setCustomerId(customerId);
         order.setVoucherCode(voucherOf(orderId));
-        order.setEstimateMinutes(command.estimateMinutes());
+        // C 定案：用户不再选预估时长。这里**故意落 0 而不是客户端传来的值**，
+        // 免得以后的代码拿它当“用户许下的时长”做依据（字段本身已标废弃，待下一批清理）
+        order.setEstimateMinutes(0);
         order.setTempOpenCount(0);
         order.setDepositPoints(0L);
         order.setFrozenPoints(0L);
         order.setSettledPoints(0L);
         order.setArrearsPoints(0L);
-        // 计费快照：第 12 刀接真实策略。改价不得影响历史单，所以这里存的是"当时怎么算的"
-        order.setPricingSnapshot("{\"strategy\":\"placeholder\",\"estimateMinutes\":"
-                + command.estimateMinutes() + ",\"sizeType\":\"" + allocated.actualSize() + "\"}");
         order.initStatus();
         order.transitTo(OrderStatus.RESERVED);
 
         try {
-            // 先算钱再插单：holdFunds 只往订单对象上写快照与冻结额，一次 insert 就带着它们落库。
+            // 先算钱再插单：holdFunds 只往订单对象上写账户押金与参数快照，一次 insert 就带着它们落库。
             // 之前先 insert 再补一次 updateById，因为 BizStorageOrder 带 @Version，
             // 那次 update 影响 0 行却被忽略，定价快照静默丢失（结算时才发现）——
             // 顺序改对比“记住检查每个 updateById”更可靠。
-            funds.holdFunds(order, command.estimateMinutes());
+            funds.holdFunds(order);
             orderMapper.insert(order);
         } catch (RuntimeException e) {
             // 罕见但必须留痕：格口已绑单而订单没落库。事务会回滚掉占用，
@@ -705,11 +704,13 @@ public class StorageOrderService {
         LocalDateTime tolerance = order.getToleranceUntil();
         LocalDateTime start = tolerance == null || closedAt.isBefore(tolerance) ? closedAt : tolerance;
         order.setStartedAt(start);
-        order.setExpectedFinishAt(start.plusMinutes(
-                order.getEstimateMinutes() == null ? 60 : order.getEstimateMinutes()));
+        // C 定案：没有预估时长了，“多久算逾期”只能由已定的总额封顶天数推出来
+        // （capDays=0 表示不限，那就不设 deadline，由封顶与看管窗口自己收口）
+        int capDays = pricing.capDaysOf(order.getPricingSnapshot());
+        order.setExpectedFinishAt(capDays > 0 ? start.plusDays(capDays) : null);
         var scheduler = taskScheduler.getIfAvailable();
-        if (scheduler != null) {
-            // 到期就逐期，不再额外加宽限：那个宽限是“hold-grace”时代的残留，没人定义过它该多大
+        if (scheduler != null && order.getExpectedFinishAt() != null) {
+            // 到期即逾期，不再额外加宽限：那个宽限是“hold-grace”时代的残留，没人定义过它该多大
             scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.OVERDUE_PICKUP,
                     order.getOrderNo(), order.getTenantId(), order.getExpectedFinishAt());
         }
