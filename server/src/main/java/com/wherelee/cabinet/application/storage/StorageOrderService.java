@@ -706,7 +706,7 @@ public class StorageOrderService {
         order.setStartedAt(start);
         // C 定案：没有预估时长了，“多久算逾期”只能由已定的总额封顶天数推出来
         // （capDays=0 表示不限，那就不设 deadline，由封顶与看管窗口自己收口）
-        int capDays = pricing.capDaysOf(order.getPricingSnapshot());
+        int capDays = funds.capDaysOf(order.getPricingSnapshot());
         order.setExpectedFinishAt(capDays > 0 ? start.plusDays(capDays) : null);
         var scheduler = taskScheduler.getIfAvailable();
         if (scheduler != null && order.getExpectedFinishAt() != null) {

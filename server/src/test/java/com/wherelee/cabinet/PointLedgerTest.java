@@ -261,10 +261,10 @@ class PointLedgerTest {
 
         String orderNo = createOrder(customerId, SizeType.MEDIUM);
         BizStorageOrder created = order(orderNo);
-        // 账户级押金（定-1）：下单只冻预估（120 分 - 10 免费 = 110 → 2 小时 × 25 = 50），
-        // 200 点押金从可用搬到押金栅，不再是“这张单的押金”
-        assertEquals(50L, created.getFrozenPoints(), "下单只应冻结预估费用，不包含账户押金");
-        assertEquals(1750L, accountPoints(customerId), "可用栏 = 充值 - 划押金 - 冻结");
+        // C 定案：下单不再预冻任何费用（只把账户押金划足），所以下单后冻结栁应为 0；
+        // 价格是否生效不在这一步证，看下面结算完的 settledPoints
+        assertEquals(0L, created.getFrozenPoints(), "C：下单不再预冻任何费用");
+        assertEquals(1800L, accountPoints(customerId), "可用栁 = 充值 - 划账户押金（不再有冻结）");
         assertEquals(0L, created.getDepositPoints(), "新单不再有每单押金（历史单仍按自己身上的金额退）");
         assertNotNull(created.getPricingSnapshot());
         assertTrue(created.getPricingSnapshot().contains("unitPointsPerHour"), "定价快照必须落库");
@@ -364,13 +364,13 @@ class PointLedgerTest {
         Long customerId = newCustomer();
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 1000, "CHG-" + UUID.randomUUID(), "充值"));
         String orderNo = createOrder(customerId, SizeType.LARGE);
-        // 预估（120 分 - 10 免费 = 110 → 2 小时 × LARGE 40 = 80）；200 点押金在另一栅，不算冻结
-        assertEquals(80L, accountFrozen(customerId), "下单后只应冻住预估费用");
+        // 预估（120 分 - 10 免费 = 110 → 2 小时 × LARGE 40 = 80）；C 之后这些全部不预冻
+        assertEquals(0L, accountFrozen(customerId), "C：下单后不应有任何冻结");
 
         TenantContext.runAs(TENANT, () -> facade.cancel(customerId, orderNo));
 
         var account = TenantContext.callAs(TENANT, () -> points.accountOf(customerId));
-        assertEquals(800L, account.getPoints(), "取消必须退回预估冻结；押金仍押在账户里（它不跟单走）");
+        assertEquals(800L, account.getPoints(), "可用栁不变（本就没冻东西）；押金仍押在账户里（它不跟单走）");
         assertEquals(0L, account.getFrozenPoints());
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
         assertEquals(200L, account.getDepositPoints(), "取消不得把账户押金退成可花");

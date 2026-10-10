@@ -301,16 +301,18 @@ class DelayTaskTest {
         assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS), "worker 线程未退出，会给后续用例留租约竞争");
         pool.shutdownNow();
 
-        // 真正要证的不是“跑了几次”，而是“副作用发生了几次”：跑的次数会被合法重试污染，
-        // 而一张单的解冻出账只允许一条流水（双执行会多一条，或被 uk_txn_biz / 状态机当场拦下）
+        // 真正要证的不是“跑了几次”，而是“副作用发生了几次”：跑的次数会被合法重试污染。
+        // C 定案后这张单从头到尾没有冻结也没有解冻，所以“没众生”的硬证据变成了：
+        // 整个回收过程**不应产生任何冻结/解冻流水**（多一条就是被做了两遍以上）
         Integer notDone = jdbc.queryForObject(
                 "select count(*) from biz_delay_task where task_type='SLOT_RELEASE' and status <> 'DONE'", Integer.class);
         assertEquals(0, notDone, "并发下所有到期任务都应最终被完成（不丢不做两遍）");
-        Integer unfreezeOut = jdbc.queryForObject(
+        Integer fundTxns = jdbc.queryForObject(
                 "select count(*) from biz_point_txn t join biz_storage_order o on o.id = t.ref_id "
-                        + "where o.cabinet_id = ? and t.biz_type = 'UNFREEZE_OUT'", Integer.class, cabinetId);
-        assertEquals(orders, unfreezeOut,
-                "每张单只能解冻一次：多了就是双执行（这是本用例的硬证据）");
+                        + "where o.cabinet_id = ? and t.biz_type in ('UNFREEZE_OUT','FREEZE_IN','FREEZE_OUT')",
+                Integer.class, cabinetId);
+        assertEquals(0, fundTxns,
+                "C：下单不预冻，回收取消也不该动任何冻结/解冻流水（出现一行就是多做了）");
         assertTrue(totalExecuted.get() >= orders,
                 "被抢次数不应少于任务数；实测 " + totalExecuted.get() + "（>任务数部分=合法重试）");
         Integer cancelled = jdbc.queryForObject(
