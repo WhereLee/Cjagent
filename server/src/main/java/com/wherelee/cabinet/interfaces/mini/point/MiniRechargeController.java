@@ -42,9 +42,12 @@ import org.springframework.web.bind.annotation.RestController;
 public class MiniRechargeController {
 
     private final RechargeService recharge;
+    private final com.wherelee.cabinet.application.point.OrderFundService funds;
 
-    public MiniRechargeController(RechargeService recharge) {
+    public MiniRechargeController(RechargeService recharge,
+                                  com.wherelee.cabinet.application.point.OrderFundService funds) {
         this.recharge = recharge;
+        this.funds = funds;
     }
 
     /** @param points 购买点数（1 点 = 1 分，S-01） */
@@ -62,5 +65,26 @@ public class MiniRechargeController {
     public R<RechargeView> recharge(@AuthenticationPrincipal VerifiedToken current,
                                     @Valid @RequestBody RechargeCommand cmd) {
         return R.ok(recharge.recharge(current.subjectId(), cmd.points()));
+    }
+
+    /**
+     * 自助退押金（2026-10-10 定：由客户自己发起，不需客服）。
+     *
+     * <p>返回的是真正回到可用余额的点数（押金 - 被抵掉的欠款）。退押不会把欠单一笔勾销：
+     * 押金不够抵时剩下来的欠款依旧挂着，依旧拦住下一次下单。
+     */
+    @Operation(summary = "退账户押金", description = "先用押金抵欠款，剩下退回可用余额；真实原路退回待接入支付通道")
+    @OperationLog(module = "point", operation = "退押金")
+    @RateLimit(limit = 5, windowSeconds = 60, message = "退押金过于频繁，请稍后再试")
+    @Idempotent(key = "#cmd.requestId", requireKey = true, message = "该退押金请求已在处理")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @PostMapping("/deposit/refund")
+    public R<Long> refundDeposit(@AuthenticationPrincipal VerifiedToken current,
+                                 @Valid @RequestBody RefundRequest cmd) {
+        return R.ok(funds.refundDeposit(current.subjectId(), cmd.requestId()));
+    }
+
+    /** 退押金也要业务键：它会把钱放回可花余额，不是一个可以重放的读接口。 */
+    public record RefundRequest(@NotBlank @Size(max = 64) String requestId) {
     }
 }

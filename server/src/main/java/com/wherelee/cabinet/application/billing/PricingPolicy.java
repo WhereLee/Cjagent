@@ -50,8 +50,14 @@ public class PricingPolicy {
      */
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    @Value("${cabinet.pricing.deposit-points:200}")
-    private long depositPoints;
+    /**
+     * 账户级押金门槛（2026-10-10 定-1：50 元 = 5000 点，1 点 = 1 分）。
+     *
+     * <p>它不再是“每单押金”，所以**不进计费公式**，也不进新单的快照；
+     * 旧单快照里的 depositPoints 仍由 {@code fromSnapshot} 原样读出来退，不追溯。
+     */
+    @Value("${cabinet.pricing.account-deposit-points:5000}")
+    private long accountDepositPoints;
 
     @Value("${cabinet.pricing.free-minutes:10}")
     private int freeMinutes;
@@ -119,9 +125,9 @@ public class PricingPolicy {
                 rule.getCapDays(), rule.getDepositPoints(), rule.getRemoteCloseHours(), extra);
     }
 
-    /** 没发布策略时的押金默认值（预览要用它说清“现在吃的是配置默认价”）。 */
-    public long defaultDepositPoints() {
-        return depositPoints;
+    /** 没发布策略时的账户押金门槛默认值（预览与下单前的门槛判定共用这一处，避免两份口径）。 */
+    public long accountDepositPoints() {
+        return accountDepositPoints;
     }
 
     /** 结算入口：单价、免费窗口、阶梯与封顶参数全部取自快照，不读当前配置。 */
@@ -133,7 +139,8 @@ public class PricingPolicy {
     }
 
     private Quote quoteWith(long unit, long minutes) {
-        return buildQuote(unit, minutes, freeMinutes, dailyCapHours, capDays, depositPoints, remoteCloseHours);
+        // 新单每单押金 = 0：押金已经是账户上的一栅，不再是这张单的价的一部分
+        return buildQuote(unit, minutes, freeMinutes, dailyCapHours, capDays, 0L, remoteCloseHours);
     }
 
     /**
@@ -266,7 +273,7 @@ public class PricingPolicy {
                     (int) readLong(node, "freeMinutes", this.freeMinutes),
                     (int) readLong(node, "dailyCapHours", 0L),
                     (int) readLong(node, "capDays", 0L),
-                    readLong(node, "depositPoints", this.depositPoints),
+                    readLong(node, "depositPoints", 0L),
                     // 缺字段 = 0 加收（旧单当时的价就是没有这一笔），而不是拿今天的配置补
                     (int) readLong(node, "remoteCloseHours", 0L));
         } catch (BizException e) {

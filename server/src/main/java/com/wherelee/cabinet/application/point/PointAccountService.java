@@ -104,18 +104,14 @@ public class PointAccountService {
         }
 
         BizPointAccount account = ensureAccount(customerId);
-        boolean onFrozen = type.bucket() == PointTxnType.Bucket.FROZEN;
-        int hit = onFrozen
-                ? accountMapper.changeFrozen(account.getId(), signed)
-                : accountMapper.changeAvailable(account.getId(), signed);
+        int hit = applyToBucket(account, type, signed);
         if (hit == 0) {
             // 不抛：让调用方自己决定“失败”还是“记欠费继续”
-            return new PostAttempt(PostStatus.INSUFFICIENT, null,
-                    onFrozen ? account.getFrozenPoints() : account.getPoints());
+            return new PostAttempt(PostStatus.INSUFFICIENT, null, readBucket(account, type.bucket()));
         }
 
         BizPointAccount after = accountMapper.selectById(account.getId());
-        long balanceAfter = onFrozen ? after.getFrozenPoints() : after.getPoints();
+        long balanceAfter = readBucket(after, type.bucket());
 
         BizPointTxn txn = newTxn(account, customerId, type, signed, refType, refId, bizNo, remark, balanceAfter);
         try {
@@ -148,6 +144,71 @@ public class PointAccountService {
         }
         return new TxnResult(attempt.txnId(), attempt.balanceAfter() == null ? 0L : attempt.balanceAfter(),
                 attempt.status() == PostStatus.DUPLICATE);
+    }
+
+    /**
+     * 按类型影响的那一栏做条件变更。“一笔只动一栏”是记账能自证的前提，
+     * 栏位选错就会把押金算进可花余额（或反之）。
+     */
+    private int applyToBucket(BizPointAccount account, PointTxnType type, long signed) {
+        return switch (type.bucket()) {
+            case POINTS -> accountMapper.changeAvailable(account.getId(), signed);
+            case FROZEN -> accountMapper.changeFrozen(account.getId(), signed);
+            case DEPOSIT -> accountMapper.changeDeposit(account.getId(), signed);
+        };
+    }
+
+    private long readBucket(BizPointAccount account, PointTxnType.Bucket bucket) {
+        Long value = switch (bucket) {
+            case POINTS -> account.getPoints();
+            case FROZEN -> account.getFrozenPoints();
+            case DEPOSIT -> account.getDepositPoints();
+        };
+        return value == null ? 0L : value;
+    }
+
+    /**
+     * 把账户押金划足到 target。<b>只补差额，交过就不重复划</b>。
+     *
+     * <p>两笔（可用 -X、押金 +X）必须同事务成对：只成功一笔就是“钱凭空消失”
+     * 或“没扣钱却显示已交押金”。余额不足让下单那一步整体失败，
+     * 而不是先占住格口再告诉用户押金不够。
+     */
+    @Transactional
+    public void holdAccountDeposit(Long customerId, long target, String bizNo, String remark) {
+        BizPointAccount account = ensureAccount(customerId);
+        long need = target - readBucket(account, PointTxnType.Bucket.DEPOSIT);
+        if (need <= 0) {
+            return;
+        }
+        post(customerId, PointTxnType.DEPOSIT_OUT, need, "DEPOSIT_ACCOUNT", customerId, bizNo, remark);
+        post(customerId, PointTxnType.DEPOSIT_IN, need, "DEPOSIT_ACCOUNT", customerId, bizNo + ":in", remark);
+        log.info("账户押金划足 customer={} 本次划转={} 目标={}", customerId, need, target);
+    }
+
+    /** 当前已押金额（给“能不能下单”的前置判据与退押金文案用）。 */
+    public long depositOf(Long customerId) {
+        return readBucket(ensureAccount(customerId), PointTxnType.Bucket.DEPOSIT);
+    }
+
+    /**
+     * 退押金：整栅押金回到可用。
+     *
+     * <p>调用方负责先抵欠款（那个金额走 CONSUME，不走这两笔）——因为
+     * “抵欠”是消耗、“退回”是栏位转换，混在一笔里两栏就对不上了。
+     *
+     * @return 实际退回的押金点数
+     */
+    @Transactional
+    public long releaseAccountDeposit(Long customerId, String bizNo, String remark) {
+        long held = depositOf(customerId);
+        if (held <= 0) {
+            throw new BizException(ResultCode.BIZ_ERROR, "当前没有已押的押金，无需退回");
+        }
+        post(customerId, PointTxnType.DEPOSIT_BACK_OUT, held, "DEPOSIT_ACCOUNT", customerId, bizNo, remark);
+        post(customerId, PointTxnType.DEPOSIT_BACK_IN, held, "DEPOSIT_ACCOUNT", customerId, bizNo + ":in", remark);
+        log.info("账户押金退回 customer={} 金额={}", customerId, held);
+        return held;
     }
 
     private BizPointTxn newTxn(BizPointAccount account, Long customerId, PointTxnType type, long signed,

@@ -25,6 +25,13 @@ public class BizPointAccount extends BaseEntity {
 
     private Long frozenPoints;
 
+    /**
+     * 账户级押金（2026-10-10 定-1）：划出后不可花、不参与消费，交一次反复用，
+     * 用户自己点“退押金”才回到 points。第三栏而不是“从 points 里减掉就算押过”：
+     * 后者答不出“还能花多少”，也让对账无法用一句求和自证。
+     */
+    private Long depositPoints;
+
     /** 并发扣减靠它 + 条件 UPDATE 兜住（缺了就是"后提交者覆盖"）。 */
     @Version
     private Integer version;

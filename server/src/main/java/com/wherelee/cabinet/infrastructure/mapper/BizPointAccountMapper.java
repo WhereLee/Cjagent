@@ -47,4 +47,15 @@ public interface BizPointAccountMapper extends BaseMapper<BizPointAccount> {
              where id = #{id} and frozen_points + #{delta} >= 0 and deleted = 0
             """)
     int changeFrozen(@Param("id") Long id, @Param("delta") long delta);
+
+    /**
+     * 变更账户级押金栅。同样靠条件更新：“把押金扣成负数”时影响 0 行
+     * （典型场景：两个退押金请求并到同一账户，只可能有一个成立）。
+     */
+    @Update("""
+            update biz_point_account
+               set deposit_points = deposit_points + #{delta}, version = version + 1, update_time = NOW(3)
+             where id = #{id} and deposit_points + #{delta} >= 0 and deleted = 0
+            """)
+    int changeDeposit(@Param("id") Long id, @Param("delta") long delta);
 }

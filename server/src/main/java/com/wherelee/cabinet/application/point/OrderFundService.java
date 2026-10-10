@@ -79,31 +79,34 @@ public class OrderFundService {
         PricingPolicy.Quote quote = rule == null
                 ? pricing.quote(order.getSizeType(), estimateMinutes)
                 : pricing.quoteByRule(order.getSizeType(), estimateMinutes, rule);
-        long total = quote.depositPoints() + quote.consumePoints();
-        if (total <= 0) {
-            // 免费窗口内不冻结也要走通：只冻结押金
-            total = quote.depositPoints();
+        // 账户级押金（定-1）：交过就不重复划，没交够就从可用余额里划到门槛。
+        // 它必须在冻结之前、且在同一个事务里：划不动就是余额不够，整单失败；
+        // 不能先占住格口再告诉用户“押金不够”——那会白留一个已分配未支付的格口。
+        points.holdAccountDeposit(order.getCustomerId(), depositThreshold(order, rule),
+                order.getOrderNo() + ":deposit", "账户级押金");
+        // 新单不再有“每单押金”，冻结只剩预估消耗（历史单的押金仍按它自己订单上的金额退）
+        long total = Math.max(0L, quote.consumePoints());
+
+        Long frozenTxnId = null;
+        if (total > 0) {
+            var frozen = points.freeze(order.getCustomerId(), total, REF_ORDER, order.getId(),
+                    order.getOrderNo() + ":hold", "预估费用");
+            frozenTxnId = frozen.txnId();
         }
 
-        var frozen = points.freeze(order.getCustomerId(), total, REF_ORDER, order.getId(),
-                order.getOrderNo() + ":hold", "押金 + 预估费用");
-
-        order.setDepositPoints(quote.depositPoints());
+        order.setDepositPoints(0L);
         order.setFrozenPoints(total);
         order.setSettledPoints(0L);
         order.setArrearsPoints(0L);
         order.setPricingSnapshot(quote.snapshot());
-
-        BizDeposit deposit = new BizDeposit();
-        deposit.setTenantId(order.getTenantId());
-        deposit.setOrderId(order.getId());
-        deposit.setCustomerId(order.getCustomerId());
-        deposit.setPoints(quote.depositPoints());
-        deposit.setStatus(DepositStatus.HELD);
-        deposit.setHeldTxnId(frozen.txnId());
-        deposit.setHeldAt(LocalDateTime.now());
-        depositMapper.insert(deposit);
+        // 不再写 biz_deposit：押金已经是账户上的一栅，不是一行一笔“待退”的义务。
+        // （旧单的 BizDeposit 行仍由 settle/cancel 按 order.depositPoints 驱动退还，不追溯。）
         return quote;
+    }
+
+    /** 这个单该押多少：按点位取生效策略里的门槛，没发布过就用配置默认值。 */
+    private long depositThreshold(BizStorageOrder order, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
+        return rule != null ? rule.getDepositPoints() : pricing.accountDepositPoints();
     }
 
     /**
@@ -222,6 +225,55 @@ public class OrderFundService {
         // 读余额与扣减之间被别人花掉了：少收而不是多收，方向安全，交给对账
         log.warn("补扣再次失败，本单全额计欠费 orderNo={}", order.getOrderNo());
         return 0L;
+    }
+
+    /**
+     * 用户自助退押金（2026-10-10 定：客户自己操作）。
+     *
+     * <p>规则是“先用押金抵欠款，剩下的退回；押金不够抵就仍为欠款状态”。
+     * 执行顺序不能反：先把押金整个退回可用，再**以押金金额为上限**逐单抵扣欠款——
+     * 如果反过来先抵后退，“抵不动”就会把押金卡住（普通清偿的“不足额一分不扣”规则在这里不适用，
+     * 因为退押金是用户主动结算，有多少抵多少才是他要的）。
+     *
+     * @return 真正退回用户可用的点数（= 押金 - 抵扣的欠款）
+     */
+    @Transactional
+    public long refundDeposit(Long customerId, String requestId) {
+        long held = points.depositOf(customerId);
+        if (held <= 0) {
+            throw new BizException(ResultCode.BIZ_ERROR, "当前没有已押的押金，无需退回");
+        }
+        points.releaseAccountDeposit(customerId, "DEPOSIT-REFUND-" + requestId, "用户自助退押金");
+        long offset = repayArrearsUpTo(customerId, held, requestId);
+        long back = held - offset;
+        log.info("退押金完成 customer={} 押金={} 抵欠={} 退回={}", customerId, held, offset, back);
+        return back;
+    }
+
+    /**
+     * 最多用 cap 这么多点数去抵欠款（与充值自动清偿的区别就在“允许部分抵扣”）。
+     * 只抵到 cap 为止，超出的欠款依旧挂着——这就是“押金不够仍是欠款状态”。
+     */
+    private long repayArrearsUpTo(Long customerId, long cap, String requestId) {
+        long used = 0L;
+        for (BizStorageOrder owed : orderMapper.listOwed(customerId)) {
+            if (used >= cap) {
+                break;
+            }
+            long need = owed.getArrearsPoints() == null ? 0L : owed.getArrearsPoints();
+            long take = Math.min(need, cap - used);
+            if (take <= 0) {
+                continue;
+            }
+            points.post(customerId, PointTxnType.CONSUME, take, REF_ORDER, owed.getId(),
+                    owed.getOrderNo() + ":deposit-offset:" + requestId, "退押金时以押金抵欠");
+            if (orderMapper.reduceArrears(owed.getId(), take) == 0) {
+                throw new BizException(ResultCode.SYSTEM_ERROR,
+                        "抵扣欠款与订单状态不一致，已回滚 orderNo=" + owed.getOrderNo());
+            }
+            used += take;
+        }
+        return used;
     }
 
     /**
