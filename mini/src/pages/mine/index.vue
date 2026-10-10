@@ -51,7 +51,7 @@ function confirmLogout(): void {
     </view>
     <view class="row">
       <text class="label">账号状态</text>
-      <!-- 拿不到 profile 时显示“—”：把“未登录 / 没拉到数据”说成“账号已冻结”属于假数据，会误导骑手去找客服 -->
+      <!-- 拿不到 profile 时显示“—”：把“未登录 / 没拉到数据”说成“账号已冻结”属于假数据，会误导客户去找客服 -->
       <text class="value">{{ store.profile ? (store.profile.status === 1 ? '正常' : '已冻结') : '—' }}</text>
     </view>
     <view class="row">

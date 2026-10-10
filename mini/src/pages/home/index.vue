@@ -39,9 +39,9 @@ function goMine(): void {
     </view>
 
     <view class="card">
-      <button class="btn btn-primary" @click="goScan">扫码换电</button>
+      <button class="btn btn-primary" @click="goScan">扫码取件</button>
       <button class="btn btn-ghost" @click="goMine">我的</button>
-      <view class="hint">换电功能即将开放；现在看到的扫码入口是占位页。</view>
+      <view class="hint">暂存柜用户端尚未接入；现在看到的扫码入口是占位页。</view>
     </view>
   </view>
 

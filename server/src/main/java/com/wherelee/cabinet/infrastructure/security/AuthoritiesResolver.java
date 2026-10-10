@@ -6,7 +6,7 @@ import java.util.List;
  * 把一个账号 ID 换成 Spring Security 用的权限串。
  *
  * <p>抽这个接口是为了让 {@link JwtAuthenticationFilter} 与"具体是哪一端"解耦：
- * 后台走 RBAC 查库（带缓存），骑手端是固定角色。同一个过滤器实现服务两条安全链。
+ * 后台走 RBAC 查库（带缓存），用户端是固定角色。同一个过滤器实现服务两条安全链。
  */
 public interface AuthoritiesResolver {
 

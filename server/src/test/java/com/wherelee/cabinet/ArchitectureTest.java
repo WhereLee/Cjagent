@@ -62,7 +62,7 @@ class ArchitectureTest {
     }
 
     @Test
-    @DisplayName("后台与骑手端互不依赖：两端凭证与语义不得混用")
+    @DisplayName("后台与用户端互不依赖：两端凭证与语义不得混用")
     void endsAreIsolated() {
         ArchRule adminNotDependMini = noClasses().that().resideInAPackage(ROOT + ".interfaces.admin..")
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".interfaces.mini..");

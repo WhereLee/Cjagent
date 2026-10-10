@@ -38,7 +38,7 @@ function back(): void {
 
 <template>
   <view v-if="ready" class="card">
-    <view class="title">扫码换电（占位）</view>
+    <view class="title">扫码取件（占位）</view>
     <button class="btn btn-primary" @click="scan">扫一扫柜机上的二维码</button>
     <view v-if="lastResult" class="row">
       <text class="label">扫到内容</text>
@@ -46,7 +46,7 @@ function back(): void {
     </view>
     <button class="btn btn-ghost" @click="back">返回</button>
     <view class="hint">
-      换电功能尚未开放，扫码不会发起业务。在微信小程序或真机上才能扫码；
+      暂存柜用户端尚未接入，扫码不会发起业务。在微信小程序或真机上才能扫码；
       普通浏览器里点“扫一扫”一定会提示不支持，这不是手机坏了。
     </view>
   </view>

@@ -174,7 +174,7 @@ function messageFor(code: number, backendMessage: string): string {
 }
 
 function notify(code: number, message: string, traceId?: string): void {
-  // 服务端错误带上 traceId：骑手在户外报障时，这一串字符是唯一能对齐日志的东西
+  // 服务端错误带上 traceId：客户在户外报障时，这一串字符是唯一能对齐日志的东西
   const title = code >= ResultCode.SYSTEM_ERROR && traceId ? `${message}（${traceId.slice(0, 8)}）` : message
   uni.showToast({ title, icon: 'none', duration: 2500 })
 }

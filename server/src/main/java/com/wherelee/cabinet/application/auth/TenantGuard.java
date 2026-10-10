@@ -49,7 +49,7 @@ public class TenantGuard {
         }
     }
 
-    /** 按 ID 查（骑手已归属某租户时用得上），不存在或不可用同样拒绝。 */
+    /** 按 ID 查（客户已归属某租户时用得上），不存在或不可用同样拒绝。 */
     public SysTenant requireUsableById(Long tenantId) {
         SysTenant tenant = tenantMapper.selectById(tenantId);
         if (tenant == null) {

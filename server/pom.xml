@@ -15,7 +15,7 @@
     <artifactId>cabinet-server</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>cabinet-server</name>
-    <description>换电柜 SaaS 底座（多租户 / 双端接口 / 中间件接入）</description>
+    <description>暂存柜 SaaS 底座（多租户 / 双端接口 / 中间件接入）</description>
 
     <properties>
         <java.version>17</java.version>

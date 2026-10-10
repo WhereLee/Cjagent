@@ -4,7 +4,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * 换电柜 SaaS 底座启动类。
+ * 暂存柜 SaaS 底座启动类。
  *
  * <p>分层约定（详见 docs/架构约定.md）：
  * <ul>

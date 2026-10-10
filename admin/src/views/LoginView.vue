@@ -54,7 +54,7 @@ async function submit() {
 <template>
   <div class="login-page">
     <ElCard class="login-card">
-      <h2 class="title">换电柜 SaaS 运营后台</h2>
+      <h2 class="title">暂存柜 SaaS 运营后台</h2>
       <ElForm ref="formRef" :model="form" :rules="rules" label-position="top" @keyup.enter="submit">
         <ElFormItem label="租户编码" prop="tenantCode">
           <ElInput v-model.trim="form.tenantCode" placeholder="platform" autocomplete="off" />

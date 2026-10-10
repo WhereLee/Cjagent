@@ -97,7 +97,7 @@ const router = createRouter({
  */
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  document.title = `${to.meta.title ?? ''} · 换电柜运营后台`
+  document.title = `${to.meta.title ?? ''} · 暂存柜运营后台`
 
   if (to.meta.publicAccess) return true
 

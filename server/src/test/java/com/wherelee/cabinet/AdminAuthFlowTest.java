@@ -160,7 +160,7 @@ class AdminAuthFlowTest {
     }
 
     @Test
-    @DisplayName("后台 token 打骑手接口必须被拒（两条链各认各端）")
+    @DisplayName("后台 token 打客户接口必须被拒（两条链各认各端）")
     void adminTokenRejectedOnMiniChain() throws Exception {
         String token = login(TENANT_ONE, "ops-admin", PWD_ONE);
 

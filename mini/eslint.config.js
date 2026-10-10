@@ -33,7 +33,7 @@ export default tseslint.config(
       'vue/component-name-in-template-casing': 'off',
       'vue/no-v-html': 'error',
       eqeqeq: ['error', 'always', { null: 'ignore' }],
-      // 小程序端没有 console，且骑手在户外报障靠的就是日志；只禁 log，保留 warn/error
+      // 小程序端没有 console，且客户在户外报障靠的就是日志；只禁 log，保留 warn/error
       'no-console': ['error', { allow: ['warn', 'error'] }],
     },
   },

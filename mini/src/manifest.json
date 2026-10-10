@@ -1,7 +1,7 @@
 {
   "name": "cabinet-mini",
   "appid": "",
-  "description": "换电柜 SaaS 骑手端",
+  "description": "暂存柜 SaaS 用户端",
   "versionName": "0.0.1",
   "versionCode": "1",
   "transformPx": false,

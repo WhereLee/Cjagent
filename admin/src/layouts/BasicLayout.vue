@@ -22,7 +22,7 @@ async function onLogout() {
 <template>
   <ElContainer class="shell">
     <ElAside width="200px">
-      <div class="brand">换电柜 SaaS</div>
+      <div class="brand">暂存柜 SaaS</div>
       <ElMenu :default-active="router.currentRoute.value.path" router>
         <ElMenuItem v-for="menu in menus" :key="menu.path" :index="menu.path">
           {{ menu.title }}

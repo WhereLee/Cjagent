@@ -28,10 +28,10 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 /**
- * 三条安全链：公开、后台、骑手端。
+ * 三条安全链：公开、后台、用户端。
  *
  * <p><b>为什么要按端拆成独立的链，而不是一条链里写一堆 requestMatchers</b>：
- * 两端的凭证互不通用是安全要求（骑手 token 不能访问后台），拆链后每条链只认自己端的 token，
+ * 两端的凭证互不通用是安全要求（客户 token 不能访问后台），拆链后每条链只认自己端的 token，
  * 过滤器里的 {@code end} 断言天然形成隔离；混在一条链里靠路径猜，漏一条规则就是一个洞。
  *
  * <p>链的顺序由 {@code @Order} 固定：公开的（自检/文档/探针）在最前面，

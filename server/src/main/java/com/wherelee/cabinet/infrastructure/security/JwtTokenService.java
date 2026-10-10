@@ -26,7 +26,7 @@ import java.util.UUID;
  * <ul>
  *   <li><b>typ</b>：access 与 refresh 分开。refresh 拿去调业务接口必须被拒绝，
  *       否则长效凭证等同于永久通行证。</li>
- *   <li><b>end</b>：admin 与 mini 分开。骑手 token 拿去访问后台接口必须被拒绝。</li>
+ *   <li><b>end</b>：admin 与 mini 分开。客户 token 拿去访问后台接口必须被拒绝。</li>
  *   <li><b>tid</b>：租户写在凭证里，请求进来时据此建立 TenantContext，
  *       绝不允许由前端传 {@code tenantId} 参数决定（那是最典型的越租入口）。</li>
  * </ul>

@@ -74,7 +74,7 @@ jobs:
       - name: 生产构建
         run: npm run build
 
-  # ── 3. 前端（mini 骑手端）门禁：lint + 类型 + 页面流转检查 + 两端构建 ──────
+  # ── 3. 前端（mini 用户端）门禁：lint + 类型 + 页面流转检查 + 两端构建 ──────
   # 两个构建目标都跑：只验 H5 的话，“uni-app 能编小程序”就只是纸面承诺
   frontend-mini:
     name: 前端 mini 检查

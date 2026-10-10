@@ -3,19 +3,19 @@
     {
       "path": "pages/login/index",
       "style": {
-        "navigationBarTitleText": "骑手登录"
+        "navigationBarTitleText": "用户登录"
       }
     },
     {
       "path": "pages/home/index",
       "style": {
-        "navigationBarTitleText": "换电"
+        "navigationBarTitleText": "暂存柜"
       }
     },
     {
       "path": "pages/scan/index",
       "style": {
-        "navigationBarTitleText": "扫码换电"
+        "navigationBarTitleText": "扫码取件"
       }
     },
     {
@@ -26,7 +26,7 @@
     }
   ],
   "globalStyle": {
-    "navigationBarTitleText": "换电柜",
+    "navigationBarTitleText": "暂存柜",
     "navigationBarTextStyle": "white",
     "navigationBarBackgroundColor": "#2b3a4a",
     "backgroundColor": "#f5f7fa"
