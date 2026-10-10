@@ -47,26 +47,23 @@ public class MiniStorageOrderController {
         this.storageOrderFacade = storageOrderFacade;
     }
 
-    @Operation(summary = "占位（选格口）", description = "并发下抢到格口才建单；失败区分 10409 无位 / 10410 抢输")
-    @OperationLog(module = "storage", operation = "寄存占位")
+    @Operation(summary = "存件（下单并开门）",
+            description = "一步完成：占格 + 划账户押金 + 冻结预估 + 下发开门，返回格口号；10409 无位 / 10410 抢输")
+    @OperationLog(module = "storage", operation = "存件下单")
     @RateLimit(limit = 20, windowSeconds = 60, message = "操作过于频繁，请稍后再试")
     @Idempotent(key = "#cmd.requestId", requireKey = true, message = "该请求已处理，请勿重复提交")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping
     public R<StorageOrderView> create(@AuthenticationPrincipal VerifiedToken current,
                                       @Valid @RequestBody CreateOrderCommand cmd) {
-        return R.ok(storageOrderFacade.create(current.subjectId(), cmd));
+        return R.ok(storageOrderFacade.place(current.subjectId(), cmd));
     }
 
-    @Operation(summary = "取消占位", description = "免费取消窗口内全额释放；格口随事务释放")
-    @OperationLog(module = "storage", operation = "寄存取消")
-    @RateLimit(limit = 30, windowSeconds = 60)
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @PostMapping("/{orderNo}/cancel")
-    public R<StorageOrderView> cancel(@AuthenticationPrincipal VerifiedToken current,
-                                      @PathVariable @NotBlank @Size(max = 32) String orderNo) {
-        return R.ok(storageOrderFacade.cancel(current.subjectId(), orderNo));
-    }
+    /**
+     * 取消入口已去掉（2026-10-10 定-2/定-3）：下单与开门合并后不存在“下了单没开门”这个用户可停留的状态，
+     * 开门失败服服当场退回；“开了柜但没放东西”走正常的结束流程（在免费窗口内就是 0 元）。
+     * 服务层的 cancel 保留：它是异常退回与待收敛回收的实现手段，不再对外提供。
+     */
 
     /**
      * 开柜类动作。

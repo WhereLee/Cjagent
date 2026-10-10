@@ -76,8 +76,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
-        // grace 归零：否则下单登记的任务在未来，用例测的是“等待”而不是“执行”
-        "cabinet.scheduler.hold-grace-minutes=0",
+        // 回收阈值归零：否则下单登记的任务在未来，用例测的是“等待”而不是“执行”
+        "cabinet.scheduler.reconcile-minutes=0",
         "cabinet.scheduler.batch-size=50",
         "cabinet.scheduler.backoff-base-seconds=1"
 })

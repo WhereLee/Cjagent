@@ -75,8 +75,15 @@ public class StorageOrderService {
      */
     private final org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler;
 
-    @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.hold-grace-minutes:5}")
-    private long holdGraceMinutes;
+    /**
+     * 待收敛回收的阈值（定-4，用户 2026-10-10 定的 10 分钟）。
+     *
+     * <p>它不再是“给用户留的开柜宽限”（那个概念随预占一起删了）：下单与开门已合并成一步，
+     * 正常路径不会停在“待开门”。这条任务只兜“崩在占格与开门之间”的残留，所定得宽一些无所谓，
+     * 定短了反而会误伤柜机前翻包的人。
+     */
+    @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.reconcile-minutes:10}")
+    private long reconcileMinutes;
 
     /**
      * 取件码连续输错的锁定阈值——<b>5 次由用户 2026-10-10 给出</b>，不进配置。
@@ -206,7 +213,7 @@ public class StorageOrderService {
         var scheduler = taskScheduler.getIfAvailable();
         if (scheduler != null) {
             scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.SLOT_RELEASE, order.getOrderNo(),
-                    order.getTenantId(), LocalDateTime.now().plusMinutes(holdGraceMinutes));
+                    order.getTenantId(), LocalDateTime.now().plusMinutes(reconcileMinutes));
             // 押金退还任务不在这里登记：此时押金“挂着”是正常态，提前登记只会每张单都进
             // “未终态→退避重试→判死”的循环，把 DEAD 变成噪声。真正需要它的是对账发现悬挂押金后
             // 现场登记（见 LedgerReconcileHandler）
@@ -702,9 +709,9 @@ public class StorageOrderService {
                 order.getEstimateMinutes() == null ? 60 : order.getEstimateMinutes()));
         var scheduler = taskScheduler.getIfAvailable();
         if (scheduler != null) {
+            // 到期就逐期，不再额外加宽限：那个宽限是“hold-grace”时代的残留，没人定义过它该多大
             scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.OVERDUE_PICKUP,
-                    order.getOrderNo(), order.getTenantId(),
-                    order.getExpectedFinishAt().plusMinutes(holdGraceMinutes));
+                    order.getOrderNo(), order.getTenantId(), order.getExpectedFinishAt());
         }
     }
 

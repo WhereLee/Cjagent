@@ -23,6 +23,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class StorageOrderFacade {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(StorageOrderFacade.class);
+
     private static final String STRATEGY_PREALLOC = "prealloc";
 
     private final StorageOrderService syncService;
@@ -51,6 +53,34 @@ public class StorageOrderFacade {
         }
         // 锁必须包住整个事务（而不是在事务里加锁）：原因见 CabinetLockGuard
         return guard.aroundCabinet(command.cabinetNo(), () -> syncService.create(customerId, command));
+    }
+
+    /**
+     * 存件（2026-10-10 定-2）：<b>对用户就是一次动作</b>。
+     *
+     * <p>用户看到的是“点存件 → 屏幕告诉他 XX 格口即将开启 → 门开了”，而不是“先下单拿单号、
+     * 再点一次开柜”。合并之前那个中间态（占了格口还没开门）还得靠一个超时任务去回收，
+     * 现在开门失败就当场退回原状，对用户就是一句“没开成，换一格或稍后再试”。
+     *
+     * <p>为什么不把这个写进 create 本身：建单事务与“等开门回执”必须在两个事务里（等外部设备
+     * 最长 2.5 秒，不能带着数据库连接等，第 9 刀量出来的瓶颈）；所以“合并”发生在用例行层，
+     * 而不是把设备下发塞进建单事务。
+     */
+    public StorageOrderView place(Long customerId, CreateOrderCommand command) {
+        StorageOrderView created = create(customerId, command);
+        try {
+            return openDoor(customerId, created.orderNo(), CommandAction.OPEN);
+        } catch (RuntimeException e) {
+            // 门没开成：这单不应留下任何东西。释放走业务取消路径（含柜内检查与预扣集合同步），
+            // 不重写一遗。释放失败只记日志不能掩盖原始失败：格口会由待收敛回收器兼价。
+            try {
+                cancel(customerId, created.orderNo());
+            } catch (RuntimeException release) {
+                log.warn("存件失败后的退回也没成功，格口由 10 分钟待收敛回收兼价 orderNo={}: {}",
+                        created.orderNo(), release.toString());
+            }
+            throw e;
+        }
     }
 
     public StorageOrderView cancel(Long customerId, String orderNo) {

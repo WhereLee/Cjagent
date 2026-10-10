@@ -18,6 +18,17 @@ cabinet:
     poll-enabled: false
   exception:
     echo-detail: true
+  pricing:
+    # 集成测试沿用**旧的少量金额**，不是绕过用户定的价：真实价格（小400/中700/大1000、
+    # 账户押金 5000）由 `PricingNumbersTest` 直接读 application.yml 钉住。
+    # 这里调小是因为几十处与钱无关的用例（指令回扫、门磁、争议、调度）断言的是具体冻结额，
+    # 跟着新价重算会把“改价格”这件事变成 60 处噪声，真正的回归信号反而被埋掉。
+    # 要测账户押金本身的行为，请用这些小额（`AccountDepositFlowTest`），行为与金额无关。
+    account-deposit-points: 200
+    unit-points-per-hour:
+      LARGE: 40
+      MEDIUM: 25
+      SMALL: 15
   cors:
     # CORS 预发测试需要一个稳定的白名单项
     allowed-origin-patterns:

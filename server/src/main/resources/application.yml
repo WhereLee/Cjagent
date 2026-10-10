@@ -199,8 +199,9 @@ cabinet:
     # 租约必须明显长于单任务耗时；否则任务还在跑就被别人接管，变成双执行
     lease-seconds: 60
     backoff-base-seconds: 30
-    # 占位超时释放的宽限（“向上”的时间，宁晚不误）。门未关不再单独配宽限，见 pricing.tolerance-minutes
-    hold-grace-minutes: 5
+    # 待收敛单回收阈值（定-4）：不是“给用户留的开柜宽限”（预占已删，下单与开门已合并），
+    # 只兜“崩在占格与开门之间”的残留；回收前会先查指令流水，开过门就标待确认而不退回
+    reconcile-minutes: 10
     overdue-remind-minutes: 60
     # 无回执指令多久后回扫（也是重试间隔）：太短会把一台抖动中的柜机反复摇，
     # 太长则用户已经走了才收敛

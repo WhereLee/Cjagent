@@ -64,21 +64,44 @@ public final class TaskHandlers {
                 .eq(BizStorageOrder::getOrderNo, orderNo));
     }
 
-    /** 超时未投件：走业务取消路径释放格口与资金。 */
+    /**
+     * 待收敛单回收（定-4）：只兜“进程死在占格与开门之间”这种异常，不对用户露面。
+     *
+     * <p>关键不是“超时了就退”，而是<b>退之前先查事实</b>：订单停在“待开门”并不等于
+     * “门没开过”——指令可能已经执行成功，只是没来得及把状态推上去。那种情况下退回格口
+     * 就是拿一个可能有东西的格子去卖给下一个人（不变量 I12），所以宁可标待确认也不退。
+     */
     @Component
     public static class SlotReleaseHandler implements TaskHandler {
 
         private final BizStorageOrderMapper orderMapper;
         private final StorageOrderService orders;
+        private final com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper commandMapper;
+        private final com.wherelee.cabinet.application.storage.CompartmentStateService states;
 
-        SlotReleaseHandler(BizStorageOrderMapper orderMapper, StorageOrderService orders) {
+        SlotReleaseHandler(BizStorageOrderMapper orderMapper, StorageOrderService orders,
+                           com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper commandMapper,
+                           com.wherelee.cabinet.application.storage.CompartmentStateService states) {
             this.orderMapper = orderMapper;
             this.orders = orders;
+            this.commandMapper = commandMapper;
+            this.states = states;
         }
 
         @Override
         public TaskType type() {
             return TaskType.SLOT_RELEASE;
+        }
+
+        /** 这张单上是否有一条**成功的**开门指令（不管是首次投件还是临时开柜）。 */
+        private boolean anyOpenSucceeded(Long orderId) {
+            return commandMapper.selectCount(Wrappers.<com.wherelee.cabinet.domain.entity.BizDeviceCommand>lambdaQuery()
+                    .eq(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getOrderId, orderId)
+                    .in(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getAction,
+                            com.wherelee.cabinet.domain.enums.CommandAction.OPEN,
+                            com.wherelee.cabinet.domain.enums.CommandAction.OPEN_TEMP)
+                    .eq(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getStatus,
+                            com.wherelee.cabinet.domain.enums.CommandState.SUCCEEDED)) > 0;
         }
 
         @Override
@@ -91,6 +114,15 @@ public final class TaskHandlers {
             if (order.getStatus() != OrderStatus.RESERVED) {
                 // 已投件或已取消：本任务什么都不该做（重入的关键，不是"跳过报错"）
                 log.info("超时释放跳过：当前状态 {}", order.getStatus());
+                return false;
+            }
+            if (anyOpenSucceeded(order.getId())) {
+                // 指令说门开过，而订单还停在待开门：这就是“崩在推进之前”的现场。
+                // 不能退回可售：标待确认进台账，等一次人来确认（宁可少卖，不可卖错）。
+                states.markContentUnverified(order.getSlotId(),
+                        "待收敛回收：开门指令已成功但订单仍停在待开门，需现场确认柜内是否有物");
+                log.warn("待收敛回收：门开过但状态未推进，改为标待确认而不会退回格口 orderNo={} slotId={}",
+                        order.getOrderNo(), order.getSlotId());
                 return false;
             }
             if (order.getToleranceUntil() != null) {
