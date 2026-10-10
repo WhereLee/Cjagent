@@ -90,19 +90,29 @@ public class MiniStorageOrderController {
     }
 
     /**
-     * 取件：结算 + 退押金 + 释放格口。
+     * 取件：结算 + 释放格口（可带取件码，见下方重载）。
      *
      * <p>没挂 @Idempotent：它是“按单号结算”，本身就是幂等的（重复到达会因
      * 状态已 CLOSED 而被状态机拒绝），再加一层幂等键只会把正常的“再查一次”也拦掉。
      */
-    @Operation(summary = "取件结算", description = "需同时满足“门已关 + 柜内无物”才停计费；时长按服务端时间算")
+    @Operation(summary = "取件结算",
+            description = "需同时满足“门已关 + 柜内无物”才停计费；可带取件码（柜机输码路径），连错 5 次锁定该单开柜")
     @OperationLog(module = "storage", operation = "取件结算")
     @RateLimit(limit = 12, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{orderNo}/pickup")
     public R<StorageOrderView> pickup(@AuthenticationPrincipal VerifiedToken current,
-                                      @PathVariable @NotBlank @Size(max = 32) String orderNo) {
-        return R.ok(storageOrderFacade.pickup(current.subjectId(), orderNo));
+                                      @PathVariable @NotBlank @Size(max = 32) String orderNo,
+                                      @RequestBody(required = false) PickupRequest request) {
+        return R.ok(storageOrderFacade.pickup(current.subjectId(), orderNo,
+                request == null ? null : request.voucherCode()));
+    }
+
+    /**
+     * 取件入参。<b>码可以不填</b>：主路径是登录态（他在自己手机上点结束）；
+     * 柜机上输码取件（手机没电时的第二条路径）会带这个字段过来。
+     */
+    public record PickupRequest(@Size(max = 16) String voucherCode) {
     }
 
     /**

@@ -84,6 +84,16 @@ public class StorageOrderFacade {
     }
 
     /**
+     * 取件，可带上取件码（定-6）。
+     *
+     * <p>码为空就是原来的主路径（登录态）；带码时校验、计错次、达阈就锁定该单开柜。
+     * 不分流到异步：理由与 {@link #abandon} 相同——它要看当前的门磁与物检读数。
+     */
+    public StorageOrderView pickup(Long customerId, String orderNo, String voucherCode) {
+        return syncService.pickup(customerId, orderNo, voucherCode);
+    }
+
+    /**
      * 声明放弃柜内物品后结束。
      *
      * <p>不分流到异步路径：它与取件一样要面对“已落库的单 + 当前门磁与物检”，

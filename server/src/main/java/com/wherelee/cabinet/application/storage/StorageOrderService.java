@@ -62,6 +62,12 @@ public class StorageOrderService {
     /** 容错期也可以按点位发布（第 14D 刀）；没发布时仍用配置默认值。 */
     private final com.wherelee.cabinet.application.billing.PriceRuleService priceRules;
     /**
+     * 取件码错次与锁定要用**独立事务**写：错码后要抛异常，外层事务会回滚，
+     * 同一事务里写的计数与锁定会跟着消失——结果是“永远数不到第五次，永远锁不上”却看不出来。
+     * 与 13C 的 ItemDisputeService#markBlocked 同一个理由。
+     */
+    private final org.springframework.transaction.support.TransactionTemplate newTx;
+    /**
      * 调度器延迟拿取：直接注入会形成循环依赖
      * （StorageOrderService → DelayTaskService → SlotReleaseHandler → StorageOrderService）。
      * 用 ObjectProvider 把解析推迟到第一次使用时，而不是用 @Lazy 把设计问题遮起来：
@@ -71,6 +77,14 @@ public class StorageOrderService {
 
     @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.hold-grace-minutes:5}")
     private long holdGraceMinutes;
+
+    /**
+     * 取件码连续输错的锁定阈值——<b>5 次由用户 2026-10-10 给出</b>，不进配置。
+     *
+     * <p>不做成可配参数是因为没人会去调它，但一个能配的东西就会被误配成 0（一输错就锁）
+     * 或 99（锁定等于不存在）。真要改就改这一行，改动会进代码评审。
+     */
+    private static final int VOUCHER_MAX_WRONG = 5;
 
     /**
      * 开门后的容错期（分钟，第 13B 刀）：这段时间不计费，给用户挑包、放件、翻找。
@@ -94,6 +108,7 @@ public class StorageOrderService {
                                ItemDisputeService dispute,
                                com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
                                com.wherelee.cabinet.application.billing.PriceRuleService priceRules,
+                               org.springframework.transaction.support.TransactionTemplate txTemplate,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
@@ -107,6 +122,10 @@ public class StorageOrderService {
         this.dispute = dispute;
         this.consoleMapper = consoleMapper;
         this.priceRules = priceRules;
+        this.newTx = new org.springframework.transaction.support.TransactionTemplate(
+                txTemplate.getTransactionManager());
+        this.newTx.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.taskScheduler = taskScheduler;
     }
 
@@ -131,6 +150,16 @@ public class StorageOrderService {
         if (owing > 0L) {
             throw new BizException(ResultCode.BIZ_ERROR,
                     "您有未缴清的费用（" + owing + " 点），请先在点数页补缴后再下单");
+        }
+        // 一人同时只能占一个格口（2026-10-10 定-5）。查 active_flag 而不是状态列表：
+        // 这个列就是“这张单还活动着”的结构化定义（防超卖唯一索引用的也是它），
+        // 拿状态枚举去 notIn 终态会随状态机演进而漏判。
+        long activeOrders = orderMapper.selectCount(Wrappers.<BizStorageOrder>lambdaQuery()
+                .eq(BizStorageOrder::getCustomerId, customerId)
+                .eq(BizStorageOrder::getActiveFlag, 1));
+        if (activeOrders > 0) {
+            throw new BizException(ResultCode.BIZ_ERROR,
+                    "你还有未结束的寄存单：同一时间只能用一个格口，请先取件结束再开新单");
         }
         Long orderId = IdWorker.getId();
         SlotAllocator.AllocatedSlot allocated = allocator.allocate(cabinet.getId(), required, orderId);
@@ -300,6 +329,76 @@ public class StorageOrderService {
     }
 
     /**
+     * 带取件码的取件入口（定-6）。
+     *
+     * <p>码不是必填：**主路径是登录态**（用户在自己手机上点结束）；
+     * 柜机上输码是手机没电时的第二条路径，柜机批次会带这个参数过来。
+     * 不填码时行为与以前一致，不会因此拒任何合法用户。
+     */
+    @Transactional
+    public StorageOrderView pickup(Long customerId, String orderNo, String voucherCode) {
+        BizStorageOrder order = findOwned(customerId, orderNo);
+        verifyVoucher(order, voucherCode);
+        return finish(customerId, orderNo, true, OrderCloseReason.NORMAL);
+    }
+
+    /**
+     * 校验取件码并累计错次。
+     *
+     * <p>两个判据分开写：<b>锁定</b>是“错太多，暂停这条凭据”，<b>错</b>是“本次不对”——
+     * 混在一起会变成“一输错就锁”或“锁了还继续给次数”。阈值 5 是用户 2026-10-10 给的数。
+     * 正确码会把计数归零（所以上限是“连续”错 5 次，不是“一共”5 次）。
+     */
+    private void verifyVoucher(BizStorageOrder order, String voucherCode) {
+        requireNotVoucherLocked(order);
+        if (voucherCode == null || voucherCode.isBlank()) {
+            return;
+        }
+        if (voucherCode.trim().equals(order.getVoucherCode())) {
+            // 成功路径不抛异常，所以留在外层事务里改（并把内存对象也改对，
+            // 不然随后的 finish 会用陈旧的计数把零盖回去）
+            if (order.getVoucherWrongCount() != null && order.getVoucherWrongCount() > 0) {
+                order.setVoucherWrongCount(0);
+                orderMapper.updateById(order);
+            }
+            return;
+        }
+        int wrong = (order.getVoucherWrongCount() == null ? 0 : order.getVoucherWrongCount()) + 1;
+        boolean lock = wrong >= VOUCHER_MAX_WRONG;
+        LocalDateTime at = lock ? LocalDateTime.now() : null;
+        final int counted = wrong;
+        // 先落库再抛错：这两列要活过外层回滚，不然锁定永远不生效
+        newTx.executeWithoutResult(status -> {
+            BizStorageOrder fresh = orderMapper.selectById(order.getId());
+            if (fresh == null) {
+                return;
+            }
+            fresh.setVoucherWrongCount(counted);
+            if (at != null) {
+                fresh.setVoucherLockedAt(at);
+            }
+            orderMapper.updateById(fresh);
+        });
+        order.setVoucherWrongCount(counted);
+        if (lock) {
+            order.setVoucherLockedAt(at);
+            log.warn("取件码连续输错 {} 次，锁定该单开柜能力 orderNo={} customer={}",
+                    counted, order.getOrderNo(), order.getCustomerId());
+            throw new BizException(ResultCode.BIZ_ERROR,
+                    "取件码连续输错次数过多，本单开柜已锁定；请联系客服核验后处理");
+        }
+        throw new BizException(ResultCode.BIZ_ERROR,
+                "取件码不正确（还剩 " + (VOUCHER_MAX_WRONG - counted) + " 次机会）");
+    }
+
+    private void requireNotVoucherLocked(BizStorageOrder order) {
+        if (order.getVoucherLockedAt() != null) {
+            throw new BizException(ResultCode.BIZ_ERROR,
+                    "该单因取件码连续输错已锁定开柜，请联系客服核验（后台可强制开柜并留审计）");
+        }
+    }
+
+    /**
      * 声明“里面的东西不要了”并结束：这是柜内有物时唯一的自助出口。
      *
      * <p><b>只豁免“柜内无物”这一条，不豁免“门关”</b>：门开着就不是结束，而是还在占用。
@@ -416,6 +515,11 @@ public class StorageOrderService {
     public StorageOrderView openDoor(Long customerId, String orderNo,
                                      com.wherelee.cabinet.domain.enums.CommandAction action) {
         BizStorageOrder order = findOwned(customerId, orderNo);
+        // 取件码连错锁定后，**开柜能力**被锁（不管首次投件还是中途取物）；
+        // 但“关门校验”与“结束订单”不拦——结束不需要开门，把他困在柜子前不是本锁的目的。
+        if (action != com.wherelee.cabinet.domain.enums.CommandAction.CLOSE_VERIFY) {
+            requireNotVoucherLocked(order);
+        }
         BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
         if (cabinet == null) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "柜机不存在，需人工核对 orderNo=" + orderNo);

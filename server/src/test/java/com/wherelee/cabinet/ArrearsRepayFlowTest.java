@@ -268,30 +268,20 @@ class ArrearsRepayFlowTest {
     }
 
     @Test
-    @DisplayName("先欠的先还：一次充值只够一张时，按结算时间先后抵扣")
-    void repaysOldestOrderFirst() {
+    @DisplayName("欠款存在时开不出第二单 → 欠款天然最多一条（定-5 与定-7）")
+    void arrearsCannotStackTwoOrders() {
         Long customerId = newCustomer();
-        // 两张单要在产生欠费之前都下好：否则第二张会被自己的欠费拦截挡住（那正是拦截该有的行为）
-        fund(customerId, FREEZE_DEFAULT * 2);
-        String first = openAndClose(customerId, createOrder(customerId));
-        String second = openAndClose(customerId, createOrder(customerId));
-        BizStorageOrder o1 = settleIntoArrears(customerId, first);
-        BizStorageOrder o2 = settleIntoArrears(customerId, second);
-        // 结算时间拉开两小时，让"先欠先还"有确定的顺序可断言
-        jdbc.update("update biz_storage_order set finished_at = date_sub(now(3), interval 2 hour) where id = ?", o1.getId());
-        jdbc.update("update biz_storage_order set finished_at = date_sub(now(3), interval 1 hour) where id = ?", o2.getId());
+        BizStorageOrder owed = oneArrearsOrder(customerId);
+        long each = owed.getArrearsPoints();
 
-        long each = o1.getArrearsPoints();
-        fund(customerId, each);
-        long repaid = TenantContext.callAs(TENANT, () -> funds.repayArrears(customerId));
+        // 先把余额补得大大的再试：拦住他的不是钱不够，而是那笔欠款本身
+        fund(customerId, each * 2);
+        assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> orderService.create(customerId,
+                        new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))));
 
-        assertEquals(each, repaid, "余额刚好够一张时应只还一张");
-        assertEquals(0L, order(first).getArrearsPoints(), "先结算的那张先还");
-        assertEquals(each, order(second).getArrearsPoints(), "后一张不该被越过");
-
-        List<BizStorageOrder> stillOwed = TenantContext.callAs(TENANT, () -> orderMapper.listOwed(customerId));
-        assertEquals(1, stillOwed.size());
-        assertEquals(o2.getId(), stillOwed.get(0).getId());
+        assertEquals(1, TenantContext.callAs(TENANT, () -> orderMapper.listOwed(customerId)).size(),
+                "一个人名下只能有一条欠款：第二条在下单那一步就被挂了欠款的自己堵死了");
     }
 
     @Test

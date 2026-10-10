@@ -100,6 +100,15 @@ public class BizStorageOrder extends BaseEntity {
     private LocalDateTime finishedAt;
     private Integer tempOpenCount;
 
+    /**
+     * 取件码输错次数（2026-10-10 定-6）：柜机上输码取件是手机没电时的第二条路径，
+     * 码必须是真凭据，所以错次要累计到能锁定。
+     */
+    private Integer voucherWrongCount;
+
+    /** 取件码连续输错达阈值后的锁定时刻；不为空 = 该单开柜能力已锁，只能走客服/后台强制开柜。 */
+    private java.time.LocalDateTime voucherLockedAt;
+
     private Long depositPoints;
     private Long frozenPoints;
     private Long settledPoints;

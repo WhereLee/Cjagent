@@ -8,9 +8,9 @@ import java.util.Locale;
 /**
  * 格口尺寸。
  *
- * <p>{@code rank} 用来做“最小满足尺寸”分配：行李箱来了不能塞进小格口，
- * 而中格口 available 时不该把大格口花掉（大格口少，留给真需要的件）。
- * rank 越小越“贵”（越要省着用），所以分配时从 {@code 需求尺寸开始向上找第一个空闲}。
+ * <p>{@code rank} 表示“越小的格子越要省着用”（LARGE=1 最稀缺，SMALL=3 最便宜）。
+ * 自 2026-10-10 起分配**不再向上升级**（见 {@link #acceptanceOrder}），所以
+ * {@link #fits} 目前只用于“这个格子能不能装下这个尺寸”的校验，不再用于择优顺序。
  */
 public enum SizeType {
 
@@ -34,17 +34,17 @@ public enum SizeType {
     }
 
     /**
-     * 分配偏好顺序：从“刚好够用”开始往大了排。
+     * 分配偏好：**只接受用户所选的那一个尺寸，不往上升**（2026-10-10 用户定）。
      *
-     * <p>大格口是全柜最少的一种（模板里 6/8/10），把行李箱以外的需求都优先分到
-     * 小格口，等价于给稀缺资源做“不换尺寸”的贪心。不这么排会出现：
-     * 存一个背包用掉一个大格口，真正带行李箱的人拿不到位。
+     * <p>以前的做法是“小格满了就自动给中格、按中格收钱”，它跟“先给用户展示各尺寸还剩多少”
+     * 直接矛盾：他看到小格还有 1 个，抢到的却是中格的价格。用户定的口径是：
+     * 10 个人抢最后一个小格，1 人成、其他 9 人收到“无位”即可；要大的他自己选大的。
+     *
+     * <p>保留这个函数而不是改调用方：四个分配器 + 预扣 + 校准共用一个入口，
+     * 收严一处就全线收严（回到以前行为只需改回这一行）。
      */
     public static List<SizeType> acceptanceOrder(SizeType required) {
-        return Arrays.stream(values())
-                .filter(s -> s.fits(required))
-                .sorted(Comparator.comparingInt((SizeType s) -> s.rank).reversed())
-                .toList();
+        return List.of(required);
     }
 
     public static SizeType of(String value) {

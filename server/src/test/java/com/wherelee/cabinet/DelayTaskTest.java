@@ -175,6 +175,8 @@ class DelayTaskTest {
         return customerIds.stream().map(id -> "?").reduce((a, b) -> a + "," + b).orElse("?");
     }
 
+    private static final String[] SIZE_ROTATION = {"SMALL", "MEDIUM", "LARGE"};
+
     private Long newCustomer() {
         Long id = 960000L + Math.abs(UUID.randomUUID().getLeastSignificantBits() % 90000);
         customerIds.add(id);
@@ -183,11 +185,16 @@ class DelayTaskTest {
 
     /** 建一张真实订单（走业务路径，含押金冻结与自动登记的超时任务）。 */
     private BizStorageOrder newOrder(Long customerId) {
+        return newOrder(customerId, "SMALL");
+    }
+
+    /** 指定尺寸建单（一人一单 + 尺寸不再向上升级后，一批单必须分摊到三种格口） */
+    private BizStorageOrder newOrder(Long customerId, String sizeType) {
         // 充值也必须带租户上下文：守卫把“无上下文”当成“拒绝执行”，而不是“查不到”（第 10 刀同源结论）
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "调度用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, sizeType, 60))).orderNo();
         return TenantContext.callAs(TENANT, () -> orderMapper.selectOne(
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }
@@ -243,10 +250,11 @@ class DelayTaskTest {
     @Test
     @DisplayName("多 worker 并发抢同一批任务：每张单的业务副作用恰好发生一次")
     void concurrentWorkersNeverDoubleExecute() throws Exception {
-        Long customerId = newCustomer();
         int orders = 12;
         for (int i = 0; i < orders; i++) {
-            newOrder(customerId);
+            // 每人一格（定-5），且不能指望“小格满了自动给中格”（定-8）：
+            // 所以这里用 12 个不同客户 + 三种尺寸分摊，刚好用完柜机 4+4+4 个格口
+            newOrder(newCustomer(), SIZE_ROTATION[i % SIZE_ROTATION.length]);
         }
         // 只留超时释放这一类，避免混入别的类型干扰计数
         jdbc.update("delete from biz_delay_task where task_type <> 'SLOT_RELEASE'");
@@ -309,10 +317,13 @@ class DelayTaskTest {
                 "select count(distinct order_no) from biz_storage_order where cabinet_id=? and status='CANCELLED'",
                 Integer.class, cabinetId);
         assertEquals(orders, cancelled, "每张单都被取消，且没有一张被取消两次");
-        assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getFrozenPoints(),
-                "12 张单的冻结必须全部退回，不重不漏");
-        assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)),
-                "并发取消后账仍必须平（不平就是多扣或多退）");
+        // 一人一单后这 12 张单属 12 个不同客户，所以逐个核：冻结全退、账仍平
+        for (Long customer : customerIds) {
+            assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customer)).getFrozenPoints(),
+                    "每张单的冻结必须全部退回，不重不漏");
+            assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customer)),
+                    "并发取消后账仍必须平（不平就是多扣或多退）");
+        }
     }
 
     /** 本轮还没做完的超时释放任务数（驱动 worker 跑到收敛）。 */
@@ -326,9 +337,8 @@ class DelayTaskTest {
     @Test
     @DisplayName("SKIP LOCKED 让两个事务拿到不相交的候选集（不排队等待）")
     void skipLockedGivesDisjointCandidates() throws Exception {
-        Long customerId = newCustomer();
         for (int i = 0; i < 10; i++) {
-            newOrder(customerId);
+            newOrder(newCustomer(), SIZE_ROTATION[i % SIZE_ROTATION.length]);
         }
         jdbc.update("delete from biz_delay_task where task_type <> 'SLOT_RELEASE'");
         jdbc.update("update biz_delay_task set fire_at = date_sub(now(3), interval 10 second)");
