@@ -80,6 +80,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "cabinet.dispute.max-ai-review=2",
 })
 @DisplayName("柜内物品争议：拦下→否认→AI 复审→误报免除；以及发现者上报")
+@org.junit.jupiter.api.Disabled("争议阶梯的前提已换（19A）：以前靠“拒结束”把用户拦在柜机前逼他取件，新口径不拦人了，"
+        + "所以这一批用例的现场（pickup 被拒 → 记争议起始 → 免除争议期间费用）已不成立。"
+        + "AI 复审与误报免除这些能力不删，它们搬到“结束后的遗留处理”上去（19C 重建，接工单与简单标签）")
 class ItemDisputeFlowTest {
 
     private static final Long TENANT = 8118L;

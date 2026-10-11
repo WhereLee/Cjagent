@@ -470,7 +470,8 @@ public class StorageOrderService {
             // 柜内还有东西：他不拦结束，但这格不能再卖，转滞留待处理（业务员与工单接着走）
             states.markContentLeft(order.getSlotId(),
                     "结束订单时物检检测到柜内仍有物品，按滞留处理（待 AI 标签与业务员判断）");
-        } else if (!states.fresh(sensing)) {
+        } else if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.UNKNOWN
+                || !states.fresh(sensing)) {
             // 门关了、也说没东西，但测不准（凭据陈旧或设备报未知）：同样不拦人，但锁格待确认
             states.markContentUnverified(order.getSlotId(),
                     "结束订单时拿不到“柜内已空”的可靠凭据，需现场确认");

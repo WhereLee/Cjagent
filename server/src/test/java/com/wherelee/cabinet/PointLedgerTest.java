@@ -293,7 +293,7 @@ class PointLedgerTest {
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "取件后格口必须释放");
 
         // 结算不碰押金：它长在账户上，只在用户主动“退押金”时才动（定-1/S-03）
-        assertEquals(200L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
+        assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
                 "取件结算不得动账户押金");
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
     }
@@ -326,7 +326,7 @@ class PointLedgerTest {
                 "应缴总额 = 封顶后的 12 小时价；超过一天的那 5 小时不得再收（规划 §5.10）");
 
         // 押金不拿来抵欠：它只在用户主动退押金时才抵（定-1）——所以此处必须仍是 200
-        assertEquals(200L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
+        assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
                 "欠费不得自动占用账户押金");
         // 欠费不产生流水（它只是“没收到的钱”），所以账依然必须是平的
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));

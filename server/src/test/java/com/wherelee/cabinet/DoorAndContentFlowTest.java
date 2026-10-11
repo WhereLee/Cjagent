@@ -207,30 +207,29 @@ class DoorAndContentFlowTest {
     }
 
     @Test
-    @DisplayName("门未关超过容错期：起点回溯到容错到期，且此后不再被改写（I10）")
-    void toleranceExpiryFixesStartAndLaterCloseCannotMoveIt() {
+    @DisplayName("开柜瞬间就落计费起点：暂时开柜与后来关门都改不了它（I10）")
+    void openDoorFixesStartAndNothingLaterCanMoveIt() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
+        LocalDateTime beforeOpen = LocalDateTime.now();
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
 
-        // 把容错推到过去再补一次“到期后的第一次巡检”（tolerance-minutes=0 时巡检就是这一刻）
-        LocalDateTime tolerance = LocalDateTime.now().minusMinutes(7);
-        jdbc.update("update biz_storage_order set tolerance_until = ? where order_no = ?",
-                tolerance, order.getOrderNo());
-        TenantContext.runAs(TENANT, () -> orderService.toleranceExpired(order.getOrderNo(),
-                new com.wherelee.cabinet.application.storage.CompartmentStateService
-                        .Sensing(false, com.wherelee.cabinet.domain.enums.Presence.ABSENT, LocalDateTime.now())));
+        BizStorageOrder opened = order(order.getOrderNo());
+        assertNotNull(opened.getStartedAt(), "19A：开柜成功那一刻就必须有计费起点，不等关门");
+        assertFalse(opened.getStartedAt().isBefore(beforeOpen.minusMinutes(1)),
+                "起点只能是开门时刻，不能比下单还早");
+        LocalDateTime start = opened.getStartedAt();
 
-        BizStorageOrder afterWatch = order(order.getOrderNo());
-        assertEquals(OrderStatus.ACTIVE, afterWatch.getStatus(), "门开着超过容错也要进入计费态，而不是停在等待关门");
-        assertEquals(tolerance.withNano(0), afterWatch.getStartedAt().withNano(0),
-                "起点必须是容错到期那一刻：早了多收、晚了少收，两头都不对");
+        // 中途取物：再开一次门不得重新发半小时免费（起点不动）
+        TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
+                CommandAction.OPEN_TEMP));
+        assertEquals(start.withNano(0), order(order.getOrderNo()).getStartedAt().withNano(0),
+                "暂时开柜不得把起点往后推：那等于每开一次门就白得一段免费时间");
 
-        // 他后来回来关上了门：起点不许被刷成关门时刻（那等于把已发生的 7 分钟抹掉）
+        // 关回来了：起点仍不许动（只是停止“门未关”那个异常的前进）
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
-        BizStorageOrder afterClose = order(order.getOrderNo());
-        assertEquals(tolerance.withNano(0), afterClose.getStartedAt().withNano(0),
-                "计费起点一旦落定就不许再改，否则账单和逾期都在读一个会飘的数字");
+        assertEquals(start.withNano(0), order(order.getOrderNo()).getStartedAt().withNano(0),
+                "起点一旦落定就不许再改，否则账单与逾期都在读一个会飘的数字");
     }
 
     @Test
@@ -257,7 +256,9 @@ class DoorAndContentFlowTest {
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
-        TenantContext.runAs(TENANT, () -> orderService.abandon(customerId, order.getOrderNo()));
+        // 19A：柜内有物不再拦结束。他自己点结束，单就结、费就收；
+        // 但这一格在有人清走东西之前不算空位（I9/I12：“记事实”取代了“拦人”）
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
         Long slotId = order(order.getOrderNo()).getSlotId();
 
         // 门是关着的、物检也报“没有”，也必须等人来清：自动解除只服务 DOOR_OPEN
@@ -272,96 +273,82 @@ class DoorAndContentFlowTest {
         assertFalse(candidates.contains(slotId), "异常格口不该出现在候选里");
     }
     @Test
-    @DisplayName("柜内有物：拒绝结束、计费不停；放弃才能结束，而格口转异常（I12）")
-    void contentLeftBlocksPickupThenAbandonMarksAnomaly() {
+    @DisplayName("柜内有物：不拦结束也不停表；结束后格口转滞留异常（I12）")
+    void contentLeftDoesNotBlockPickupButMarksAnomaly() {
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
 
-        BizException rejected = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-        assertTrue(rejected.getMessage().contains("物品"), "文案要说清缺哪一条：" + rejected.getMessage());
-
-        BizStorageOrder stillRunning = order(order.getOrderNo());
-        assertEquals(OrderStatus.ACTIVE, stillRunning.getStatus(), "有东西就不许停表");
-        assertNull(stillRunning.getFinishedAt(), "没结束就不能有结束时刻");
-        assertNull(stillRunning.getCloseReason(), "被拒的结束不该留下任何终态痕迹");
-
-        // 他明确说“里面的东西不要了”
-        TenantContext.runAs(TENANT, () -> orderService.abandon(customerId, order.getOrderNo()));
-
-        BizStorageOrder abandoned = order(order.getOrderNo());
-        assertEquals(OrderStatus.CLOSED, abandoned.getStatus(), "放弃物品可以结束计费");
-        assertEquals(OrderCloseReason.ABANDONED, abandoned.getCloseReason());
-        assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(abandoned.getSlotId()).getAnomaly(),
-                "钱到此为止，但这一格没被清走之前不是空位");
-    }
-
-    @Test
-    @DisplayName("远程结束：门还开着就被拒，且计费继续走")
-    void remoteCloseRefusedWhileDoorOpen() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = newOrder(customerId);
-        door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        // 先把单推到“计费中”（容错期满、门仍开着），否则拒绝来自状态机而不是门判据，
-        // 测到的就不是“远程不能绕过关门”这件事
-        TenantContext.runAs(TENANT, () -> orderService.toleranceExpired(order.getOrderNo(),
-                new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
-
-        BizException rejected = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.remoteClose(customerId, order.getOrderNo())));
-        assertTrue(rejected.getMessage().contains("门"), "要说清是门没关：" + rejected.getMessage());
-        assertEquals(OrderStatus.ACTIVE, order(order.getOrderNo()).getStatus(),
-                "远程结束失败不能把单推到终态，它还得继续计费");
-    }
-
-    @Test
-    @DisplayName("远程结束成功：计时费 + 该格口 2 小时单价的加收，单独一条流水")
-    void remoteCloseChargesPenaltyAsSeparateTxn() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = activate(customerId, newOrder(customerId));
-
-        TenantContext.runAs(TENANT, () -> orderService.remoteClose(customerId, order.getOrderNo()));
-
-        BizStorageOrder closed = order(order.getOrderNo());
-        assertEquals(OrderStatus.CLOSED, closed.getStatus());
-        assertEquals(OrderCloseReason.REMOTE, closed.getCloseReason());
-        // SMALL 单价 15 点/小时，remote-close-hours=2
-        assertEquals(30L, closed.getRemoteClosePoints(), "加收必须按快照单价折算，而不是拿今天的配置");
-
-        Integer feeTxns = jdbc.queryForObject(
-                "select count(*) from biz_point_txn where customer_id = ? and biz_no = ?",
-                Integer.class, customerId, closed.getOrderNo() + ":remote-fee");
-        assertEquals(1, feeTxns, "加收要单独一条流水：账单得能说清哪部分是租金、哪部分是加收");
-
-        BizCompartment slot = slot(closed.getSlotId());
-        assertNull(slot.getAnomaly(), "门关且无物的远程结束是干净收尾，不该留异常");
-        assertEquals(SlotStatus.FREE, slot.getStatus(), "格口必须真回到可售");
-        assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)), "加收之后账仍要平");
-    }
-
-    @Test
-    @DisplayName("物检不可用：现场能结束但格口被锁住等确认，远程直接拒")
-    void unverifiableCloseLocksSlotButRefusesRemote() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = newOrder(customerId);
-        door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        // 这台柜机的柜内传感器不报告结果（坏了/离线）：门磁照常说，但“有没有东西”只能答 UNKNOWN
-        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.SENSOR_NO_ITEM);
-        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
-        assertEquals(OrderStatus.ACTIVE, order(order.getOrderNo()).getStatus(),
-                "关门校验只判门，不判柜内：传感器坏了不该把投件流程卡死");
-
-        // 远程提交：拿不到凭据就不许停表（他看不见现场）
-        BizException rejected = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.remoteClose(customerId, order.getOrderNo())));
-        assertTrue(rejected.getMessage().contains("无法确认"), "远程要凭据：" + rejected.getMessage());
-
-        // 现场当面结束：不拦人，但格子不能不设防地回到可售池
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
 
         BizStorageOrder closed = order(order.getOrderNo());
-        assertEquals(OrderStatus.CLOSED, closed.getStatus(), "现场不该被一台坏传感器钉在柜机前");
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(), "19A：柜内有东西也不能把用户钉在柜机前");
+        assertNotNull(closed.getFinishedAt());
+        assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(closed.getSlotId()).getAnomaly(),
+                "钱到此为止，但这一格没被清走之前不是空位");
+        List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
+                .selectList(SlotCandidateQuery.assignable(cabinetId, SizeType.SMALL)))
+                .stream().map(BizCompartment::getId).toList();
+        assertFalse(candidates.contains(closed.getSlotId()), "滞留格口不得被分配给下一位");
+    }
+
+    @Test
+    @DisplayName("门还开着也能结束：单进终态、计费照收、格口挂“门未关”异常")
+    void endingWithDoorOpenStillClosesAndMarksDoorOpenAnomaly() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        TenantContext.runAs(TENANT, () -> orderService.toleranceExpired(order.getOrderNo(),
+                new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
+
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(), "旧口径里“门没关就拒绝结束”已作废（他会卡在柜机前）");
+        assertEquals(CompartmentAnomaly.DOOR_OPEN, slot(closed.getSlotId()).getAnomaly(),
+                "不拦人不等于不记：门未关必须进台账（19D 接提醒阶梯与工单）");
+        assertEquals(SlotStatus.OCCUPIED, slot(closed.getSlotId()).getStatus(),
+                "门还开着的格口不能回到可售");
+        assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)), "账仍必须平");
+    }
+
+    @Test
+    @DisplayName("结束不再有任何“未关门加收”：加收随远程结束入口一起作废")
+    void endingChargesNoPenaltyAnyMore() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = activate(customerId, newOrder(customerId));
+
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus());
+        assertEquals(0L, closed.getRemoteClosePoints(), "2026-10-11 定稿：结束本来就是在手机上点的，不再加收");
+        Integer feeTxns = jdbc.queryForObject(
+                "select count(*) from biz_point_txn where customer_id = ? and biz_no = ?",
+                Integer.class, customerId, closed.getOrderNo() + ":remote-fee");
+        assertEquals(0, feeTxns, "加收流水不得再产生：留着就是“两个入口两个价”那种歧义源头");
+        BizCompartment slot = slot(closed.getSlotId());
+        assertNull(slot.getAnomaly(), "门关且无物的结束是干净收尾");
+        assertEquals(SlotStatus.FREE, slot.getStatus(), "格口必须真回到可售");
+        assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)), "账仍要平");
+    }
+
+    @Test
+    @DisplayName("物检测不准：同样不拦结束，但格口锁住等确认（不凭“猜”放回可售）")
+    void unverifiableCloseLocksSlotInsteadOfRefusing() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        // 这台柜机的柜内传感器不报结果（坏了/离线）：门磁照常说，但“有没有东西”只能答 UNKNOWN
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.SENSOR_NO_ITEM);
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
+        assertEquals(OrderStatus.ACTIVE, order(order.getOrderNo()).getStatus(),
+                "关门校验只判门，不判柜内：传感器坏了不该把流程卡死");
+
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(), "用户不该被一台坏传感器钉在柜机前");
         assertEquals(CompartmentAnomaly.CONTENT_UNVERIFIED, slot(closed.getSlotId()).getAnomaly(),
                 "没有凭据的结束必须把格口锁住（否则就是无凭据地把格子放回可售池）");
         List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
