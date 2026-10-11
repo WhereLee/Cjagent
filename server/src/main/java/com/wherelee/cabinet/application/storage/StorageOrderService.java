@@ -57,8 +57,7 @@ public class StorageOrderService {
     private final CompartmentStateService states;
     /** 定-21/定-23：预备开重试无效时要开一条设备故障工单（不然故障只活在日志里）。 */
     private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
-    /** 柜内物品争议阶梯（第 13C 刀）：只写证据与争议字段，不管钱与主态。 */
-    private final ItemDisputeService dispute;
+    // 柜内物品争议与“误报免除”已于 2026-10-12 作废（用户定：结束不拦人后“争议期间”不存在）。
     /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper;
     /** 容错期也可以按点位发布（第 14D 刀）；没发布时仍用配置默认值。 */
@@ -124,7 +123,6 @@ public class StorageOrderService {
                                com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper deviceCommandMapper,
                                com.wherelee.cabinet.application.point.OrderFundService funds,
                                CompartmentStateService states,
-                               ItemDisputeService dispute,
                                com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
                                com.wherelee.cabinet.application.billing.PriceRuleService priceRules,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
@@ -140,7 +138,6 @@ public class StorageOrderService {
         this.funds = funds;
         this.states = states;
         this.intake = intake;
-        this.dispute = dispute;
         this.consoleMapper = consoleMapper;
         this.priceRules = priceRules;
         this.newTx = new org.springframework.transaction.support.TransactionTemplate(
@@ -447,20 +444,15 @@ public class StorageOrderService {
      * <p>写成一个而不是三份：分开写过几天就会出现“当面结束会退押金、远程结束漏了退”这种
      * 只在一半路径上修的 bug（第 12 刀已经为退款路径合并过一次）。
      */
-    private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason) {
-        return finish(customerId, orderNo, atSite, reason, false);
-    }
-
     /**
-     * 结束订单（19A，2026-10-11 定稿）：<b>用户点了就结束、就收费、就取物，绝不拦</b>。
+     * 结束订单（19A，2026-10-11 定稿）：<b>用户点了就结束、就收费、就取物，一律不拦</b>。
      *
      * <p>原来这一而三段写了三道闸（门必须关、柜内必须无物、现场与远程凭据不一致），
      * 它们的连带代价是“用户被自己的柜门困住”——可物品是用户的，钱不是。
      * 新口径把这些判据从**拦人降级成记事实**：门没关、物检报有东西，都不阻止结束与取物，
      * 只留下证据与异常，后面的 AI 标签与工单流转（19C/19D）接着处理它。
      */
-    private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason,
-                                    boolean waivedByFalseAlarm) {
+    private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason) {
         BizStorageOrder order = findOwned(customerId, orderNo);
         if (order.getStatus() == OrderStatus.CLOSED || order.getStatus() == OrderStatus.CANCELLED) {
             throw new BizException(ResultCode.BIZ_ERROR, "这单已经结束了：" + order.getStatus());
@@ -471,9 +463,9 @@ public class StorageOrderService {
         }
         CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
     
-        // 误报免除：计费终点回到争议开始那一刻（争议期间是平台在等判定，不该用户付费）
-        LocalDateTime settleEnd = waivedByFalseAlarm && order.getDisputeStartedAt() != null
-                ? order.getDisputeStartedAt() : LocalDateTime.now();
+        // 2026-10-12：误报免除作废——不存在“把计费终点回拨到争议起始时刻”这回事，
+        // 结束从来只算到此刻
+        LocalDateTime settleEnd = LocalDateTime.now();
         long actualMinutes = order.getStartedAt() == null ? 0L
                 : Math.max(0L, Duration.between(order.getStartedAt(), settleEnd).toMinutes());
         funds.settle(order, actualMinutes, reason);
@@ -871,18 +863,9 @@ public class StorageOrderService {
      * 不开事务后两个写入各自成事务，顺序自然成立。教训：<b>REQUIRES_NEW 写完的东西，
      * 外层的全行 updateById 会把它抹掉</b>，不要靠“记得只更部分列”来防。
      */
-    public StorageOrderView denyItem(Long customerId, String orderNo) {
-        BizStorageOrder order = findOwned(customerId, orderNo);
-        if (!order.inDispute()) {
-            // 不先拦下就没有争议可复审：这个前置让“绕过阶梯直接拿 AI 结论免单”在结构上不存在
-            throw new BizException(ResultCode.BIZ_ERROR, "当前没有待复核的柜内物品争议");
-        }
-        ItemDisputeService.Decision decision = dispute.deny(order);
-        if (decision.outcome() != ItemDisputeService.Outcome.FALSE_ALARM) {
-            throw new BizException(ResultCode.BIZ_ERROR, decision.message());
-        }
-        return finish(customerId, orderNo, true, OrderCloseReason.DISPUTE_WAIVED, true);
-    }
+    // denyItem（用户否认→AI 复审→换取结束许可）已删除（2026-10-12 用户令）：
+    // 它的唯一产出是“允许结束”，而 19A 之后结束不需要任何人允许。
+    // 上面那段关于“REQUIRES_NEW 写完的东西会被外层全行 updateById 抹掉”的教训仍然有效（已记入 docs/架构约定.md）。
 
     /**
      * 下一位使用者上报“这个格口里有别人的东西”。
@@ -1036,28 +1019,8 @@ public class StorageOrderService {
      * <p>为什么不另写一套“人工免单”：两套算法迟早对不上账（同一张单，AI 放行免 15 点、
      * 人工免 30 点）。“谁来点”是权限问题，“免多少”不是业务能商量的事。
      */
-    @Transactional
-    public void waiveFalseAlarm(Long orderId) {
-        BizStorageOrder order = orderMapper.selectById(orderId);
-        if (order == null) {
-            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "寄存单不存在");
-        }
-        if (order.getStatus().isTerminal()) {
-            throw new BizException(ResultCode.BIZ_ERROR, "该单已结束，不能再次免除");
-        }
-        CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
-        if (!sensing.doorClosed()) {
-            // 门这条与凭据无关：误报免除只豁免“柜内无物”，不豁免“门关”
-            throw new BizException(ResultCode.BIZ_ERROR, "柜门尚未关闭，不能结束计费");
-        }
-        long actualMinutes = order.getStartedAt() == null ? 0L
-                : Math.max(0L, Duration.between(order.getStartedAt(),
-                order.getDisputeStartedAt() == null ? LocalDateTime.now() : order.getDisputeStartedAt()).toMinutes());
-        funds.settle(order, actualMinutes, OrderCloseReason.DISPUTE_WAIVED);
-        // 不额外标异常：免除的依据本身就是“AI 看图说没东西”这条凭据，
-        // 再锁一次格子等于否认自己刚用的判据（与 AI 复审放行那条路径保持一致，两处不得两套做法）
-        log.info("人工判定误报并免除争议期间费用 orderNo={} 计费分钟={}", order.getOrderNo(), actualMinutes);
-    }
+    // waiveFalseAlarm（后台人工免单）已删除（2026-10-12 用户令：误报免除作废）。
+    // 它的靶子——“被拦住的争议期间产生的费用”——随着 19A 不拦人一起消失了。
 
     /** 这条读数能不能当“柜内已空”的凭据用（坏了、离线、结论过期都算不能用）。 */
     private boolean emptyEvidence(CompartmentStateService.Sensing sensing) {

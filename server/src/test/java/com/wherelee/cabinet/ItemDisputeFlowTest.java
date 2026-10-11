@@ -3,38 +3,29 @@ package com.wherelee.cabinet;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.point.PointAccountService;
 import com.wherelee.cabinet.application.storage.CompartmentStateService;
-import com.wherelee.cabinet.application.storage.ItemReviewPort;
 import com.wherelee.cabinet.application.storage.SlotCandidateQuery;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
-import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.entity.BizItemEvidence;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
-import com.wherelee.cabinet.domain.enums.CommandAction;
-import com.wherelee.cabinet.domain.enums.DisputeState;
-import com.wherelee.cabinet.domain.enums.EvidenceSource;
 import com.wherelee.cabinet.domain.enums.OnlineState;
-import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.domain.enums.SlotStatus;
-import com.wherelee.cabinet.infrastructure.ai.StubItemReviewPort;
+import com.wherelee.cabinet.domain.enums.CommandAction;
 import com.wherelee.cabinet.infrastructure.device.SimulatedCabinetChannel;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -54,33 +45,33 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 柜内物品争议阶梯（第 13C 刀验收，规则见 docs/门态与物品争议设计.md §5/§6）。
+ * 结束之后的遗留物：发现者上报、锁格、弱锁不覆盖强锁。
  *
- * <p>这一刀真正要证的是三件事，每件都有一个"不这样做会怎样"盯着：
+ * <p>这个类以前叫"争议阶梯验收"，里面有六条用例靠<b>拒绝结束</b>来制造现场。19A 把结束
+ * 改成一律不拦人之后，那六条的前提不成立了；2026-10-12 用户拍定"误报免除作废"，
+ * 那六条连同 `denyItem` / `waiveDisputeFee` / AI 复审换结束许可那条链一起删除（不是禁用）。
+ *
+ * <p>留在这里的三条测的是**今天生产上唯一可达**的路径：
  * <ul>
- *   <li><b>争议期间计费不停</b>（I11）：否则"我否认一下"就是暂停计费的白嫖通道；</li>
- *   <li><b>判为设备误报时只免掉争议期间的钱</b>：免除的终点必须是争议起始时刻，
- *       而不是把整单免掉（那会变成"否认=免费"），也不是不免（那是让用户为设备的错误付费）；</li>
- *   <li><b>复审有预算、上报有回报</b>：复审次数用尽就只剩人工，不再消耗模型调用；
- *       而发现遗留物的人必须免费，否则他下次直接走人不报。</li>
+ *   <li>结束不拦人 → 照收钱并关闭 → 物检检到东西 → 这一格标遗留物异常并进工单；</li>
+ *   <li>漏检（传感器看不见）时，下一位使用者上报：他这一单免费退回，格子锁起来不再卖，
+ *       原主的单上打标（他不在场时唯一的告知路径）；</li>
+ *   <li>弱锁不覆盖强锁：一次"没测到"不能把"确实看见有东西"降级成可售。</li>
  * </ul>
  *
- * <p>AI 用桩：按格口指定"有/无/无法判断"。桩的默认值是"无法判断"——如果默认放行，
- * "模型不可用当没事"这条错路就永远测不出来。
+ * <p>为什么上报者必须全身而退：要他为不是自己造成的现场付钱，得到的只会是下次直接走人不报，
+ * 那件东西就会一直躺在格子里被卖给第三个人。
  */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
-        "cabinet.scheduler.hold-grace-minutes=0",
         "cabinet.door-watch.first-remind-minutes=0",
-        "cabinet.dispute.max-ai-review=2",
 })
-@DisplayName("柜内物品争议与结束后遗留：发现者上报、锁格、弱锁不覆盖强锁")
+@DisplayName("结束后遗留物：发现者上报、锁格、弱锁不覆盖强锁")
 class ItemDisputeFlowTest {
 
     private static final Long TENANT = 8118L;
@@ -96,8 +87,6 @@ class ItemDisputeFlowTest {
     @Autowired
     private BizStorageOrderMapper orderMapper;
     @Autowired
-    private BizItemEvidenceMapper evidenceMapper;
-    @Autowired
     private PointAccountService points;
     @Autowired
     private StorageOrderService orderService;
@@ -105,8 +94,6 @@ class ItemDisputeFlowTest {
     private CompartmentStateService states;
     @Autowired
     private SimulatedCabinetChannel simulator;
-    @Autowired
-    private StubItemReviewPort reviewPort;
 
     private JdbcTemplate jdbc;
     private String cabinetNo;
@@ -120,7 +107,7 @@ class ItemDisputeFlowTest {
         TenantContext.runAs(TENANT, () -> {
             BizSite site = new BizSite();
             site.setSiteCode("T-" + cabinetNo);
-            site.setName("争议点位");
+            site.setName("遗留物点位");
             site.setCategory("MALL");
             site.setStatus(1);
             siteMapper.insert(site);
@@ -128,7 +115,7 @@ class ItemDisputeFlowTest {
             BizCabinet cabinet = new BizCabinet();
             cabinet.setSiteId(site.getId());
             cabinet.setCabinetNo(cabinetNo);
-            cabinet.setName("争议柜机");
+            cabinet.setName("遗留物柜机");
             cabinet.setModelId(90001L);
             cabinet.setCabinetStatus(CabinetStatus.ENABLED);
             cabinet.setOnlineState(OnlineState.ONLINE);
@@ -147,15 +134,14 @@ class ItemDisputeFlowTest {
             }
         });
         simulator.reset();
-        reviewPort.reset();
     }
 
     @AfterEach
     void cleanup() {
         simulator.reset();
-        reviewPort.reset();
         Object[] customers = customerIds.toArray();
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
+        jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_item_evidence where cabinet_id = ?", cabinetId);
         if (!customerIds.isEmpty()) {
@@ -164,7 +150,6 @@ class ItemDisputeFlowTest {
         }
         jdbc.update("delete from biz_device_report where order_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
         jdbc.update("delete from biz_device_command where cabinet_id = ?", cabinetId);
-        jdbc.update("delete from biz_deposit where order_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
         jdbc.update("delete from biz_storage_order where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_compartment where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_cabinet where id = ?", cabinetId);
@@ -185,7 +170,7 @@ class ItemDisputeFlowTest {
 
     private BizStorageOrder newOrder(Long customerId) {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
-                "CHG-" + UUID.randomUUID(), "争议用例 funding"));
+                "CHG-" + UUID.randomUUID(), "遗留物用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
         return order(orderNo);
@@ -200,10 +185,6 @@ class ItemDisputeFlowTest {
         return TenantContext.callAs(TENANT, () -> slotMapper.selectById(slotId));
     }
 
-    private List<BizItemEvidence> evidence(Long slotId) {
-        return TenantContext.callAs(TENANT, () -> evidenceMapper.timelineOf(slotId, 50));
-    }
-
     private void door(String orderNo, Long customerId, CommandAction action) {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, orderNo, action));
     }
@@ -214,168 +195,21 @@ class ItemDisputeFlowTest {
         return order(order.getOrderNo());
     }
 
-    /** 造一个"东西落在里面"的现场：门关、物检报有物。 */
-    private BizStorageOrder activateWithItemLeft(Long customerId, BizStorageOrder order) {
-        BizStorageOrder active = activate(customerId, order);
-        simulator.simulateItemInside(cabinetId, active.getSlotId(), true);
-        return active;
-    }
-
-    @Test
-    @DisplayName("结束被拦：留证据、记争议起始时刻，但计费不停、状态不动")
-    @Disabled("A-1 第二批：现场靠“拒结束”产生，而 19A 已不拦人。要重建的是“结束后遗留 + 账单异议”，"
-            + "而“误报免除争议期费用”在新口径下是否保留需先定口径（用户 2026-10-12 待拍板）")
-    void blockedCloseRecordsEvidenceButKeepsBilling() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
-        LocalDateTime billingStart = order.getStartedAt();
-
-        BizException rejected = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-        assertTrue(rejected.getMessage().contains("物品"), rejected.getMessage());
-
-        BizStorageOrder after = order(order.getOrderNo());
-        assertEquals(OrderStatus.ACTIVE, after.getStatus(), "被拦下不改变订单主态（争议不是订单状态）");
-        assertEquals(billingStart, after.getStartedAt(), "I11：争议期间计费不停，起点绝不会被改动");
-        assertNull(after.getFinishedAt());
-        assertNotNull(after.getDisputeStartedAt(), "争议起始时刻必须活过这次回滚，否则事后无从免除");
-        assertEquals(DisputeState.ITEM_DISPUTED, after.getDisputeState());
-
-        List<BizItemEvidence> rows = evidence(after.getSlotId());
-        assertEquals(1, rows.size(), "拦下就要留底：这是【设备说过有物】的唯一凭证");
-        assertEquals(EvidenceSource.DEVICE_PROBE, rows.get(0).getSource());
-        assertEquals(Presence.PRESENT, rows.get(0).getPresence());
-    }
-
-    @Test
-    @DisplayName("争议起始时刻只记第一次：反复点否认不能把计费终点往后推")
-    @Disabled("A-1 第二批：同上，“记争议起始用来算免除区间”这个前提随拦人一起作废")
-    void disputeStartIsRecordedOnce() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
-
-        for (int i = 0; i < 3; i++) {
-            assertThrows(BizException.class,
-                    () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-        }
-        BizStorageOrder after = order(order.getOrderNo());
-        assertNotNull(after.getDisputeStartedAt());
-        // 如果每次拦下都把起始时刻刷成现在，"免除争议期间费用"就会随点击次数越滚越少——
-        // 免除反而变成加费，这是这套机制最容易被写歪的地方
-        assertEquals(3, evidence(after.getSlotId()).size(), "每次观测都要留一条，但起始时刻只有一个");
-    }
-
-    @Test
-    @DisplayName("AI 判为设备误报：允许结束，且只免掉争议期间的钱")
-    @Disabled("A-1 第二批：结束不再需要被允许（19A），所以“判误报才能结束”不成立；AI 复审应搬到账单异议上")
-    void falseAlarmEndsOrderAndWaivesOnlyDisputePeriod() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
-        assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-
-        BizStorageOrder blocked = order(order.getOrderNo());
-        // 造出"争议持续了一小时才被复审"的现场：计费起点 5 小时前、争议起点 1 小时前。
-        // 免除的正是中间这 4 小时里超出应缴的部分——见下面的金额对照
-        jdbc.update("update biz_storage_order set started_at = date_sub(now(3), interval 5 hour), "
-                + "dispute_started_at = date_sub(now(3), interval 1 hour) where id = ?", blocked.getId());
-        reviewPort.script(blocked.getSlotId(), Presence.ABSENT, "与空柜基准比对未检出多出物体");
-
-        TenantContext.runAs(TENANT, () -> orderService.denyItem(customerId, blocked.getOrderNo()));
-
-        BizStorageOrder closed = order(blocked.getOrderNo());
-        assertEquals(OrderStatus.CLOSED, closed.getStatus());
-        assertEquals(OrderCloseReason.DISPUTE_WAIVED, closed.getCloseReason());
-        // SMALL 15 点/小时。计到争议起点 = 4 小时（减 10 分钟免费窗口后向上取整仍为 4）→ 60 点；
-        // 若按"现在"结算会是 5 小时 = 75 点。差的那 15 点就是被免除的争议期间费用。
-        assertEquals(60L, closed.getSettledPoints(),
-                "只免争议期间：应缴按【计费起点→争议起点】算，实测 " + closed.getSettledPoints());
-        assertEquals(0L, closed.getRemoteClosePoints(), "误报免除不该再吃远程结束加收");
-        assertTrue(closed.getAiReviewCount() >= 1);
-        assertNull(slot(closed.getSlotId()).getAnomaly(), "确认是空的可直接回可售，不该留异常");
-    }
-
-    @Test
-    @DisplayName("AI 仍判有物：不能结束、继续计费；次数用尽后不再调用模型")
-    @Disabled("A-1 第二批：不能结束已作废；但“复审次数上限防刷模型”这个约束仍有效，重建时要单独钉住")
-    void aiStillPresentKeepsBlockingAndBudgetIsEnforced() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
-        assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-        Long slotId = order(order.getOrderNo()).getSlotId();
-        reviewPort.script(slotId, Presence.PRESENT, "检出物体");
-
-        BizException first = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.denyItem(customerId, order.getOrderNo())));
-        assertTrue(first.getMessage().contains("取出"), "被拦时必须给下一步：" + first.getMessage());
-        BizStorageOrder afterFirst = order(order.getOrderNo());
-        assertEquals(OrderStatus.ACTIVE, afterFirst.getStatus(), "复审没放行就不能停表");
-        assertEquals(1, afterFirst.getAiReviewCount());
-
-        assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.denyItem(customerId, order.getOrderNo())));
-        BizStorageOrder afterSecond = order(order.getOrderNo());
-        assertEquals(2, afterSecond.getAiReviewCount());
-        // 第 2 次复审仍判有物：此时还是 AI_REVIEWED（预算刚好用完，但这一轮的结论就是“有物”）；
-        // 真正转人工发生在下一次——预算已尽时不再花模型调用，直接给人工
-        assertEquals(DisputeState.AI_REVIEWED, afterSecond.getDisputeState());
-
-        // 第三次：预算已尽，**一次模型调用都不该再发**——否则上限只是"多提醒几次"而不是止损。
-        // 用"改桩的结论"来证明没被调用：换成 ABSENT 后仍拿不到放行，说明根本没问模型
-        reviewPort.script(slotId, Presence.ABSENT, "若被调用则应判误报");
-        BizException third = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.denyItem(customerId, order.getOrderNo())));
-        assertTrue(third.getMessage().contains("人工"), third.getMessage());
-        assertEquals(2, order(order.getOrderNo()).getAiReviewCount(), "次数不该继续增长");
-        assertEquals(OrderStatus.ACTIVE, order(order.getOrderNo()).getStatus());
-    }
-
-    @Test
-    @DisplayName("AI 说无法判断：转人工，不得退回红外的结论")
-    @Disabled("A-1 第二批：转人工这一半已接上 19B 工单与 19D 电话任务，重建时验证“UNKNOWN 绝不折成无物”")
-    void indeterminateGoesToHumanInsteadOfFallingBackToSensor() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
-        assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-        Long slotId = order(order.getOrderNo()).getSlotId();
-        reviewPort.script(slotId, Presence.UNKNOWN, "照片模糊，无法与基准比对");
-
-        BizException refused = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.denyItem(customerId, order.getOrderNo())));
-        assertTrue(refused.getMessage().contains("人工"), refused.getMessage());
-        BizStorageOrder after = order(order.getOrderNo());
-        assertEquals(DisputeState.HUMAN_REVIEW, after.getDisputeState());
-        assertEquals(OrderStatus.ACTIVE, after.getStatus(), "模型不确定时不能自动放行，也不能自动定它有罪");
-        assertEquals(Presence.UNKNOWN, evidence(slotId).stream()
-                .filter(e -> e.getSource() == EvidenceSource.AI).findFirst().orElseThrow().getPresence(),
-                "AI 的【不知道】要原样落库——折成有或无就是在最该谨慎的地方造假");
-    }
-
-    @Test
-    @DisplayName("门没关时既没有争议可复审，也不能靠误报免除结束")
-    @Disabled("A-1 第二批：门未关现在走 19D 提醒阶梯与工单，不再走争议阶梯；重建时这条应归到门未关那条链")
-    void openDoorBlocksTheWholeLadder() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = newOrder(customerId);
-        door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        // 容错期满（本刀 tolerance=0）把单推到计费中，但门仍开着：不这样做 pickup 会被“状态不可结束”先拦下，
-        // 测到的就不是“门未关”这条判据
-        TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
-                new CompartmentStateService.Sensing(false, Presence.PRESENT, LocalDateTime.now())));
+    /**
+     * 新口径下的“结束后现场真有东西”：19A 不拦人，所以结束会照收钱并关闭，
+     * 而物检检到东西就把这一格标成遗留物异常。这也是旧写法里拿 `abandon`
+     * （声明放弃，入口已删）造出现场的替换。
+     */
+    private BizStorageOrder closeWithItemLeft(Long customerId) {
+        BizStorageOrder order = activate(customerId, newOrder(customerId));
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
-
-        BizException rejected = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-        assertTrue(rejected.getMessage().contains("门"), "门没关时应先说门（而不是柜内有物）：" + rejected.getMessage());
-
-        BizException noDispute = assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.denyItem(customerId, order.getOrderNo())));
-        assertTrue(noDispute.getMessage().contains("争议"), noDispute.getMessage());
-        BizStorageOrder after = order(order.getOrderNo());
-        assertTrue(after.getAiReviewCount() == null || after.getAiReviewCount() == 0,
-                "没有争议就不能进复审——否则【门没关】能被绕成【设备误报】直接免单");
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(),
+                "柜里有东西也不能把用户钉在柜机前：照收钱、照关闭（定-13）");
+        assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(order.getSlotId()).getAnomaly(),
+                "不拦人不等于不记：检到东西就必须把这格标成遗留物并进工单（定-14）");
+        return closed;
     }
 
     @Test
@@ -421,8 +255,7 @@ class ItemDisputeFlowTest {
     @DisplayName("已知遗留物的格口不会被分给下一位：锁只由标异常产生，不再需要一个“声明放弃”动作")
     void reportedCompartmentNeverReappearsInCandidates() {
         Long owner = newCustomer();
-        BizStorageOrder closed = closeWithItemLeft(owner);
-        Long slotId = closed.getSlotId();
+        Long slotId = closeWithItemLeft(owner).getSlotId();
 
         // 门磁又被确认关上（下一个人来之前它物理上是关的）：异常必须仍在
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
@@ -445,22 +278,5 @@ class ItemDisputeFlowTest {
         TenantContext.runAs(TENANT, () -> states.markContentUnverified(slotId, "模拟一次无凭据的结束"));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(),
                 "遗留物是已经看见有东西，测不到只是没凭据；弱锁盖强锁会让被上报的格子被当空柜清走");
-    }
-
-    /**
-     * 新口径下的“结束后现场真有东西”：19A 不拦人，所以结束会**照收钱并关闭**，
-     * 而物检检到东西就把这一格标成遗留物异常。这就是今天生产上唯一可达的那条路，
-     * 也是旧写法里拿 `abandon`（声明放弃，入口已删）造出现场的替换。
-     */
-    private BizStorageOrder closeWithItemLeft(Long customerId) {
-        BizStorageOrder order = activate(customerId, newOrder(customerId));
-        simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
-        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
-        BizStorageOrder closed = order(order.getOrderNo());
-        assertEquals(OrderStatus.CLOSED, closed.getStatus(),
-                "柜里有东西也不能把用户钉在柜机前：照收钱、照关闭（定-13）");
-        assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(order.getSlotId()).getAnomaly(),
-                "不拦人不等于不记：检到东西就必须把这格标成遗留物并进工单（定-14）");
-        return closed;
     }
 }

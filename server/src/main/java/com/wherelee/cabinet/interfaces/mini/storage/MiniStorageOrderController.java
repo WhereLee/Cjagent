@@ -113,23 +113,6 @@ public class MiniStorageOrderController {
     }
 
     /**
-     * 否认“柜内有我的东西”→ 触发 AI 看图复审（争议阶梯 L3）。
-     *
-     * <p>限流给得比开柜紧（6/分钟）：每次复审都是一次 AI 调用，不设频控等于给用户一个可反复按的
-     * 烧钱按钮。复审次数用尽后只会得到“已转人工”，不会再发模型调用。
-     */
-    @Operation(summary = "否认柜内有物品（转 AI 复审）",
-            description = "判为设备误报则结束并免除争议期间费用；仍判有物则订单继续计费")
-    @OperationLog(module = "storage", operation = "否认柜内物品")
-    @RateLimit(limit = 6, windowSeconds = 60)
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @PostMapping("/{orderNo}/deny-item")
-    public R<StorageOrderView> denyItem(@AuthenticationPrincipal VerifiedToken current,
-                                        @PathVariable @NotBlank @Size(max = 32) String orderNo) {
-        return R.ok(storageOrderFacade.denyItem(current.subjectId(), orderNo));
-    }
-
-    /**
      * 上报“这个格口里有别人的东西”（设计中的发现者路径）。
      *
      * <p>上报后本单不收费退回：要他为一个不是自己造成的现场付钱，得到的只会是下次直接走人不报。

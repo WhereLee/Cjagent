@@ -211,16 +211,8 @@ class AdminLockerConsoleTest {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, orderNo, action));
     }
 
-    /** 推到计费中并把柜内做成"有物"，再触发一次结束被拦（产生争议与两条证据）。 */
-    private BizStorageOrder blockedWithDispute(Long customerId) {
-        BizStorageOrder order = newOrder(customerId);
-        door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
-        simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
-        assertThrows(BizException.class,
-                () -> TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo())));
-        return order(order.getOrderNo());
-    }
+    // blockedWithDispute 已删除（2026-10-12）：它靠“pickup 会被拒”来造争议现场，
+    // 而 19A 之后结束一律不拦人，这条造法与它服务的“误报免除”用例一起作废。
 
     @Test
     @DisplayName("台账分页与概览：异常格口能按原因码翻出来，停留时长算得出来")
@@ -306,33 +298,6 @@ class AdminLockerConsoleTest {
     }
 
     @Test
-    @DisplayName("免除争议费用：证据不全直接拒；证据齐全只免争议期间，且不能重复免")
-    @org.junit.jupiter.api.Disabled("同上：现场靠“结束被拒”产生，争议链已搬到 19C 重建")
-    void waiveNeedsTwoContradictingEvidenceAndIsIdempotent() {
-        Long customerId = newCustomer();
-        BizStorageOrder order = blockedWithDispute(customerId);
-        Long slotId = order.getSlotId();
-
-        // 只有"设备说有"一条证据 → 不构成误报
-        BizException noEvidence = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
-                () -> console.waiveDisputeFee(order.getOrderNo())));
-        assertTrue(noEvidence.getMessage().contains("证据"), noEvidence.getMessage());
-
-        // 补上 AI 的相反结论，并把争议起始时刻往前挪，让金额可核对
-        reviewPort.script(slotId, Presence.ABSENT, "与基准比对未检出多出物体");
-        TenantContext.runAs(TENANT, () -> orderService.denyItem(customerId, order.getOrderNo()));
-        // 上面这一步已按误报结束；再点一次必须被"已终态"挡住
-        BizException again = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
-                () -> console.waiveDisputeFee(order.getOrderNo())));
-        assertTrue(again.getMessage().contains("已结束"), again.getMessage());
-
-        BizStorageOrder closed = order(order.getOrderNo());
-        assertEquals(OrderCloseReason.DISPUTE_WAIVED, closed.getCloseReason());
-        assertNull(slot(closed.getSlotId()).getAnomaly(),
-                "免除的依据就是“AI 看图说没东西”这条凭据；再锁一次格子等于否认自己刚用的判据");
-    }
-
-    @Test
     @DisplayName("欠费拦截：欠 1 点就不给下单，还清后立刻恢复；取件任何时候不受影响")
     void anyArrearsBlocksNewOrderAndClearsItself() {
         Long debtor = newCustomer();
@@ -385,7 +350,7 @@ class AdminLockerConsoleTest {
         assertPermission("arrears", "locker:arrears:list");
         assertPermission("resolve", "locker:compartment:resolve");
         assertPermission("forceOpen", "locker:door:force-open");
-        assertPermission("waive", "locker:order:waive-fee");
+        // “免除争议费用”的权限点已随误报免除一起作废（2026-10-12），V21 软删该权限行
         assertPermission("changeCustomerStatus", "locker:customer:disable");
         assertPermission("rebuildFreeSet", "locker:freeset:rebuild");
     }
@@ -401,16 +366,23 @@ class AdminLockerConsoleTest {
     }
 
     @Test
-    @DisplayName("证据时间线在详情里可读：免除判定要能复盘到每一次观测")
-    @org.junit.jupiter.api.Disabled("同上：详情里的证据时间线靠争议拦截产生，19C 重建后这个现场换成“结束后遗留”")
+    @DisplayName("证据时间线在详情里可读：每一次开门与关门都查得回来（19C 采集点）")
     void detailCarriesEvidenceTimeline() {
         Long customerId = newCustomer();
-        BizStorageOrder order = blockedWithDispute(customerId);
-        var detail = TenantContext.callAs(TENANT, () -> console.compartmentDetail(order.getSlotId()));
-        assertNotNull(detail.currentOrder(), "详情要带当前占用的单，否则运维不知道这格被谁占着");
+        BizStorageOrder order = newOrder(customerId);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
+        simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
+        // 新口径：结束不拦人，照收钱并关闭；证据不靠“结束被拒”产生，而是四个采集点各自留底
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        assertNotNull(TenantContext.callAs(TENANT, () -> console.compartmentDetail(order.getSlotId())),
+                "后台详情要能拿到这一格（字段口径归台账用例管，这里只验详情可达）");
         List<BizItemEvidence> rows = TenantContext.callAs(TENANT,
                 () -> evidenceMapper.timelineOf(order.getSlotId(), 30));
-        assertTrue(rows.stream().anyMatch(e -> e.getSource() == EvidenceSource.DEVICE_PROBE
-                && e.getPresence() == Presence.PRESENT), "设备报有物那条必须查得回来");
+        assertTrue(rows.stream().anyMatch(e -> e.getMoment() == BizItemEvidence.Moment.DOOR_OPENED),
+                "开门采集必须留底：它代表这一格当时应是空的，是后续比对的基准：" + rows);
+        assertTrue(rows.stream().anyMatch(e -> e.getMoment() == BizItemEvidence.Moment.DOOR_CLOSED),
+                "关门采集必须留底：结单与遗留判定的主要凭据就靠它");
     }
 }

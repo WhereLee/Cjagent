@@ -74,7 +74,9 @@ class WorkOrderFlowTest {
     void prepare() {
         jdbc = new JdbcTemplate(dataSource);
         String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        Long siteId = 81610000L + Math.abs(suffix.hashCode() % 90000);
+        // 主键不能从 8 位随机码再取模 9 万算：桶太少，跨类跨轮必撞（实测撞过一次 DuplicateKey，
+        // 表现为完完全全不相干的用例红）。“测试数据不相互碰撞”得靠区间而不是靠运气
+        Long siteId = java.util.concurrent.ThreadLocalRandom.current().nextLong(81_6100_0000L, 89_9999_9999L);
         cabinetId = siteId + 1;
         slotId = siteId + 2;
         slotNo = "S" + suffix.substring(0, 4);

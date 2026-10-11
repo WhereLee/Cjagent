@@ -21,7 +21,7 @@ public interface BizItemEvidenceMapper extends BaseMapper<BizItemEvidence> {
     /** 某个格口的观测时间线（新→旧）。客服/运维看的就是这条。 */
     @Select("""
             select id, tenant_id, order_id, cabinet_id, compartment_id, source, presence,
-                   confidence, photo_ref, note, create_time, update_time, deleted
+                   confidence, photo_ref, moment, ai_label, note, create_time, update_time, deleted
               from biz_item_evidence
              where compartment_id = #{compartmentId} and deleted = 0
              order by create_time desc

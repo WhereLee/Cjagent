@@ -140,9 +140,7 @@ public class StorageOrderFacade {
      *
      * <p>与 pickup/abandon 一样不走异步分流：它需要当前的门磁与物检读数，而异步待落库窗口里这些全部未知。
      */
-    public StorageOrderView denyItem(Long customerId, String orderNo) {
-        return syncService.denyItem(customerId, orderNo);
-    }
+    // denyItem 转发已删除（2026-10-12）：用户否认→AI 复审→换取结束许可这条链随“误报免除”一起作废。
 
     /** 下一位使用者上报“本格口里有别人的东西”：锁格 + 本单不收费退回。 */
     public StorageOrderView reportLeftover(Long customerId, String orderNo) {

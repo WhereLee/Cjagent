@@ -3,7 +3,6 @@ package com.wherelee.cabinet.application.locker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.device.DeviceCommandService;
 import com.wherelee.cabinet.application.storage.CompartmentStateService;
-import com.wherelee.cabinet.application.storage.ItemDisputeService;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.support.PageSupport;
 import com.wherelee.cabinet.common.api.PageQuery;
@@ -62,7 +61,6 @@ public class LockerConsoleService {
     private final BizStorageOrderMapper orderMapper;
     private final com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper customerMapper;
     private final CompartmentStateService states;
-    private final ItemDisputeService dispute;
     private final StorageOrderService orders;
     private final DeviceCommandService deviceCommands;
 
@@ -70,7 +68,7 @@ public class LockerConsoleService {
                                 BizItemEvidenceMapper evidenceMapper, BizCabinetMapper cabinetMapper,
                                 BizStorageOrderMapper orderMapper, com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper customerMapper,
                                 CompartmentStateService states,
-                                ItemDisputeService dispute, StorageOrderService orders,
+                                StorageOrderService orders,
                                 DeviceCommandService deviceCommands) {
         this.consoleMapper = consoleMapper;
         this.slotMapper = slotMapper;
@@ -79,7 +77,6 @@ public class LockerConsoleService {
         this.orderMapper = orderMapper;
         this.customerMapper = customerMapper;
         this.states = states;
-        this.dispute = dispute;
         this.orders = orders;
         this.deviceCommands = deviceCommands;
     }
@@ -190,29 +187,10 @@ public class LockerConsoleService {
                 cabinet.getCabinetNo(), slot.getSlotNo(), adminId, reason);
     }
 
-    /**
-     * 人工判定设备误报并免除争议期间费用。四道前置（第一条在 Controller 上判权限）：
-     * ① 独立权限点；② 证据齐全（"设备说有" + "AI 说无"两条留底）；③ 单未进终态；④ 全程审计。
-     *
-     * <p>金额不由调用方传：只按 {@code started_at → dispute_started_at} 结算，
-     * 所以这里不存在"免除额度"这种东西。
-     */
-    @Transactional
-    public void waiveDisputeFee(String orderNo) {
-        BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
-                .eq(BizStorageOrder::getOrderNo, orderNo));
-        if (order == null) {
-            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "寄存单不存在");
-        }
-        if (order.getStatus().isTerminal()) {
-            throw new BizException(ResultCode.BIZ_ERROR, "该单已结束，不能再次免除（重复免除会产生第二笔退还）");
-        }
-        if (!dispute.hasFalseAlarmVerdict(order)) {
-            throw new BizException(ResultCode.BIZ_ERROR,
-                    "证据不足：必须同时存在设备报有物与 AI 复核判无物两条留底，才能按误报免除");
-        }
-        orders.waiveFalseAlarm(order.getId());
-    }
+    // waiveDisputeFee（后台人工判定误报并免除争议费用）已删除（2026-10-12 用户令）。
+    // 它要免的那笔钱随着 19A“结束不拦人”一起消失了：不存在“平台等判定期间”这回事。
+    // 原来四道前置里的三条（独立权限点、已终态不可重复、全程审计）仍然是通用做法，
+    // 下一切后台动钱的动作都得照它们办。
 
     /**
      * 禁用 / 启用客户。

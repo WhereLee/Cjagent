@@ -118,17 +118,6 @@ public class AdminLockerController {
         return R.ok();
     }
 
-    @Operation(summary = "免除争议费用（判定设备误报）",
-            description = "金额由算法给出（只算到争议起始时刻），需两条互相打脸的证据；单已终态不可再免")
-    @OperationLog(module = "locker-console", operation = "免除争议费用")
-    @Idempotent(key = "#orderNo", requireKey = true, message = "该单已处理，请勿重复免除")
-    @PreAuthorize("hasAuthority('locker:order:waive-fee')")
-    @PostMapping("/orders/{orderNo}/waive-fee")
-    public R<Void> waive(@PathVariable @NotBlank @Size(max = 32) String orderNo) {
-        console.waiveDisputeFee(orderNo);
-        return R.ok();
-    }
-
     @Operation(summary = "重建空闲格口集合", description = "以 DB 真相同步 Redis 准入集合；先 DEL 再 SADD，期间会少卖不会超卖")
     @OperationLog(module = "locker-console", operation = "重建空闲集合")
     @Idempotent(message = "重建正在进行中，请稍候")
