@@ -720,9 +720,11 @@ public class StorageOrderService {
         if (outcome.businessSuccess()) {
             switch (action) {
                 case OPEN -> {
-                    // 门真的开了才记下起点：从这一刻起容错计时开始跑。
-                    // “门开了没人关”的看管也从这里登记——如果只在关门后登记，
-                    // 用户开完门就走，单会停在 OPENING、格口停在 RESERVED、押金一直冻着，没人收场
+                    // **这里记的是“回执说门开了”，不是“门真的开了”**：判据只有设备那一句 success=true，
+                    // 没有独立门磁佐证。注释以前写着“门真的开了才记下起点”，比代码能做的多说了一句，
+                    // 会让后来人以为这里已经防住（2026-10-12 实测核对后改掉）。
+                    // 谎报开门为什么可接受：头 30 分钟免费兑住了当场发现的情况，而当场没发现时
+                    // 还有 19D 的门未关阶梯与工单接手——已由用例 openReceiptCannotBillTheUser 钉住。
                     states.afterDoorOpened(states.reload(order.getSlotId()), order.getCustomerId());
                     // 19A（2026-10-11 定稿）：<b>开柜瞬间就是计费起点</b>，不再等关门、
                     // 也不靠容错到期去“补一个起点”。头 30 分钟免费由计价算法扣除，

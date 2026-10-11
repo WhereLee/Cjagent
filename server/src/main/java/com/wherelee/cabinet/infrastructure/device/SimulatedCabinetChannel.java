@@ -61,6 +61,11 @@ public class SimulatedCabinetChannel implements DeviceChannel {
         PREPARE_FAIL,
         /** 谎报关门：success=true 但传感器没确认 */
         LYING_CLOSED,
+        /**
+         * 谎报开门（故障矩阵以前缺的一格，2026-10-12 补上）：回执报“开了”而物理上门没动。
+         * 没有它，“计费起点建立在设备自报上”这个局限就只能在嘴上讨论，测不出来也证伪不了。
+         */
+        LYING_OPENED,
         /** 错报目标：操作了另一个格口（部分成功/串位） */
         WRONG_TARGET,
         /** 回了一个比已记录更旧的设备序号（乱序重放） */
@@ -180,6 +185,9 @@ public class SimulatedCabinetChannel implements DeviceChannel {
                     seq, true, ticket.slotId(), "预备开未通过：锁机构无动作");
         }
         return switch (fault) {
+            // 谎报开门：柜机说开了（success=true），物理上什么都没发生
+            case LYING_OPENED -> new CommandReceipt(ticket.requestId(), true, ReportEvent.DOOR_OPENED,
+                    seq, true, ticket.slotId(), "设备称已开门，门磁未动作");
             case LYING_CLOSED -> new CommandReceipt(ticket.requestId(), true, ReportEvent.DOOR_CLOSED,
                     seq, false, ticket.slotId(), "设备称已关门，门磁未确认");
             case WRONG_TARGET -> new CommandReceipt(ticket.requestId(), true, ReportEvent.DOOR_OPENED,
@@ -231,8 +239,8 @@ public class SimulatedCabinetChannel implements DeviceChannel {
             return;
         }
         switch (fault) {
-            case OFFLINE, NO_RECEIPT, EXEC_FAIL -> {
-                // 没执行，就没有物理变化
+            case OFFLINE, NO_RECEIPT, EXEC_FAIL, LYING_OPENED -> {
+                // 没执行，就没有物理变化（LYING_OPENED 是“说了但没做”：它恰恰必须不动）
             }
             case WRONG_TARGET -> setDoor(ticket.cabinetId(), ticket.slotId() + WRONG_TARGET_OFFSET, ticket.action());
             case LYING_CLOSED -> {

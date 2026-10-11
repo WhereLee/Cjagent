@@ -512,4 +512,32 @@ class DoorAndContentFlowTest {
         assertTrue(prepay > 0L, "下单就必须产生预收，否则 19A 的预付模子形同虚设");
         assertEquals(0L, wallet.arrearsPoints(), "还没结算，不应凭空多出欠费");
     }
+
+    @Test
+    @DisplayName("谎报开门（回执说开了而物理没动）：当场结束不产生任何费用（定-13 + 头 30 分钟免费）")
+    void openReceiptCannotBillTheUser() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        // 这一类故障以前不在矩阵里：柜机回一句“开了”，但门磁从未动作
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.LYING_OPENED);
+
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        BizStorageOrder opened = order(order.getOrderNo());
+        assertNotNull(opened.getStartedAt(),
+                "现状如实记下：计费起点只看回执，设备说谎也会落下起点（没有独立门磁佐证）");
+        // 谎报后单停在 OPENING，跟正常流程一样要过一道关门校验才能结束（物理上本就没开，传感器会诚实地答“关着”）
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
+
+        // 用户站在柜子前，门没开——他一定当场发现，于是直接结束
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+        BizStorageOrder closed = order(order.getOrderNo());
+
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(), "不拦人：谎报也不能把他锁在柜机前");
+        assertEquals(0L, closed.getSettledPoints(),
+                "当场发现就当场结束，头 30 分钟免费把这笔全额兑住了：一分钱不能收");
+        assertEquals(5000L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getPoints(),
+                "预收整笔退回（5000-0）：谎报开门的代价不应落在用户钱包里");
+        assertNull(slot(closed.getSlotId()).getAnomaly(),
+                "当场结束后不得在格口上留下脏状态（门磁本来就未动作，探到的是真实结论）");
+    }
 }
