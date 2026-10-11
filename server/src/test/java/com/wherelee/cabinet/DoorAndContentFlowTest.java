@@ -94,6 +94,10 @@ class DoorAndContentFlowTest {
     private CompartmentStateService states;
     @Autowired
     private SimulatedCabinetChannel simulator;
+    @Autowired
+    private com.wherelee.cabinet.application.storage.CabinetAvailabilityService availabilityService;
+    @Autowired
+    private com.wherelee.cabinet.application.storage.CompartmentStateService compartmentStates;
 
     private JdbcTemplate jdbc;
     private String cabinetNo;
@@ -443,5 +447,39 @@ class DoorAndContentFlowTest {
                 "select count(*) from biz_compartment where cabinet_id = ? and door_open_at is not null",
                 Integer.class, cabinetId).intValue(), "预备开不得写门态：否则“问了”会变成“开了”");
         assertNull(order(order.getOrderNo()).getStartedAt(), "计费起点只能由真开成功落定");
+    }
+
+    @Test
+    @DisplayName("剩余数只算正常可分配格口：标异常就减一，全标异常就是 0 且下单被拒")
+    void availabilityCountsOnlyAssignableSlots() {
+        long before = freeSmall();
+        assertTrue(before > 0, "夹具里这台柜机得有小格可用，不然这条用例测不出什么：" + before);
+        java.util.List<Long> smalls = jdbc.queryForList(
+                "select id from biz_compartment where tenant_id = ? and cabinet_id = ? and size_type = 'SMALL'"
+                        + " and status = 'FREE' and anomaly is null and door_open_at is null",
+                Long.class, TENANT, cabinetId);
+
+        TenantContext.runAs(TENANT, () -> compartmentStates.markContentLeft(smalls.get(0), "用例：检出遗留物"));
+        assertEquals(before - 1, freeSmall(), "标了异常的格口不得再计入剩余：它已经不能卖给人家了");
+
+        for (Long id : smalls) {
+            TenantContext.runAs(TENANT, () -> compartmentStates.markContentLeft(id, "用例：全部标异常"));
+        }
+        assertEquals(0, freeSmall(), "一格可用都没有时屏上就该写 0，不能写个让人白跑一趟的数");
+
+        Long customerId = newCustomer();
+        BizException soldOut = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> orderService.create(customerId, new CreateOrderCommand(
+                        java.util.UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))));
+        assertTrue(soldOut.getMessage().contains("没有可用"),
+                "屏幕说 0，下单就得说没格：两处必须同一个答案：" + soldOut.getMessage());
+    }
+
+    /** 这台柜机小格的剩余数（走的就是对外接口那一个方法；必须带租户上下文，否则租户隔离插件报错）*/
+    private long freeSmall() {
+        return TenantContext.callAs(TENANT, () -> availabilityService.of(cabinetNo).sizes().stream()
+                .filter(s -> "SMALL".equals(s.sizeType()))
+                .mapToLong(com.wherelee.cabinet.application.storage.CabinetAvailabilityService.SizeFree::free)
+                .findFirst().orElse(-1L));
     }
 }

@@ -117,7 +117,7 @@ public class StorageOrderFacade {
      * 取件，可带上取件码（定-6）。
      *
      * <p>码为空就是原来的主路径（登录态）；带码时校验、计错次、达阈就锁定该单开柜。
-     * 不分流到异步：理由与 {@link #abandon} 相同——它要看当前的门磁与物检读数。
+     * 不分流到异步：它要看当前的门磁与物检读数，而异步窗口里这些全部未知。
      */
     public StorageOrderView pickup(Long customerId, String orderNo, String voucherCode) {
         return syncService.pickup(customerId, orderNo, voucherCode);
@@ -129,14 +129,11 @@ public class StorageOrderFacade {
      * <p>不分流到异步路径：它与取件一样要面对“已落库的单 + 当前门磁与物检”，
      * 而异步路径的待落库窗口里这些全部未知（第 9 刀定的“写与资金动作只认已落库行”）。
      */
-    public StorageOrderView abandon(Long customerId, String orderNo) {
-        return syncService.abandon(customerId, orderNo);
-    }
+    // 定-13/定-15：“声明放弃物品”与“远程结束加收”的用户入口已删（控制器里的两个路由也已消失）。
+    // 门面不再转发；服务层的 syncService.abandon/remoteClose 暂时只被两个已 @Disabled 待重写的用例引用。
 
     /** 远程结束订单（人不在现场，同一套判据 + 加收）。 */
-    public StorageOrderView remoteClose(Long customerId, String orderNo) {
-        return syncService.remoteClose(customerId, orderNo);
-    }
+    // 同上：远程结束入口已删（结束本来就是在手机上点的，加收失去存在理由）。
 
     /**
      * 否认“柜内有我的东西”→ 走 AI 看图复审（争议阶梯）。

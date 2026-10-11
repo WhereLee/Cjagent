@@ -113,42 +113,6 @@ public class MiniStorageOrderController {
     }
 
     /**
-     * 柜内有物品却确定不要了，声明放弃并结束。
-     *
-     * <p>它是“柜内检测到物品”时唯一的自助出口，但<b>不代替代关门</b>：门没关就结束，
-     * 等于把“开着门、里面有东西、格子还卖得出去”这三件最坏的事同时坐实。
-     * 结束后该格口转异常（遗留物），业务运维清走之前不会再分配。
-     */
-    @Operation(summary = "声明放弃柜内物品并结束",
-            description = "仅豁免“柜内无物”，仍要求门已关；结束后格口转待清柜异常")
-    @OperationLog(module = "storage", operation = "放弃物品结束")
-    @RateLimit(limit = 6, windowSeconds = 60)
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @PostMapping("/{orderNo}/abandon")
-    public R<StorageOrderView> abandon(@AuthenticationPrincipal VerifiedToken current,
-                                       @PathVariable @NotBlank @Size(max = 32) String orderNo) {
-        return R.ok(storageOrderFacade.abandon(current.subjectId(), orderNo));
-    }
-
-    /**
-     * 远程结束订单（人已经离开柜机）。
-     *
-     * <p>不豁免任何一条结束判据，只额外收一笔“该格口几小时单价”的加收：
-     * 如果远程能绕过无物判定，那“离开现场”就比“留在现场”更容易脱身，方向正好反了。
-     * 条件不满足时报错并继续计费——这是故意的，文案会告诉用户下一步能做什么。
-     */
-    @Operation(summary = "远程结束订单",
-            description = "同一套结束判据 + 未关门加收；柜内无法确认已清空时会被拒绝")
-    @OperationLog(module = "storage", operation = "远程结束订单")
-    @RateLimit(limit = 6, windowSeconds = 60)
-    @PreAuthorize("hasRole('CUSTOMER')")
-    @PostMapping("/{orderNo}/remote-close")
-    public R<StorageOrderView> remoteClose(@AuthenticationPrincipal VerifiedToken current,
-                                           @PathVariable @NotBlank @Size(max = 32) String orderNo) {
-        return R.ok(storageOrderFacade.remoteClose(current.subjectId(), orderNo));
-    }
-
-    /**
      * 否认“柜内有我的东西”→ 触发 AI 看图复审（争议阶梯 L3）。
      *
      * <p>限流给得比开柜紧（6/分钟）：每次复审都是一次 AI 调用，不设频控等于给用户一个可反复按的
