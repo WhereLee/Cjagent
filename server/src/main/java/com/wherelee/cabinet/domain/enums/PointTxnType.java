@@ -47,7 +47,15 @@ public enum PointTxnType {
     /** 退押金：从押金栅移出（抵欠款那一笔走 CONSUME，不走这里） */
     DEPOSIT_BACK_OUT(Bucket.DEPOSIT, Sign.MINUS),
     /** 退押金：回到可用栅 */
-    DEPOSIT_BACK_IN(Bucket.POINTS, Sign.PLUS);
+    DEPOSIT_BACK_IN(Bucket.POINTS, Sign.PLUS),
+    /**
+     * 下单预收（19A，2026-10-11 定稿）：先收该格口 4 小时的钱。
+     *
+     * <p>它是**真实消费**而不是冻结：余额不够就下单失败（不能先开门再催钱）。
+     */
+    PREPAY(Bucket.POINTS, Sign.MINUS),
+    /** 预收退还：结算时“多退”的那一部分（也是唯一能把点数退回可用的非解冻类型） */
+    PREPAY_REFUND(Bucket.POINTS, Sign.PLUS);
 
     /** 流水影响哪一栏。 */
     public enum Bucket { POINTS, FROZEN, DEPOSIT }
@@ -56,7 +64,8 @@ public enum PointTxnType {
     public enum Sign { PLUS, MINUS, EITHER }
 
     /** 消耗类：需要真实扣减点数，可能因余额不足失败。 */
-    private static final Set<PointTxnType> CONSUMING = EnumSet.of(CONSUME, FREEZE_OUT, DEPOSIT_OUT);
+    private static final Set<PointTxnType> CONSUMING =
+            EnumSet.of(CONSUME, FREEZE_OUT, DEPOSIT_OUT, PREPAY);
 
     private final Bucket bucket;
     private final Sign sign;

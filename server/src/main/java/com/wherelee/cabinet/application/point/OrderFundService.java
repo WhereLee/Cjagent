@@ -80,12 +80,17 @@ public class OrderFundService {
     @Transactional
     public void holdFunds(BizStorageOrder order) {
         com.wherelee.cabinet.domain.entity.BizPriceRule rule = priceRules.effective(order.getSiteId());
-        points.holdAccountDeposit(order.getCustomerId(), depositThreshold(order, rule),
-                order.getOrderNo() + ":deposit", "账户级押金");
+        // 预收（19A，2026-10-11 定稿）：先收该格口 4 小时的钱，真实扣款。
+        // 它是消耗而不是冻结：余额不够就直接下单失败（不能先开门再催钱），
+        // 也正因为已收进来，结算时才能“多退少补”而不是反复解冻。
+        long prepay = pricing.prepayPoints(order.getSizeType(), rule);
+        points.post(order.getCustomerId(), PointTxnType.PREPAY, prepay,
+                REF_ORDER, order.getId(), order.getOrderNo() + ":prepay", "预收四小时费用");
 
         // 冻结栏归零；结算只读参数快照里的单价/封顶，按服务端算的实际用时收费
         order.setDepositPoints(0L);
         order.setFrozenPoints(0L);
+        order.setPrepayPoints(prepay);
         order.setSettledPoints(0L);
         order.setArrearsPoints(0L);
         order.setPricingSnapshot(pricing.inputSnapshot(order.getSizeType(), rule));
@@ -96,11 +101,6 @@ public class OrderFundService {
     /** capDays 等快照参数的读取入口（不让 PricingPolicy 泄到订单服务里去，保持单一依赖面）。 */
     public int capDaysOf(String snapshot) {
         return pricing.capDaysOf(snapshot);
-    }
-
-    /** 这个单该押多少：按点位取生效策略里的门槛，没发布过就用配置默认值。 */
-    private long depositThreshold(BizStorageOrder order, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
-        return rule != null ? rule.getDepositPoints() : pricing.accountDepositPoints();
     }
 
     /** 取件结算（正常结束）。 */
@@ -121,50 +121,37 @@ public class OrderFundService {
     public Settlement settle(BizStorageOrder order, long actualMinutes, OrderCloseReason reason) {
         PricingPolicy.Quote quote = pricing.fromSnapshot(order.getPricingSnapshot(), actualMinutes);
         long need = quote.consumePoints();
-        long penalty = reason != null && reason.chargesPenalty() ? pricing.remoteFeePoints(order.getPricingSnapshot()) : 0L;
-        if (penalty > 0) {
-            order.setRemoteClosePoints(penalty);
-        }
-        long frozen = order.getFrozenPoints() == null ? 0L : order.getFrozenPoints();
-        long arrears = 0L;
-        long charged = 0L;
-
+        // 未关门加收随“远程结束”入口一起取消（2026-10-11 定稿：结束本来就是在手机上点的）。
+        // 保留这一个 0 是因为 Settlement 的形状里还有这一项，历史单的账单也要能解释得清。
+        long penalty = 0L;
         unfreezeAndRefundDeposit(order, "取件解冻");
 
-        // ② 按实际消耗扣。“余额不够”是业务分支而不是异常，所以走不抛的 tryPost：
-        //   靠 catch 嵌套事务抛出的异常会把整个物理事务标成 rollback-only，提交时必爆
-        if (need > 0) {
-            var attempt = points.tryPost(order.getCustomerId(), PointTxnType.CONSUME, need,
-                    REF_ORDER, order.getId(), order.getOrderNo() + ":consume", "实际寄存费用");
-            if (attempt.status() == PointAccountService.PostStatus.POSTED) {
-                charged = need;
-            } else {
-                charged = chargeWhatWeCan(order, need);
-                arrears = need - charged;
-                // 欠费只记账、不锁件：东西在用户手里才是本域最重要的事
-                log.warn("取件时点数不足，记欠费待追缴 orderNo={} need={} charged={} arrears={}",
-                        order.getOrderNo(), need, charged, arrears);
+        // 多退少补（19A）。预收是“已收进来的钱”，不是“答应要还的冻结”，所以这里只算差额：
+        // 多了退一笔（PREPAY_REFUND），少了补扣一笔，补不到就记未支付。
+        // 绝不能把 need 直接当成“从可用栏扣”：那样预收就成了白收两遍。
+        long prepay = order.getPrepayPoints() == null ? 0L : order.getPrepayPoints();
+        long arrears;
+        long charged;
+        if (prepay >= need) {
+            charged = need;
+            long refund = prepay - need;
+            if (refund > 0) {
+                points.post(order.getCustomerId(), PointTxnType.PREPAY_REFUND, refund,
+                        REF_ORDER, order.getId(), order.getOrderNo() + ":prepay-refund", "预收多退");
             }
-        }
-
-        long depositPoints = order.getDepositPoints() == null ? 0L : order.getDepositPoints();
-        if (depositPoints <= 0) {
-            log.warn("押金为 0 的单被标记退还，需核对 orderNo={}", order.getOrderNo());
-        }
-
-        // 加收与计时费同路走“扣不到就记欠费”，但绝不为这笔钱锁件（防呆红线不变）
-        if (penalty > 0) {
-            var feeAttempt = points.tryPost(order.getCustomerId(), PointTxnType.CONSUME, penalty,
-                    REF_ORDER, order.getId(), order.getOrderNo() + ":remote-fee",
-                    "未关门离开加收费用（按该格口小时单价折算）");
-            if (feeAttempt.status() == PointAccountService.PostStatus.POSTED) {
-                charged += penalty;
-            } else {
-                long feeCharged = chargeWhatWeCan(order, penalty, ":remote-fee-partial");
-                charged += feeCharged;
-                arrears += penalty - feeCharged;
-                log.warn("加收扣不足，记欠费待追缴 orderNo={} penalty={} charged={}",
-                        order.getOrderNo(), penalty, feeCharged);
+            arrears = 0L;
+        } else {
+            long additional = need - prepay;
+            var attempt = points.tryPost(order.getCustomerId(), PointTxnType.CONSUME, additional,
+                    REF_ORDER, order.getId(), order.getOrderNo() + ":consume", "预收不足，补扣差额");
+            long extra = attempt.status() == PointAccountService.PostStatus.POSTED
+                    ? additional : chargeWhatWeCan(order, additional);
+            charged = prepay + extra;
+            arrears = additional - extra;
+            if (arrears > 0) {
+                // 欠费只记账、不锁件：东西在用户手里才是本域最重要的事
+                log.warn("补扣不足，记未支付待追缴 orderNo={} need={} prepay={} extra={} arrears={}",
+                        order.getOrderNo(), need, prepay, extra, arrears);
             }
         }
 
@@ -215,58 +202,6 @@ public class OrderFundService {
         // 读余额与扣减之间被别人花掉了：少收而不是多收，方向安全，交给对账
         log.warn("补扣再次失败，本单全额计欠费 orderNo={}", order.getOrderNo());
         return 0L;
-    }
-
-    /**
-     * 用户自助退押金（2026-10-10 定：客户自己操作）。
-     *
-     * <p>规则是“先用押金抵欠款，剩下的退回；押金不够抵就仍为欠款状态”。
-     * 执行顺序不能反：先把押金整个退回可用，再**以押金金额为上限**逐单抵扣欠款——
-     * 如果反过来先抵后退，“抵不动”就会把押金卡住（普通清偿的“不足额一分不扣”规则在这里不适用，
-     * 因为退押金是用户主动结算，有多少抵多少才是他要的）。
-     *
-     * @return 真正退回用户可用的点数（= 押金 - 抵扣的欠款）
-     */
-    @Transactional
-    public long refundDeposit(Long customerId, String requestId) {
-        long held = points.depositOf(customerId);
-        if (held <= 0) {
-            throw new BizException(ResultCode.BIZ_ERROR, "当前没有已押的押金，无需退回");
-        }
-        points.releaseAccountDeposit(customerId, "DEPOSIT-REFUND-" + requestId, "用户自助退押金");
-        long offset = repayArrearsUpTo(customerId, held, requestId);
-        long back = held - offset;
-        log.info("退押金完成 customer={} 押金={} 抵欠={} 退回={}", customerId, held, offset, back);
-        return back;
-    }
-
-    /**
-     * 最多用 cap 这么多点数去抵欠款（与充值自动清偿的区别就在“允许部分抵扣”）。
-     * 只抵到 cap 为止，超出的欠款依旧挂着——这就是“押金不够仍是欠款状态”。
-     */
-    private long repayArrearsUpTo(Long customerId, long cap, String requestId) {
-        // biz_no 列宽有限（VARCHAR(64)），而单号本身就 17 位：拼上完整 requestId 会直接超宽插不进去。
-        // 取尾 8 位做区分就足够（端点层 @Idempotent 已按 requestId 挡住重复提交）
-        String tag = requestId.length() <= 8 ? requestId : requestId.substring(requestId.length() - 8);
-        long used = 0L;
-        for (BizStorageOrder owed : orderMapper.listOwed(customerId)) {
-            if (used >= cap) {
-                break;
-            }
-            long need = owed.getArrearsPoints() == null ? 0L : owed.getArrearsPoints();
-            long take = Math.min(need, cap - used);
-            if (take <= 0) {
-                continue;
-            }
-            points.post(customerId, PointTxnType.CONSUME, take, REF_ORDER, owed.getId(),
-                    owed.getOrderNo() + ":doff:" + tag, "退押金时以押金抵欠");
-            if (orderMapper.reduceArrears(owed.getId(), take) == 0) {
-                throw new BizException(ResultCode.SYSTEM_ERROR,
-                        "抵扣欠款与订单状态不一致，已回滚 orderNo=" + owed.getOrderNo());
-            }
-            used += take;
-        }
-        return used;
     }
 
     /**
@@ -328,6 +263,15 @@ public class OrderFundService {
     @Transactional
     public void cancelHold(BizStorageOrder order) {
         unfreezeAndRefundDeposit(order, "取消解冻");
+        // 预收取代了冻结（19A）：开门没成功就整笔退回——他没占用过这一格，一分不收。
+        // 这笔走 PREPAY_REFUND（可用栅 +），不能走 UNFREEZE_IN：后者在对账里属于“解冻回列”，
+        // 把一笔真实收入当成负债核销，栅位求和就会错位。
+        long prepay = order.getPrepayPoints() == null ? 0L : order.getPrepayPoints();
+        if (prepay > 0) {
+            points.post(order.getCustomerId(), PointTxnType.PREPAY_REFUND, prepay,
+                    REF_ORDER, order.getId(), order.getOrderNo() + ":prepay-refund", "下单未成，预收全额退回");
+            order.setPrepayPoints(0L);
+        }
         order.setFrozenPoints(0L);
         order.setSettledPoints(0L);
     }

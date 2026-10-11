@@ -56,8 +56,8 @@ public class PricingPolicy {
      * <p>它不再是“每单押金”，所以**不进计费公式**，也不进新单的快照；
      * 旧单快照里的 depositPoints 仍由 {@code fromSnapshot} 原样读出来退，不追溯。
      */
-    @Value("${cabinet.pricing.account-deposit-points:5000}")
-    private long accountDepositPoints;
+    @Value("${cabinet.pricing.prepay-hours:4}")
+    private int prepayHours;
 
     @Value("${cabinet.pricing.free-minutes:10}")
     private int freeMinutes;
@@ -125,9 +125,15 @@ public class PricingPolicy {
                 rule.getCapDays(), rule.getDepositPoints(), rule.getRemoteCloseHours(), extra);
     }
 
-    /** 没发布策略时的账户押金门槛默认值（预览与下单前的门槛判定共用这一处，避免两份口径）。 */
-    public long accountDepositPoints() {
-        return accountDepositPoints;
+    /** 没发布策略时的预收时长（预览与下单共用这一处）。 */
+    public int prepayHours() {
+        return prepayHours;
+    }
+
+    /** 这笔单该预收多少：该尺寸单价 × 预收时长（有策略走策略价，没有走配置价）。 */
+    public long prepayPoints(SizeType size, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
+        long unit = rule == null ? unitOf(size) : rule.unitOf(size);
+        return unit * prepayHours;
     }
 
     /**
@@ -147,16 +153,15 @@ public class PricingPolicy {
             snapshot.put("dailyCapHours", dailyCapHours);
             snapshot.put("capDays", capDays);
             snapshot.put("depositPoints", 0L);
-            snapshot.put("remoteCloseHours", remoteCloseHours);
-            snapshot.put("accountDepositPoints", accountDepositPoints);
+            snapshot.put("prepayHours", prepayHours);
+            snapshot.put("prepayPoints", prepayPoints(size, null));
         } else {
             snapshot.put("unitPointsPerHour", rule.unitOf(size));
             snapshot.put("freeMinutes", rule.getFreeMinutes());
             snapshot.put("dailyCapHours", rule.getDailyCapHours());
             snapshot.put("capDays", rule.getCapDays());
-            snapshot.put("depositPoints", 0L);
-            snapshot.put("remoteCloseHours", rule.getRemoteCloseHours());
-            snapshot.put("accountDepositPoints", rule.getDepositPoints());
+            snapshot.put("prepayHours", prepayHours);
+            snapshot.put("prepayPoints", prepayPoints(size, rule));
             snapshot.put("priceRuleId", rule.getId());
             snapshot.put("priceRuleVersion", rule.getVersion());
         }

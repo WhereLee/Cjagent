@@ -25,8 +25,8 @@ class PricingPolicyTest {
 
     private static PricingPolicy policy(long smallUnit, int freeMinutes, int dailyCapHours, int capDays) {
         PricingPolicy p = new PricingPolicy();
-        // 账户级押金门槛（定-1）：它不进计费公式，这里只是把字段填上一个值让对象完整
-        ReflectionTestUtils.setField(p, "accountDepositPoints", 5000L);
+        // 预收时长（19A）：它不进“阶梯+封顶”那段算法，这里只是把对象填完整
+        ReflectionTestUtils.setField(p, "prepayHours", 4);
         ReflectionTestUtils.setField(p, "freeMinutes", freeMinutes);
         ReflectionTestUtils.setField(p, "largeUnit", 40L);
         ReflectionTestUtils.setField(p, "mediumUnit", 25L);

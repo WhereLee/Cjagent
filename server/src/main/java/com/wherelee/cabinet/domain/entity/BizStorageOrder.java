@@ -111,6 +111,14 @@ public class BizStorageOrder extends BaseEntity {
 
     private Long depositPoints;
     private Long frozenPoints;
+
+    /**
+     * 下单预收点数（19A，2026-10-11 定稿）：等于该格口 4 小时费用，是一笔**已收人收入**而不是负债。
+     *
+     * <p>结算时拿它和应缴比：多了退差额（PREPAY_REFUND），少了补扣（补不到就记未支付）。
+     * 不能记到 {@code frozen_points} 上：冻结栏的语义是“答应要还的”，用对账把它当支出核销就错了。
+     */
+    private Long prepayPoints;
     private Long settledPoints;
     private Long arrearsPoints;
 
