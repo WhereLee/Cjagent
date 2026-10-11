@@ -1,6 +1,9 @@
 package com.wherelee.cabinet.application.storage;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.device.DeviceChannel;
+import com.wherelee.cabinet.common.api.ResultCode;
+import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizFaultEvent;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
@@ -41,7 +44,6 @@ public class CompartmentStateService {
     private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
     /** 工单流转（19B）：门关上时把“门未关”工单自动转化留底。 */
     private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
-
     // 19D 阶梯的三个数（用户在 2026-10-11 给出）：3 分钟首响、5 分钟连发三条、10 分钟必须处理
     @Value("${cabinet.door-watch.first-remind-minutes:3}")
     private long firstRemindMinutes;
@@ -121,7 +123,62 @@ public class CompartmentStateService {
     }
 
     /**
-     * 容错期满而门还开着：这时才真的是异常（计费从开柜就在跑，必须有人看见）。
+     * 另一位用户反馈“我顺手把这个门关上了”（19D 第 4 条的闭环入口）。
+     *
+     * <p>边界按事实收，不收就不安全：
+     * 只受理**当前异常就是“门未关”**的格口（遗留物、待确认、硬件故障都不给外人“关一下就好”，
+     * 那会把强锁降级）；关上后仍要过一道检测：柜内报有物就保持异常并转滞留待处理，
+     * 不能因为“有人关了门”就把可能有东西的格子放回可售池。
+     *
+     * <p>不假装做了 AI 图像比对：那需要 19C 的照片记录与标签，现在能对比的只有
+     * “上一次的检测结论”与“这一次的检测结论”。
+     */
+    public String confirmClosedByAnother(Long slotId, Long helperCustomerId) {
+        BizCompartment slot = slotMapper.selectById(slotId);
+        if (slot == null) {
+            throw new BizException(ResultCode.BIZ_ERROR, "格口不存在");
+        }
+        if (slot.getAnomaly() != CompartmentAnomaly.DOOR_OPEN) {
+            throw new BizException(ResultCode.BIZ_ERROR, "这个格口现在不是因为门未关而被占用，无需你处理");
+        }
+        Sensing sensing = sense(slot.getCabinetId(), slotId);
+        if (!sensing.doorClosed()) {
+            return "门看起来还没关上，请再推一下确认锁好";
+        }
+        afterDoorClosed(slot, helperCustomerId);
+        // 代关的人要进台账：将来争辩“谁关的、为什么关”时这是唯一依据
+        logFault(slot, FaultType.Action.RECOVER,
+                "由另一位用户（id=" + helperCustomerId + "）代关门，转正常前先做柜内检测");
+        if (sensing.presence() == Presence.PRESENT) {
+            markContentLeft(slotId, "新用户代关门后检测到柜内仍有物品（由 id=" + helperCustomerId + " 关闭）");
+            return "门已关上，但柜内检测到有物品，已转人工处理，谢谢你";
+        }
+        tryAutoRecover(slotId, sensing);
+        workOrders.noteStep(slotId, com.wherelee.cabinet.domain.enums.WorkOrderType.DOOR_NOT_CLOSED,
+                "HELPER_CLOSED", "由另一位用户（id=" + helperCustomerId + "）代关，检测无物：异常已解除");
+        return "格口已恢复正常，谢谢你顺手关上";
+    }
+
+    /**
+     * 这台暂存柜上“只差有人把门关上”的格口（19D）。
+     *
+     * <p>只包 DOOR_OPEN 一类：待确认、遗留物、硬件故障都不该出现在“顺手关上”的列表里
+     * （那不是关门能解决的事，把它们列进去等于让用户替平台做安全判定）。
+     */
+    public java.util.List<ClosableSlot> closableSlots(Long cabinetId) {
+        return slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
+                        .eq(BizCompartment::getCabinetId, cabinetId)
+                        .eq(BizCompartment::getAnomaly, CompartmentAnomaly.DOOR_OPEN)
+                        .last("limit 20")).stream()
+                .map(s -> new ClosableSlot(s.getId(), s.getSlotNo(), s.getSizeType() == null ? null : s.getSizeType().name()))
+                .toList();
+    }
+
+    /** 给客户端的“可代关”清单：带 id 是因为确认时要用它寻址，而不让客户端再去拼编号。 */
+    public record ClosableSlot(Long slotId, String slotNo, String sizeType) {
+    }
+
+    /** 容错期满而门还开着：这时才真的是异常（计费从开柜就在跑，必须有人看见）。
      *
      * <p>19D 把提醒阶梯也落在这里（而不是各调度分支里）：这里已经是“标异常”的唯一出口，
      * 开单也在同一个调用链上。阶梯用**已催次数**而不是“当前几分”判定，因为巡检可能被

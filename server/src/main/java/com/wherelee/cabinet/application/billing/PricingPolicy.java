@@ -182,7 +182,7 @@ public class PricingPolicy {
     }
 
     private Quote quoteWith(long unit, long minutes) {
-        // 新单每单押金 = 0：押金已经是账户上的一栅，不再是这张单的价的一部分
+        // 新单每单押金 = 0：押金已经是账户上的一栏，不再是这张单的价的一部分
         return buildQuote(unit, minutes, freeMinutes, dailyCapHours, capDays, 0L, remoteCloseHours);
     }
 

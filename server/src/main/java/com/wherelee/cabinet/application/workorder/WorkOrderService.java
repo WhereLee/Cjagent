@@ -301,6 +301,73 @@ public class WorkOrderService {
         return open == null ? null : open.getStorageId();
     }
 
+    /**
+     * 系统派生的线下工单（用户定：超 72 小时线下运维可介入）。
+     *
+     * <p>它<b>不碰线上父单</b>：父单转 RESOLVED 意味着“有人做了判断”，而这里是时间到了自动派的，
+     * 机器没有资格替人下那个结论。父单继续开着，“谁看过、什么时候派的”记在子单自的事件上。
+     *
+     * <p>幂等：同一格口同类型在线下队列里只能有一张未关闭的单（唯一索引），
+     * 巡检每小时都会跑到这里，不靠索引就会堆一串一样的派单。
+     */
+    @Transactional
+    public Long openFieldTwin(Long parentWorkOrderId, String reason) {
+        BizWorkOrder parent = require(parentWorkOrderId);
+        BizWorkOrder existing = findOpenInQueue(parent.getType(), parent.getSlotId(), SIDE_FIELD);
+        if (existing != null) {
+            return existing.getId();
+        }
+        BizWorkOrder child = new BizWorkOrder();
+        child.setTenantId(parent.getTenantId());
+        child.setType(parent.getType());
+        child.setUrgent(true);
+        child.setStatus(WorkOrderStatus.PENDING);
+        child.setQueueSide(SIDE_FIELD);
+        child.setActiveFlag(1);
+        child.setParentId(parent.getId());
+        child.setSiteId(parent.getSiteId());
+        child.setCabinetId(parent.getCabinetId());
+        child.setSlotId(parent.getSlotId());
+        child.setSlotNo(parent.getSlotNo());
+        child.setOrderNo(parent.getOrderNo());
+        child.setStorageId(parent.getStorageId());
+        child.setCustomerId(parent.getCustomerId());
+        child.setTitle("线下到场：" + parent.getTitle());
+        child.setSnapshotJson(parent.getSnapshotJson());
+        child.setDueAt(java.time.LocalDateTime.now().plusHours(24));
+        try {
+            orders.insert(child);
+        } catch (DuplicateKeyException raced) {
+            BizWorkOrder won = findOpenInQueue(parent.getType(), parent.getSlotId(), SIDE_FIELD);
+            return won == null ? child.getId() : won.getId();
+        }
+        note(child, "DISPATCHED", null, reason + "（系统按时间阈值自动派发）");
+        log.warn("自动派发线下工单 parent={} child={} {}", parent.getId(), child.getId(), reason);
+        return child.getId();
+    }
+
+    /**
+     * 在“当前那张未关闭的单”上记一步事实（19D）。
+     *
+     * <p>与 {@link #remind} 分开：“提醒”是系统催办事，而这一步是“外部发生了什么”
+     * （比如另一位用户顺手把门关了）。混成一类事后就分不出“我们做了什么”与“现场发生了什么”。
+     */
+    @Transactional
+    public void noteStep(Long slotId, WorkOrderType type, String eventType, String detail) {
+        BizWorkOrder open = findOpen(type, slotId);
+        if (open != null) {
+            note(open, eventType, null, detail);
+        }
+    }
+
+    private BizWorkOrder findOpenInQueue(WorkOrderType type, Long slotId, String queueSide) {
+        return orders.selectOne(Wrappers.<BizWorkOrder>lambdaQuery()
+                .eq(BizWorkOrder::getType, type)
+                .eq(BizWorkOrder::getSlotId, slotId)
+                .eq(BizWorkOrder::getQueueSide, queueSide)
+                .eq(BizWorkOrder::getActiveFlag, 1));
+    }
+
     private BizWorkOrder findOpen(WorkOrderType type, Long slotId) {
         return orders.selectOne(Wrappers.<BizWorkOrder>lambdaQuery()
                 .eq(BizWorkOrder::getType, type)

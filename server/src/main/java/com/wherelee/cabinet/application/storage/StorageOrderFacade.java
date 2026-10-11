@@ -72,11 +72,11 @@ public class StorageOrderFacade {
             return openDoor(customerId, created.orderNo(), CommandAction.OPEN);
         } catch (RuntimeException e) {
             // 门没开成：这单不应留下任何东西。释放走业务取消路径（含柜内检查与预扣集合同步），
-            // 不重写一遗。释放失败只记日志不能掩盖原始失败：格口会由待收敛回收器兼价。
+            // 不重写一遍。释放失败只记日志不能掩盖原始失败：格口会由待收敛回收器兜底。
             try {
                 cancel(customerId, created.orderNo());
             } catch (RuntimeException release) {
-                log.warn("存件失败后的退回也没成功，格口由 10 分钟待收敛回收兼价 orderNo={}: {}",
+                log.warn("存件失败后的退回也没成功，格口由 10 分钟待收敛回收兜底 orderNo={}: {}",
                         created.orderNo(), release.toString());
             }
             throw e;

@@ -118,6 +118,24 @@ public class WorkOrderIntake {
                 LocalDateTime.now().plusMinutes(urgent ? 10 : 120)));
     }
 
+    /**
+     * 按格口开一张“超封顶未结束”的单（19D 第 3 条）。
+     *
+     * <p>调度处理器手里只有单与格口，让它自己拼地址/编号/电话就得每个分支各抄一份；
+     * 这里统一补齐，也让开单幂等只依赖一个入口。
+     */
+    public void longRunningFor(Long slotId, String reason) {
+        BizCompartment slot = slotId == null ? null : slotMapper.selectById(slotId);
+        BizStorageOrder order = slot == null || slot.getCurrentOrderId() == null
+                ? null : orderMapper.selectById(slot.getCurrentOrderId());
+        if (order == null) {
+            log.warn("超封顶开单跳过：格口上没有活动单 slotId={}", slotId);
+            return;
+        }
+        onOrderEvent(order, WorkOrderType.LONG_RUNNING, false, "计费已到 48 小时封顶", reason,
+                java.time.LocalDateTime.now().plusHours(2));
+    }
+
     /** 直接开一张（超封顶未结束这类没有“异常标记”事件的场景）。 */
     public void onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
                              String detection, String title, LocalDateTime dueAt) {

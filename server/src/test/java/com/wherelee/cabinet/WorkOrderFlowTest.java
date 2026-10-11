@@ -61,6 +61,8 @@ class WorkOrderFlowTest {
     @Autowired
     private com.wherelee.cabinet.application.notify.NoticeService notices;
     @Autowired
+    private com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
+    @Autowired
     private BizStorageOrderMapper orderMapper;
 
     private JdbcTemplate jdbc;
@@ -339,5 +341,53 @@ class WorkOrderFlowTest {
         // 回填后不再出现在待打电话清单里
         assertTrue(TenantContext.callAs(TENANT, () -> notices.pendingCalls().stream().noneMatch(v -> v.id().equals(callId))),
                 "已回填的任务必须从清单消失，否则队列永远处理不完");
+    }
+
+    @Test
+    @DisplayName("系统自动派线下：子单进线下队列，线上父单不得被标成“人已处理”")
+    void autoFieldDispatchKeepsParentOpen() {
+        markDoorOpen();
+        Long doorWo = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
+        // 把一张“超 48 小时”类型的单建出来（直接用阶梯同样的入口链），再用它的 id 测自动派单
+        TenantContext.runAs(TENANT, () -> intake.longRunningFor(slotId, "超 48 小时未结束"));
+        Long parent = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and type = 'LONG_RUNNING' and queue_side = 'ONLINE'",
+                Long.class, TENANT);
+        assertNotNull(parent, "到顶时应自动开一张线上 LONG_RUNNING 单");
+
+        Long child = TenantContext.callAs(TENANT, () -> workOrders.openFieldTwin(parent, "超 72 小时未取件"));
+        assertNotNull(child);
+        assertEquals("FIELD", rows("select queue_side from biz_work_order where id = ?", child).get(0).get("queue_side"));
+        assertEquals(parent, ((Number) rows("select parent_id from biz_work_order where id = ?", child)
+                .get(0).get("parent_id")).longValue());
+        assertEquals(WorkOrderStatus.PENDING.name(),
+                rows("select status from biz_work_order where id = ?", parent).get(0).get("status"),
+                "父单不能被机器标成已处理：那等于把“有人做过判断”伪造出来");
+        // 幂等：每小时都会重进这里，不得堆出第二张线下单
+        Long again = TenantContext.callAs(TENANT, () -> workOrders.openFieldTwin(parent, "重试"));
+        assertEquals(child, again, "同一父单只能有一张未关闭的线下子单");
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from biz_work_order where parent_id = ?", Integer.class, parent).intValue(),
+                "子单不得因重进而翻倍");
+        assertNotNull(doorWo);
+    }
+
+    @Test
+    @DisplayName("代关：只受理“门未关”的格口，其余异常不给外人“关一下就好”")
+    void helperCloseRefusesStrongerLocks() {
+        // 遗留物是强锁：外人关一下不得把它降级成正常格口
+        TenantContext.runAs(TENANT, () -> states.markContentLeft(slotId, "结束后检出物品"));
+        BizException refused = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> states.confirmClosedByAnother(slotId, 81619999L)));
+        assertTrue(refused.getMessage().contains("门未关"), refused.getMessage());
+        assertEquals(CompartmentAnomaly.CONTENT_LEFT.name(), jdbc.queryForObject(
+                "select anomaly from biz_compartment where id = ?", String.class, slotId),
+                "强锁必须还在：否则一推门就把有件的格子放回可售池");
+
+        // 门未关的格口才会出现在“只差关门”的清单里
+        TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 4));
+        assertEquals(1, TenantContext.callAs(TENANT, () -> states.closableSlots(cabinetId)).size(),
+                "可代关清单只能包含「门未关」这一类");
     }
 }

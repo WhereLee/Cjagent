@@ -232,17 +232,20 @@ public final class TaskHandlers {
         private final PricingPolicy pricing;
         private final MeterRegistry meterRegistry;
         private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
+        private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
 
         @Value("${cabinet.scheduler.stranded-days:7}")
         private long strandedDays;
 
         OverduePickupHandler(BizStorageOrderMapper orderMapper, PricingPolicy pricing,
                              MeterRegistry meterRegistry,
-                             com.wherelee.cabinet.application.workorder.WorkOrderIntake intake) {
+                             com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
+                             com.wherelee.cabinet.application.workorder.WorkOrderService workOrders) {
             this.orderMapper = orderMapper;
             this.pricing = pricing;
             this.meterRegistry = meterRegistry;
             this.intake = intake;
+            this.workOrders = workOrders;
         }
 
         @Override
@@ -282,9 +285,45 @@ public final class TaskHandlers {
                         "reason", capped ? "price-capped" : "watch-expired").increment();
                 log.error("订单滞留需人工处置 orderNo={} 逾期分钟={} 封顶已到={} 盯了 {} 天", order.getOrderNo(),
                         overdueMinutes, capped, strandedDays);
+                openLongRunning(order);
                 return false;
             }
             return true;
+        }
+
+        /**
+         * 19D 第 3 条：到顶就开工单，不再只是日志里一响。
+         *
+         * <p>用户给的两个数：<b>超 48 小时未结束→工单联系用户</b>，<b>超 72 小时→线下运维可介入</b>。
+         * 这里的“已顶”本身等价于计费跑了 48 小时（封顶天数×每天小时数），所以拿它做第一档；
+         * 第 72 小时靠“从计费起点算起的总时长”判，不能用逾期分钟（它取决于预估时长）。
+         *
+         * <p>开单与升级都是幂等的：看管任务每小时都会重进这里。
+         */
+        private void openLongRunning(BizStorageOrder order) {
+            try {
+                intake.onOrderEvent(order, com.wherelee.cabinet.domain.enums.WorkOrderType.LONG_RUNNING,
+                        false, "计费已到封顶（最多 20 小时单价），需联系用户取件",
+                        "超 48 小时未结束：需联系客户", java.time.LocalDateTime.now().plusHours(2));
+                Long woId = workOrders.openIdOf(order.getSlotId(),
+                        com.wherelee.cabinet.domain.enums.WorkOrderType.LONG_RUNNING);
+                if (woId == null) {
+                    return;
+                }
+                // 升级：进“必须处理”并产出电话任务与站内消息（去重靠 dedup_key）
+                workOrders.escalate(order.getSlotId(),
+                        com.wherelee.cabinet.domain.enums.WorkOrderType.LONG_RUNNING,
+                        "订单超 48 小时未结束：必须联系客户取件或结单");
+                long heldMinutes = order.getStartedAt() == null ? 0L
+                        : java.time.Duration.between(order.getStartedAt(), java.time.LocalDateTime.now()).toMinutes();
+                if (heldMinutes >= 72L * 60L) {
+                    // 72 小时：自动派线下，但不动线上父单的状态（机器不能替人下结论）
+                    workOrders.openFieldTwin(woId, "用户超 72 小时未取件，需到场处理");
+                }
+            } catch (RuntimeException e) {
+                // 开单失败不能拖挂看管收口：单已滞留的事实已经计下，工单下一轮会再试
+                log.error("滞留工单开单失败，下一轮重试 orderNo={}", order.getOrderNo(), e);
+            }
         }
     }
 

@@ -49,7 +49,7 @@ public interface BizPointAccountMapper extends BaseMapper<BizPointAccount> {
     int changeFrozen(@Param("id") Long id, @Param("delta") long delta);
 
     /**
-     * 变更账户级押金栅。同样靠条件更新：“把押金扣成负数”时影响 0 行
+     * 变更账户级押金栏。同样靠条件更新：“把押金扣成负数”时影响 0 行
      * （典型场景：两个退押金请求并到同一账户，只可能有一个成立）。
      */
     @Update("""

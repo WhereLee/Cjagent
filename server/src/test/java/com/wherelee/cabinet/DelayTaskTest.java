@@ -120,10 +120,10 @@ class DelayTaskTest {
     @BeforeEach
     void prepare() {
         jdbc = new JdbcTemplate(dataSource);
-        // 干净起点：runDue() 设计上不分租户抢任务（worker 就是全局的），而 batch-size 只冇 50。
+        // 干净起点：runDue() 设计上不分租户抢任务（worker 就是全局的），而 batch-size 只有 50。
         // 19D 后“门未关”的看管任务会活到下一个 tick（以前要么 0 秒刷屏要么立刻了结），
         // 别的用例类留下的到期任务能把整批吃完，本类的任务就会“根本没轮到跑”——
-        // 症状是断言拿到 PENDING，看上去像判据错，其实是隔级污染。（消费偏窄的调度问题已记入第 16 刀）
+        // 症状是断言拿到 PENDING，看上去像判据错，其实是串类污染。（消费偏窄的调度问题已记入第 16 刀）
         jdbc.update("delete from biz_delay_task");
         cabinetNo = "CAB-S-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         TenantContext.runAs(TENANT, () -> {

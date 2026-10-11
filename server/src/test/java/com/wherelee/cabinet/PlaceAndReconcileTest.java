@@ -211,7 +211,7 @@ class PlaceAndReconcileTest {
         assertEquals(SlotStatus.FREE, slot(slotId).getStatus(), "格口必须回到可售");
         assertEquals(null, slot(slotId).getAnomaly(), "这种情况不需要人工确认：门压根没开");
         assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getFrozenPoints(),
-                "预估冻结要全额退回（押金留在账户栅，不属于本单）");
+                "预估冻结要全额退回（押金留在账户栏，不属于本单）");
     }
 
     @Test

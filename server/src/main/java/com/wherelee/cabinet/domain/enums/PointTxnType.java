@@ -39,14 +39,14 @@ public enum PointTxnType {
     UNFREEZE_IN(Bucket.POINTS, Sign.PLUS),
     /**
      * 划押金：从可用移出（2026-10-10 账户级押金）。与 DEPOSIT_IN 成对，和冻结同构：
-     * 一笔只动一栅，否则“某栅 == 该栅流水求和”这条对账判据不成立。
+     * 一笔只动一栏，否则“某栏 == 该栏流水求和”这条对账判据不成立。
      */
     DEPOSIT_OUT(Bucket.POINTS, Sign.MINUS),
-    /** 划押金：进入押金栅 */
+    /** 划押金：进入押金栏 */
     DEPOSIT_IN(Bucket.DEPOSIT, Sign.PLUS),
-    /** 退押金：从押金栅移出（抵欠款那一笔走 CONSUME，不走这里） */
+    /** 退押金：从押金栏移出（抵欠款那一笔走 CONSUME，不走这里） */
     DEPOSIT_BACK_OUT(Bucket.DEPOSIT, Sign.MINUS),
-    /** 退押金：回到可用栅 */
+    /** 退押金：回到可用栏 */
     DEPOSIT_BACK_IN(Bucket.POINTS, Sign.PLUS),
     /**
      * 下单预收（19A，2026-10-11 定稿）：先收该格口 4 小时的钱。

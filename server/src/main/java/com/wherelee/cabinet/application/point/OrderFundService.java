@@ -272,8 +272,8 @@ public class OrderFundService {
     public void cancelHold(BizStorageOrder order) {
         unfreezeAndRefundDeposit(order, "取消解冻");
         // 预收取代了冻结（19A）：开门没成功就整笔退回——他没占用过这一格，一分不收。
-        // 这笔走 PREPAY_REFUND（可用栅 +），不能走 UNFREEZE_IN：后者在对账里属于“解冻回列”，
-        // 把一笔真实收入当成负债核销，栅位求和就会错位。
+        // 这笔走 PREPAY_REFUND（可用栏 +），不能走 UNFREEZE_IN：后者在对账里属于“解冻回列”，
+        // 把一笔真实收入当成负债核销，栏位求和就会错位。
         long prepay = order.getPrepayPoints() == null ? 0L : order.getPrepayPoints();
         if (prepay > 0) {
             points.post(order.getCustomerId(), PointTxnType.PREPAY_REFUND, prepay,
