@@ -98,6 +98,8 @@ class DoorAndContentFlowTest {
     private com.wherelee.cabinet.application.storage.CabinetAvailabilityService availabilityService;
     @Autowired
     private com.wherelee.cabinet.application.storage.CompartmentStateService compartmentStates;
+    @Autowired
+    private com.wherelee.cabinet.application.storage.StorageQueryService queries;
 
     private JdbcTemplate jdbc;
     private String cabinetNo;
@@ -481,5 +483,33 @@ class DoorAndContentFlowTest {
                 .filter(s -> "SMALL".equals(s.sizeType()))
                 .mapToLong(com.wherelee.cabinet.application.storage.CabinetAvailabilityService.SizeFree::free)
                 .findFirst().orElse(-1L));
+    }
+
+    @Test
+    @DisplayName("只读查询得把用户能用的信息给齐：单上有柜机与格口编号，钱包上有活动单数")
+    void queryViewsCarryWhatTheUserNeeds() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+
+        java.util.List<com.wherelee.cabinet.application.storage.StorageQueryService.OrderView> mine =
+                TenantContext.callAs(TENANT, () -> queries.myOrders(customerId, 20));
+        assertTrue(mine.stream().anyMatch(v -> v.orderNo().equals(order.getOrderNo())),
+                "刚下的单必须出现在我的列表里：" + mine);
+        var view = mine.stream().filter(v -> v.orderNo().equals(order.getOrderNo())).findFirst().orElseThrow();
+        assertEquals(cabinetNo, view.cabinetNo(), "不给柜机编号，用户到了现场对不上哪一台");
+        assertNotNull(view.slotNo(), "不给格口编号，用户就只能对着二十个门猜");
+        assertNotNull(view.sizeType(), "尺寸得说出来：否则用户不知道自己的件能不能装进去");
+
+        var wallet = TenantContext.callAs(TENANT, () -> queries.wallet(customerId));
+        assertEquals(1L, wallet.activeOrders(), "刚下的这张单要算成活动单（一人只能占一格靠它可见）");
+        // 不写死数字：本夹具给自己建了点位价目，单价不是默认值。
+        // 真正要钉的是口径：单上记了多少预收，余额就应当少多少——两处对不上就是记账分裂
+        long prepay = jdbc.queryForObject(
+                "select prepay_points from biz_storage_order where order_no = ?", Long.class,
+                order.getOrderNo());
+        assertEquals(5000L - prepay, wallet.points(),
+                "预收真扣了钱，而且扣的数与单上记的是同一个数（余额=充值-预收）");
+        assertTrue(prepay > 0L, "下单就必须产生预收，否则 19A 的预付模子形同虚设");
+        assertEquals(0L, wallet.arrearsPoints(), "还没结算，不应凭空多出欠费");
     }
 }
