@@ -49,14 +49,32 @@ public interface BizDelayTaskMapper extends BaseMapper<BizDelayTask> {
     @InterceptorIgnore(tenantLine = "true")
     @Select("""
             select id from biz_delay_task
-             where deleted = 0
+             where deleted = 0 and tenant_id = #{tenantId}
                and ((status in ('PENDING','FAILED') and fire_at <= now(3))
                  or (status = 'RUNNING' and lease_expire_at < now(3)))
              order by fire_at
              limit #{limit}
              for update skip locked
             """)
-    List<Long> findDueIdsForUpdateSkip(@Param("limit") int limit);
+    List<Long> findDueIdsForUpdateSkip(@Param("tenantId") Long tenantId, @Param("limit") int limit);
+
+    /**
+     * 本轮有到期任务的租户列表（供调度按租户公平分发）。
+     *
+     * <p>为什么需要它：`runDue()` 以前是全局按 fire_at 取一批，<b>一个租户的到期洪峰
+     * 能把别的租户整个饿死</b>（实测到：共享测试库里上一个类留下的到期任务被下一个类
+     * 吃光整批额度，另一个租户的提醒永远轮不到）。公平只能在取候选这一层做，
+     * 在后面补是补不回来的。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("""
+            select distinct tenant_id from biz_delay_task
+             where deleted = 0
+               and ((status in ('PENDING','FAILED') and fire_at <= now(3))
+                 or (status = 'RUNNING' and lease_expire_at < now(3)))
+             order by tenant_id
+            """)
+    List<Long> findDueTenants();
 
     /**
      * 抢占单个任务：写入持有者与租约，attempt +1。

@@ -9,6 +9,7 @@ import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
+import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
@@ -59,8 +60,9 @@ public class StorageQueryService {
         this.accounts = accounts;
     }
 
-    /** 点位：只给找得到地方需要的字段，不给内部 ID。 */
-    public record SiteView(String siteCode, String name, String category, String address, long cabinetCount) {
+    /** 点位：找地方需要的字段 + 各尺寸还剩多少正常格口（全异常就是 0）。 */
+    public record SiteView(String siteCode, String name, String category, String address, long cabinetCount,
+                           long freeSmall, long freeMedium, long freeLarge) {
     }
 
     /** 点位下的一台暂存柜。状态与在线情况原样读出来给人看，不在这里下判断。 */
@@ -83,14 +85,34 @@ public class StorageQueryService {
         if (all.isEmpty()) {
             return List.of();
         }
-        // 全部柜机取一次再分组：每台柜机一次 count 查询就是 N+1
-        Map<Long, Long> perSite = cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
-                        .select(BizCabinet::getSiteId))
-                .stream()
-                .collect(Collectors.groupingBy(BizCabinet::getSiteId, Collectors.counting()));
+        // 柜机取一次、可分配格口取一次，剩下的在内存里按点位聚合：
+        // 每台柜机每个尺寸各发一次查询就是 180×3 次，那是把用户端的列表页当压测现场跑
+        Map<Long, Long> cabinetSite = new java.util.HashMap<>();
+        Map<Long, Long> perSite = new java.util.HashMap<>();
+        for (BizCabinet cabinet : cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
+                .select(BizCabinet::getId, BizCabinet::getSiteId))) {
+            cabinetSite.put(cabinet.getId(), cabinet.getSiteId());
+            perSite.merge(cabinet.getSiteId(), 1L, Long::sum);
+        }
+        Map<Long, Map<SizeType, Long>> freeBySite = new java.util.HashMap<>();
+        for (BizCompartment slot : slotMapper.selectList(
+                SlotCandidateQuery.assignable(java.util.Arrays.asList(SizeType.values())))) {
+            Long siteId = cabinetSite.get(slot.getCabinetId());
+            if (siteId == null || slot.getSizeType() == null) {
+                continue;
+            }
+            freeBySite.computeIfAbsent(siteId, key -> new java.util.EnumMap<>(SizeType.class))
+                    .merge(slot.getSizeType(), 1L, Long::sum);
+        }
         return all.stream()
-                .map(site -> new SiteView(site.getSiteCode(), site.getName(), site.getCategory(), site.getAddress(),
-                        perSite.getOrDefault(site.getId(), 0L)))
+                .map(site -> {
+                    Map<SizeType, Long> free = freeBySite.getOrDefault(site.getId(), Map.of());
+                    return new SiteView(site.getSiteCode(), site.getName(), site.getCategory(), site.getAddress(),
+                            perSite.getOrDefault(site.getId(), 0L),
+                            free.getOrDefault(SizeType.SMALL, 0L),
+                            free.getOrDefault(SizeType.MEDIUM, 0L),
+                            free.getOrDefault(SizeType.LARGE, 0L));
+                })
                 .toList();
     }
 

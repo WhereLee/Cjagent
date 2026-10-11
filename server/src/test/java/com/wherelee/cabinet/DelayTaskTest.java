@@ -355,7 +355,7 @@ class DelayTaskTest {
         // “不重叠”与“不排队”会在一件根本没返行的事上成立（假绿）
         List<Long> alone = new java.util.ArrayList<>();
         TenantContext.runAs(TENANT, () -> txTemplate.executeWithoutResult(only -> {
-            alone.addAll(taskMapper.findDueIdsForUpdateSkip(4));
+            alone.addAll(taskMapper.findDueIdsForUpdateSkip(TENANT, 4));
             only.setRollbackOnly();   // 只取证：本用例不该推任何任务状态
         }));
         assertEquals(4, alone.size(), "无竞争时应拿满 limit（拿不满是索引或到期判据本身坏了）");
@@ -373,7 +373,7 @@ class DelayTaskTest {
                 txTemplate.executeWithoutResult(status -> {
                     // 每人只要 4 条（共 10 条到期）：limit 大于行数时 SKIP LOCKED 会合法地让
                     // 后一个拿到空集，那是对的行为，不能当成失败去断言
-                    List<Long> ids = taskMapper.findDueIdsForUpdateSkip(4);
+                    List<Long> ids = taskMapper.findDueIdsForUpdateSkip(TENANT, 4);
                     String who = slot.getAndIncrement() == 0 ? "first" : "second";
                     ("first".equals(who) ? first : second).addAll(ids);
                     // 锁取证必须在同一个事务里读：回滚后锁就没了（第 10 刀欠的“可重复取证”补在这里）

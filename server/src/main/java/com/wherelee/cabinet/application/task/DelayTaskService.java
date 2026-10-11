@@ -134,13 +134,40 @@ public class DelayTaskService {
     }
 
     /**
+     * 按租户公平地取一批到期任务（A-4）。
+     *
+     * <p>额度这样分：本轮有到期任务的租户均分批量上限，但<b>每个租户至少留 1 个名额</b>——
+     * 否则租户一多，整批额度会被除法抹成 0，谁也领不到任务（那比饿死更糟：全局停摆）。
+     * 各租户内部仍按 `fire_at` 先后取，不破坏原有时序语义。
+     *
+     * <p>它与上一行的事务边界是同一个：这里仍在 `txTemplate` 里，所以 `for update skip locked`
+     * 的“跳过已被别人锁定的行”依旧生效，多实例并发不会重复领同一行。
+     */
+    private List<Long> claimFairly(int limit) {
+        List<Long> tenants = taskMapper.findDueTenants();
+        if (tenants == null || tenants.isEmpty()) {
+            return List.of();
+        }
+        int perTenant = Math.max(1, limit / tenants.size());
+        List<Long> ids = new ArrayList<>(limit);
+        for (Long tenantId : tenants) {
+            if (ids.size() >= limit) {
+                break;
+            }
+            ids.addAll(taskMapper.findDueIdsForUpdateSkip(tenantId,
+                    Math.min(perTenant, limit - ids.size())));
+        }
+        return ids;
+    }
+
+    /**
      * 抢一批到期的任务并执行。
      *
      * @return 实际执行的任务数（0 表示没有到期任务或被别人抢光了）
      */
     public int runDue() {
         List<BizDelayTask> claimed = txTemplate.execute(status -> {
-            List<Long> due = taskMapper.findDueIdsForUpdateSkip(batchSize);
+            List<Long> due = claimFairly(batchSize);
             List<BizDelayTask> mine = new ArrayList<>(due.size());
             LocalDateTime leaseUntil = LocalDateTime.now().plusSeconds(leaseSeconds);
             for (Long id : due) {

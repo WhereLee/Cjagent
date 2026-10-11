@@ -46,9 +46,20 @@ public final class SlotCandidateQuery {
         return assignableBase(cabinetId).eq(BizCompartment::getSizeType, size);
     }
 
+    /**
+     * 不预设柜机的可分配格口（点位聚合统计用）。
+     *
+     * <p>它存存在的理由就一个：<b>统计必须与分配用同一条判据</b>。否则屏上报的
+     * “还剩几个”与下单能不能分到格就是两套真相，而这类分歧从来不会朝安全的那边错。
+     */
+    public static LambdaQueryWrapper<BizCompartment> assignable(Collection<SizeType> acceptable) {
+        return assignableBase(null).in(BizCompartment::getSizeType, acceptable);
+    }
+
     private static LambdaQueryWrapper<BizCompartment> assignableBase(Long cabinetId) {
         return Wrappers.<BizCompartment>lambdaQuery()
-                .eq(BizCompartment::getCabinetId, cabinetId)
+                // cabinetId 为 null 就是不限柜机（MP 的条件式 eq：不成立就不拼这段 SQL）
+                .eq(cabinetId != null, BizCompartment::getCabinetId, cabinetId)
                 .eq(BizCompartment::getStatus, SlotStatus.FREE)
                 .isNull(BizCompartment::getDoorOpenAt)
                 .isNull(BizCompartment::getAnomaly);

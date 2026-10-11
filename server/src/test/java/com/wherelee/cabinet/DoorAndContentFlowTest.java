@@ -540,4 +540,31 @@ class DoorAndContentFlowTest {
         assertNull(slot(closed.getSlotId()).getAnomaly(),
                 "当场结束后不得在格口上留下脏状态（门磁本来就未动作，探到的是真实结论）");
     }
+
+    @Test
+    @DisplayName("点位汇总与柜机明细的剩余数必须同源同值（A-6）")
+    void siteTotalsMatchCabinetDetail() {
+        String siteCode = jdbc.queryForObject(
+                "select s.site_code from biz_site s join biz_cabinet c on c.site_id = s.id where c.cabinet_no = ?",
+                String.class, cabinetNo);
+        long detail = freeSmall();
+        assertEquals(detail, siteFreeSmall(siteCode),
+                "点位列表里的数与柜机明细里的数必须同一条判据算出来，不能各写一套 SQL");
+
+        // 标一个格口异常：两边都得跟着减一（只改一处 SQL 的人会被这里拦下）
+        Long slotId = jdbc.queryForList(
+                "select id from biz_compartment where cabinet_id = ? and size_type = 'SMALL' and status = 'FREE'"
+                        + " and anomaly is null and door_open_at is null limit 1", Long.class, cabinetId).get(0);
+        TenantContext.runAs(TENANT, () -> compartmentStates.markContentLeft(slotId, "用例：验证同源"));
+
+        assertEquals(detail - 1, freeSmall(), "柜机明细：标异常就不能再算一个可用格");
+        assertEquals(detail - 1, siteFreeSmall(siteCode), "点位汇总：同一个格口同一时刻必须是同一个答案");
+    }
+
+    private long siteFreeSmall(String siteCode) {
+        return TenantContext.callAs(TENANT, () -> queries.sites()).stream()
+                .filter(v -> v.siteCode().equals(siteCode))
+                .mapToLong(com.wherelee.cabinet.application.storage.StorageQueryService.SiteView::freeSmall)
+                .findFirst().orElse(-1L);
+    }
 }
