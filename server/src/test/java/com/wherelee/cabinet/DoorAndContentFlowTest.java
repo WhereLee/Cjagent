@@ -45,6 +45,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -67,6 +68,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "cabinet.scheduler.hold-grace-minutes=0",
         // 容错期设 0：用例自己决定"到期前 / 到期后"，不靠等待
         "cabinet.door-watch.first-remind-minutes=0",
+        // 定-23 的预备开重试间隔归零：本类验的是“重试几次、何时换格、何时退单”这个顺序，不是等 sleep
+        "cabinet.device.open-retry-interval-ms=0",
 })
 @DisplayName("门态与柜内物品：计费锚点、结束三条件、放弃与远程结束")
 class DoorAndContentFlowTest {
@@ -378,5 +381,67 @@ class DoorAndContentFlowTest {
                 () -> TenantContext.runAs(TENANT, () -> orderService.cancel(customerId, order.getOrderNo())));
         assertTrue(rejected.getMessage().contains("物品"),
                 "取消不能比结束更松：钱退了、件留在柜里、格子又卖给别人是这里最坏的现场");
+    }
+
+    @Test
+    @DisplayName("柜机回报预备开失败：重试完→换格→仍不成才退单退预收（定-21/定-23）")
+    void prepareFailureRetriesSwapsThenRefunds() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        Long firstSlot = order.getSlotId();
+        // 预备开失败是“确认坏了”：门肯定没动过，所以这一步可以安全换格与退钱
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.PREPARE_FAIL);
+
+        BizException failed = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> orderService.openDoor(customerId, order.getOrderNo(), CommandAction.OPEN)));
+        assertTrue(failed.getMessage().contains("退单"),
+                "文案要给下一步而不是报错：“" + failed.getMessage() + "”");
+
+        BizStorageOrder after = order(order.getOrderNo());
+        assertEquals(OrderStatus.CANCELLED, after.getStatus(), "预备开就确认坏了，门肯定没动：不能留下一个占着格口的单");
+        assertNotEquals(firstSlot, after.getSlotId(), "中途确实试过换格（定-21）");
+        assertEquals(5000L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getPoints(),
+                "一分都没收到：预收必须整笔退回");
+        assertTrue(jdbc.queryForObject(
+                "select count(*) from biz_compartment where cabinet_id = ? and status = 'FAULT'",
+                Integer.class, cabinetId) >= 1,
+                "打不开的格口要摘出可分配池，否则下一个人还会撞上");
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from biz_work_order where tenant_id = ? and cabinet_id = ? and type = 'DEVICE_FAULT'"
+                        + " and active_flag = 1",
+                Integer.class, TENANT, cabinetId), "故障必须成为一张工单，不能只活在日志里");
+    }
+
+    @Test
+    @DisplayName("整柜不回话不得退单：无回执维持现状（定-4），钱与单都不动")
+    void noReceiptKeepsMoneyUntouched() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.NO_RECEIPT);
+
+        // 无回执不抛异常也不退单（维持定-23 之前的行为：交给回扫与待收敛回收）
+        TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(), CommandAction.OPEN));
+        assertNotEquals(OrderStatus.CANCELLED, order(order.getOrderNo()).getStatus(),
+                "不回话不是“确认坏了”：自动退单会把格子卖下一个人，而柜里可能已经有件");
+        assertEquals(0L, jdbc.queryForObject(
+                "select count(*) from biz_work_order where tenant_id = ? and cabinet_id = ? and type = 'DEVICE_FAULT'",
+                Long.class, TENANT, cabinetId).longValue(),
+                "无回执时不得提前判故障开单（查本柜机，不拿共享库的全局计数当凭据）");
+    }
+
+    @Test
+    @DisplayName("预备开不碰物理：没有任何格口被写成“门开过”，也没计费起点")
+    void prepareFailureTouchesNoPhysics() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.PREPARE_FAIL);
+
+        assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> orderService.openDoor(customerId, order.getOrderNo(), CommandAction.OPEN)));
+
+        assertEquals(0, jdbc.queryForObject(
+                "select count(*) from biz_compartment where cabinet_id = ? and door_open_at is not null",
+                Integer.class, cabinetId).intValue(), "预备开不得写门态：否则“问了”会变成“开了”");
+        assertNull(order(order.getOrderNo()).getStartedAt(), "计费起点只能由真开成功落定");
     }
 }

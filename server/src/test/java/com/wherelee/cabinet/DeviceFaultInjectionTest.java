@@ -200,9 +200,10 @@ class DeviceFaultInjectionTest {
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
         // 第 12 刀把 STORED→ACTIVE 合成一步：关门校验通过即开始计费，中间不需要额外的用户动作
         assertEquals("ACTIVE", order().getStatus().name());
-        assertEquals(2, TenantContext.callAs(TENANT, () -> reportMapper.selectCount(
+        // 定-23 之后是三段：预备开（HEARTBEAT）+ 真开 + 关门校验，各留一条上报流水
+        assertEquals(3, TenantContext.callAs(TENANT, () -> reportMapper.selectCount(
                 Wrappers.<BizDeviceReport>lambdaQuery().eq(BizDeviceReport::getCabinetId, cabinetId))),
-                "两次动作应各留一条上报流水");
+                "三次动作应各留一条上报流水（含预备开）");
         assertNull(firstFault(), "正常路径不该产生故障事件");
     }
 
@@ -275,7 +276,9 @@ class DeviceFaultInjectionTest {
     @Test
     @DisplayName("连续失败达阈值：格口标故障、柜机停用，不再接客")
     void consecutiveFailDisablesCabinet() {
-        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.EXEC_FAIL);
+        // 定-23 之后换用“真开不回话”来测这条停用保护：预备开失败按用户定的**不计入停用计数**
+        // （它只是问一句话），而连续无回执仍就是“这台柜机叫人踩坑”，必须停用
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
         for (int i = 0; i < 3; i++) {
             TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.OPEN));
         }
@@ -318,7 +321,9 @@ class DeviceFaultInjectionTest {
     @Test
     @DisplayName("重试换新 requestId：同一动作的第 2 次尝试不会被幂等堵死")
     void retryGetsNewRequestId() {
-        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.EXEC_FAIL);
+        // 用“真开不回话”而不用 EXEC_FAIL：后者现在会在预备开阶段就换格并退单（定-21），
+        // 这条用例守的是“重试必须换键”，与失败种类无关
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.OPEN));
         String firstId = lastCommand(CommandAction.OPEN).getRequestId();
 

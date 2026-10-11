@@ -229,6 +229,16 @@ public class DeviceCommandService {
             transit(command, CommandState.FAILED);
             command.setLastError(receipt.detail());
             commandMapper.updateById(command);
+            if (command.getAction() == CommandAction.PREPARE) {
+                // 预备开失败（定-23，用户 2026-10-11 定“不计入”）：归类仍报 OPEN_FAILED，
+                // 因为业务要靠它判“确认坏了”；但**不进 recordFault/maybeDisable**：
+                // 预备开只是问一句话、柜机什么都没动，用它去触发“连续失败停用整台柜机”
+                // 会把一次通信抖动放大成停一台柜。现场留在指令表（FAILED + last_error）与日志里。
+                log.warn("预备开失败，不计入停用柜机计数 cabinetId={} slotId={} detail={}",
+                        cabinet.getId(), slotId, receipt.detail());
+                return new CommandOutcome(command.getId(), CommandState.FAILED, false, false,
+                        FaultType.OPEN_FAILED, "柜机回报无法准备开柜，请重试或换一台柜机");
+            }
             recordFault(cabinet.getId(), slotId, FaultType.OPEN_FAILED, FaultType.Action.ALARM,
                     failureCount(cabinet.getId()) + 1, receipt.detail());
             int fails = countFailure(cabinet.getId());
@@ -252,7 +262,14 @@ public class DeviceCommandService {
         command.setAckedAt(LocalDateTime.now());
         command.setLastError(null);
         commandMapper.updateById(command);
-        clearFailure(cabinet.getId());
+        if (command.getAction() == CommandAction.PREPARE) {
+            // “不计入”的另一半（用户 2026-10-11 定）：预备开成功**也不清**连续失败计数。
+            // 它只是柜机应了一句“我能动”，既不该给停用计数加一笔，也不该把别人攻下的账抹掉：
+            // 抹掉就会出现“每次真开都不回话，却永远停用不了这台坑人的柜机”（用例实测到的就是这个）。
+            log.debug("预备开成功，不重置停用计数 cabinetId={} slotId={}", cabinet.getId(), slotId);
+        } else {
+            clearFailure(cabinet.getId());
+        }
         return new CommandOutcome(command.getId(), CommandState.SUCCEEDED, true, false, null, null);
     }
 

@@ -57,6 +57,21 @@ public interface BizCompartmentMapper extends BaseMapper<BizCompartment> {
             + "where id = #{slotId} and current_order_id = #{orderId} and status = 'RESERVED' and deleted = 0")
     int markOccupied(@Param("slotId") Long slotId, @Param("orderId") Long orderId);
 
+    /**
+     * 判定硬件故障并摘出可分配池（定-21/定-23：预备开重试无效）。
+     *
+     * <p>同时抹掉订单绑定：一个已被判故障的格子既不可分配、又挂着单，两边都收不了场。
+     * <b>带 status 条件</b>：只摘当时确实是 RESERVED/OCCUPIED 的格，不抢已被别人分出去的格。
+     * （格口表<b>没有</b> {@code active_flag} 列：防超卖的唯一索引在订单表上。）
+     */
+    @Update("""
+            update biz_compartment
+               set status = 'FAULT', current_order_id = null,
+                   door_open_at = null, version = version + 1, update_time = NOW(3)
+             where id = #{slotId} and deleted = 0 and status in ('RESERVED', 'OCCUPIED')
+            """)
+    int markFaulty(@Param("slotId") Long slotId);
+
     // ------------------------------------------------------------------
     // 门态与物检（docs/门态与物品争议设计.md）
     //

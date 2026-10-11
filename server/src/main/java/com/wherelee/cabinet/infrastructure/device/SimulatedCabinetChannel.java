@@ -52,6 +52,13 @@ public class SimulatedCabinetChannel implements DeviceChannel {
         NORMAL,
         /** 不回执（超时） */
         NO_RECEIPT,
+        /**
+         * 只对真开不回执，预备开照旧应答（定-23）：“柜机应了话、把门弹开了，只是回话丢了”
+         * ——业务此时绝不能退钱退单，必须交给回扫与待收敛回收。
+         */
+        OPEN_NO_RECEIPT,
+        /** 预备开明确回报失败（锁不动作），真开不受影响（定-21：这一步失败可以安全退单） */
+        PREPARE_FAIL,
         /** 谎报关门：success=true 但传感器没确认 */
         LYING_CLOSED,
         /** 错报目标：操作了另一个格口（部分成功/串位） */
@@ -140,6 +147,10 @@ public class SimulatedCabinetChannel implements DeviceChannel {
         if (fault == Fault.NO_RECEIPT) {
             return new CompletableFuture<>();
         }
+        // 定-23：这种注入只拖住“真开”一类动作，预备开照旧应答（柜机是活的）
+        if (fault == Fault.OPEN_NO_RECEIPT && ticket.action() != CommandAction.PREPARE) {
+            return new CompletableFuture<>();
+        }
 
         long seq = nextSeq(ticket.cabinetId(), ticket.slotId());
         CompletableFuture<CommandReceipt> future = new CompletableFuture<>();
@@ -163,6 +174,11 @@ public class SimulatedCabinetChannel implements DeviceChannel {
     }
 
     private CommandReceipt receiptFor(Fault fault, CommandTicket ticket, long seq) {
+        // 预备开失败（定-21）：只对 PREPARE 动作生效，门肯定没动，所以这一类失败可以重试/换格/退单
+        if (fault == Fault.PREPARE_FAIL && ticket.action() == CommandAction.PREPARE) {
+            return new CommandReceipt(ticket.requestId(), false, ReportEvent.FAULT,
+                    seq, true, ticket.slotId(), "预备开未通过：锁机构无动作");
+        }
         return switch (fault) {
             case LYING_CLOSED -> new CommandReceipt(ticket.requestId(), true, ReportEvent.DOOR_CLOSED,
                     seq, false, ticket.slotId(), "设备称已关门，门磁未确认");
@@ -179,6 +195,12 @@ public class SimulatedCabinetChannel implements DeviceChannel {
                 // 门磁卡住时它就不认，业务必须不能拿“我发了关门命令”当成“门已关”
                 boolean sensorOk = ticket.action() != CommandAction.CLOSE_VERIFY
                         || sensorDoorClosed(ticket.cabinetId(), ticket.slotId(), fault);
+                if (ticket.action() == CommandAction.PREPARE) {
+                    // 预备开（定-23）回 HEARTBEAT：柜机确实应答了，但门谁也没动过。
+                    // 不能回 DOOR_OPENED——那会被当成“门开了”落进门态与计费起点
+                    yield new CommandReceipt(ticket.requestId(), true, ReportEvent.HEARTBEAT,
+                            seq, true, ticket.slotId(), null);
+                }
                 yield new CommandReceipt(ticket.requestId(), true,
                         opening ? ReportEvent.DOOR_OPENED : ReportEvent.DOOR_CLOSED,
                         seq, sensorOk, ticket.slotId(),
@@ -203,6 +225,11 @@ public class SimulatedCabinetChannel implements DeviceChannel {
      * <b>一个故障只该影响它那一维</b>，否则测出来的结果描述的不是那个故障。
      */
     private void applyPhysics(CommandTicket ticket, Fault fault) {
+        // 预备开是虚拟柜机上唯一“问了但不做”的动作：物理上什么都不能变，
+        // 否则“柜机活着、格口可用、锁能动作”这三项确认会变成“门已经开了”
+        if (ticket.action() == CommandAction.PREPARE) {
+            return;
+        }
         switch (fault) {
             case OFFLINE, NO_RECEIPT, EXEC_FAIL -> {
                 // 没执行，就没有物理变化

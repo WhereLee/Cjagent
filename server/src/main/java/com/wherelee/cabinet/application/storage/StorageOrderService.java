@@ -55,6 +55,8 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.application.point.OrderFundService funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
     private final CompartmentStateService states;
+    /** 定-21/定-23：预备开重试无效时要开一条设备故障工单（不然故障只活在日志里）。 */
+    private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
     /** 柜内物品争议阶梯（第 13C 刀）：只写证据与争议字段，不管钱与主态。 */
     private final ItemDisputeService dispute;
     /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
@@ -84,6 +86,16 @@ public class StorageOrderService {
      */
     @org.springframework.beans.factory.annotation.Value("${cabinet.scheduler.reconcile-minutes:10}")
     private long reconcileMinutes;
+
+    /**
+     * 定-21 / 定-23（用户选 A）：预备开在同一次点击内的自动重试次数与间隔。
+     * “立即重试”既不是无限重试（会把一台柜机反复摇），也不能一次不成就判死。
+     */
+    @org.springframework.beans.factory.annotation.Value("${cabinet.device.open-retries:2}")
+    private long openRetries;
+
+    @org.springframework.beans.factory.annotation.Value("${cabinet.device.open-retry-interval-ms:1000}")
+    private long openRetryIntervalMs;
 
     /**
      * 取件码连续输错的锁定阈值——<b>5 次由用户 2026-10-10 给出</b>，不进配置。
@@ -116,7 +128,8 @@ public class StorageOrderService {
                                com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
                                com.wherelee.cabinet.application.billing.PriceRuleService priceRules,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
-                               org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler) {
+                               org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
+                               com.wherelee.cabinet.application.workorder.WorkOrderIntake intake) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
@@ -126,6 +139,7 @@ public class StorageOrderService {
         this.deviceCommandMapper = deviceCommandMapper;
         this.funds = funds;
         this.states = states;
+        this.intake = intake;
         this.dispute = dispute;
         this.consoleMapper = consoleMapper;
         this.priceRules = priceRules;
@@ -529,6 +543,14 @@ public class StorageOrderService {
         }
 
         if (opening) {
+            // 定-23：先预备开（逻辑开，门不动）握手。只有柜机肯定应答了才往下走真开：
+            // 把“不确定”消灭在还没发生物理动作之前，这一步失败时退钱是安全的。
+            prepareHandshake(customerId, order, cabinet);
+            // 握手过程中可能已换过格口：必须重读，不能拿着旧对象往下写（会撞 @Version）
+            order = findOwned(customerId, orderNo);
+        }
+
+        if (opening) {
             order.transitTo(OrderStatus.OPENING);
             orderMapper.updateById(order);
         }
@@ -557,6 +579,120 @@ public class StorageOrderService {
         return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), slotNoOf(order.getSlotId()),
                 order.getSizeType().name(), order.getStatus().name(), order.getEstimateMinutes(),
                 0, allocator.strategy());
+    }
+
+    /**
+     * 预备开握手（定-23）：重试→换格→退单只可能发生在“柜机自己明确回报开不了”之后。
+     *
+     * <p>三种结果的处理完全不同（用户 2026-10-11 定）：
+     * <ul>
+     *   <li>PASSED：柜机确认能动作 → 往下走真开；</li>
+     *   <li>SILENT（无回执/乱序旧回执）：“我们不知道”，<b>不动钱不动单</b>，直接往下走真开
+     *       （= 定-23 之前的行为），由回扫与 10 分钟待收敛回收收口（定-4）；</li>
+     *   <li>FAILED（回执里柜机自己说开不了）：才能重试，耗尽后换格，换不到才退单退预收。</li>
+     * </ul>
+     *
+     * <p>为什么真开不回话不能退单：柜机可能已经把门弹开了，只是回话丢了。这时退钱退单
+     * 会把格子卖下一个人，而老张的包就在里面。
+     *
+     * <p>柜机离线与通道异常从 {@code dispatch} 直接抛出，不在这里吃掉：吃掉它就等于把
+     * “整柜离线”好成了“这个格口坏了”，后面的换格与退单都是错的判决，也会丢掉 50100 这个已有契约。
+     */
+    private void prepareHandshake(Long customerId, BizStorageOrder order, BizCabinet cabinet) {
+        int tries = 1 + (int) openRetries;
+        for (int i = 0; i < tries; i++) {
+            if (prepareOnce(order, cabinet) != PrepareResult.FAILED) {
+                return;
+            }
+            if (i < tries - 1) {
+                sleepBeforeRetry();
+            }
+        }
+
+        // 重试用尽（柜机每次都明确回答“开不了”）：先试换同规模空格（定-21）
+        BizStorageOrder current = findOwned(customerId, order.getOrderNo());
+        if (swapToFreeSlot(current) && prepareOnce(current, cabinet) == PrepareResult.PASSED) {
+            return;
+        }
+
+        // 换不到（或换完仍明确开不了）：此时门肯定没开过，退单退预收是安全的
+        try {
+            cancel(customerId, current.getOrderNo());
+        } catch (RuntimeException release) {
+            log.error("预备开失败后的退单也没成功，由待收敛回收兜底 orderNo={}: {}",
+                    current.getOrderNo(), release.getMessage());
+        }
+        throw new BizException(ResultCode.BIZ_ERROR,
+                "这个柜口现在打不开，也没有可用的同规模空格：已为你退单，预收全额退回。");
+    }
+
+    /** 预备开的三种结果：能开 / 开不了 / 没回话。“没回话”与“开不了”的处理完全不同。 */
+    private enum PrepareResult { PASSED, FAILED, SILENT }
+
+    /**
+     * 一次预备开。
+     *
+     * <p>“确认坏了”只有一个判据：<b>{@code faultType == OPEN_FAILED}</b>（柜机自己回报开柜失败）。
+     * 不能拿 {@code businessSuccess == false} 当判据：无回执（NO_REPORT）、串位（TARGET_MISMATCH）、
+     * 离线（OFFLINE）、连续失败（CONSECUTIVE_FAIL）都不是对这个格口的死刑判决，
+     * 把它们当“坏了”就会误退单、误判故障（本轮实测：一次就把 4 条既有设备用例打红）。
+     */
+    private PrepareResult prepareOnce(BizStorageOrder order, BizCabinet cabinet) {
+        long seq = countAttempts(order.getOrderNo(), com.wherelee.cabinet.domain.enums.CommandAction.PREPARE);
+        var outcome = deviceCommands.dispatch(cabinet, order.getSlotId(),
+                com.wherelee.cabinet.domain.enums.CommandAction.PREPARE, order.getId(),
+                order.getOrderNo() + ":PREPARE:" + (seq + 1));
+        if (outcome.faultType() == com.wherelee.cabinet.domain.enums.FaultType.OPEN_FAILED) {
+            return PrepareResult.FAILED;
+        }
+        if (outcome.businessSuccess()) {
+            return PrepareResult.PASSED;
+        }
+        return PrepareResult.SILENT;
+    }
+
+    /**
+     * 换同规模空格口，并把判定故障的旧格口摘出可分配池。
+     *
+     * <p>候选用的是 <b>同一条可分配判据</b>（空闲 ∧ 门已关 ∧ 无异常）：自己另写一套筛选就会出现
+     * “换到一个有别人东西的格子”这种最坏结果。先抢新格再摘旧格：{@code reserveSlot} 自带条件，
+     * 两人同时换也不会换到同一个；抢不到就试下一个而不是直接报失败。
+     */
+    private boolean swapToFreeSlot(BizStorageOrder order) {
+        java.util.List<BizCompartment> candidates = slotMapper.selectList(
+                SlotCandidateQuery.assignable(order.getCabinetId(), java.util.List.of(order.getSizeType())));
+        for (BizCompartment slot : candidates) {
+            if (slot.getId().equals(order.getSlotId())) {
+                continue;
+            }
+            if (slotMapper.reserveSlot(slot.getId(), order.getId()) == 0) {
+                continue;
+            }
+            Long oldSlotId = order.getSlotId();
+            slotMapper.markFaulty(oldSlotId);
+            order.setSlotId(slot.getId());
+            orderMapper.updateById(order);
+            log.warn("预备开失败判定格口故障并换格 old={} new={} orderNo={}",
+                    oldSlotId, slot.getId(), order.getOrderNo());
+            intake.onOrderEvent(order, com.wherelee.cabinet.domain.enums.WorkOrderType.DEVICE_FAULT,
+                    true, "预备开自动重试 " + (1 + (int) openRetries) + " 次柜机均回报开不了，旧格口已摘出可分配池",
+                    "格口打不开，已改用格口 " + slot.getSlotNo(), LocalDateTime.now().plusHours(2));
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 重试前的间歇。<b>不在任何事务里</b>（openDoor 本身已为了等回执而跳出事务）：
+     * 拿 sleep 占着连接就是第 9 刀压测的瓶颈。
+     */
+    private void sleepBeforeRetry() {
+        try {
+            Thread.sleep(openRetryIntervalMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BizException(ResultCode.SYSTEM_ERROR, "重试等待被中断，请重新发起开门");
+        }
     }
 
     /**

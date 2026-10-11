@@ -206,7 +206,7 @@ class CommandRescanTest {
     void noReceiptRegistersRescan() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
-        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.NO_RECEIPT);
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
 
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN));
@@ -234,7 +234,7 @@ class CommandRescanTest {
         String requestId = order.getOrderNo() + ":OPEN:1";
 
         // 造现场：回执已经进了上报流水，但指令收敛那一步没跑（拆事务之间的崩溃窗口）
-        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.NO_RECEIPT);
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN));
         jdbc.update("insert into biz_device_report (id, tenant_id, cabinet_id, slot_id, order_id, seq,"
@@ -265,7 +265,7 @@ class CommandRescanTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         String requestId = order.getOrderNo() + ":OPEN:1";
-        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.NO_RECEIPT);
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN));
 
