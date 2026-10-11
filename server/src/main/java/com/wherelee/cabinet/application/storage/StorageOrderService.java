@@ -438,66 +438,47 @@ public class StorageOrderService {
     }
 
     /**
-     * @param waivedByFalseAlarm AI 复审已判为设备误报：跳过“柜内无物”这一条（它就是为这一步服务的），
-     *                           并把结算终点回退到争议起始时刻——争议期间的计费本就不该由用户担。
-     *                           <b>门没关仍不给结束</b>：这一条与凭据无关，不能随复审一起豁免。
+     * 结束订单（19A，2026-10-11 定稿）：<b>用户点了就结束、就收费、就取物，绝不拦</b>。
+     *
+     * <p>原来这一而三段写了三道闸（门必须关、柜内必须无物、现场与远程凭据不一致），
+     * 它们的连带代价是“用户被自己的柜门困住”——可物品是用户的，钱不是。
+     * 新口径把这些判据从**拦人降级成记事实**：门没关、物检报有东西，都不阻止结束与取物，
+     * 只留下证据与异常，后面的 AI 标签与工单流转（19C/19D）接着处理它。
      */
     private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason,
                                     boolean waivedByFalseAlarm) {
         BizStorageOrder order = findOwned(customerId, orderNo);
-        if (order.getStatus() != OrderStatus.ACTIVE && order.getStatus() != OrderStatus.TEMP_OPEN
-                && order.getStatus() != OrderStatus.EXPIRED) {
-            throw new BizException(ResultCode.BIZ_ERROR, "当前状态不可结束：" + order.getStatus());
+        if (order.getStatus() == OrderStatus.CLOSED || order.getStatus() == OrderStatus.CANCELLED) {
+            throw new BizException(ResultCode.BIZ_ERROR, "这单已经结束了：" + order.getStatus());
+        }
+        if (order.getStatus() == OrderStatus.RESERVED) {
+            // 还没开过柜：没占用过这一格，走取消路径（预收整笔退回），不该混进结算
+            throw new BizException(ResultCode.BIZ_ERROR, "柜门还没打开过，无需结束：请直接取消防错");
         }
         CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
-        CloseCriteria.Verdict verdict;
-        if (reason == OrderCloseReason.ABANDONED) {
-            // 放弃只豁免“无物”，门没关仍不能结束
-            if (!sensing.doorClosed()) {
-                throw new BizException(ResultCode.BIZ_ERROR,
-                        "柜门还没关上：请先关好门再结束（声明放弃物品不能代替代关门）");
-            }
-            // 放弃本身就是“无凭据也结束”，所以调用方要锁格（leavesAnomaly）
-            verdict = CloseCriteria.Verdict.closeWithoutEvidence(null);
-        } else if (waivedByFalseAlarm) {
-            // 复审已经推定“无物”，所以只守门这一条；不这么处理会陷入“因有物被拦 → 复审判误报 → 仍因有物不能结束”
-            if (!sensing.doorClosed()) {
-                throw new BizException(ResultCode.BIZ_ERROR, CloseCriteria.evaluate(
-                        false, sensing.presence(), true, atSite).userMessage());
-            }
-            verdict = CloseCriteria.Verdict.closeWithEvidence();
-        } else {
-            verdict = CloseCriteria.evaluate(sensing.doorClosed(), sensing.presence(),
-                    states.fresh(sensing), atSite);
-            if (!verdict.closable()) {
-                if (verdict.blocker() == CloseCriteria.Blocker.CONTENT_PRESENT) {
-                    // 争议起始时刻要活过这次回滚（REQUIRES_NEW），否则事后既无法误报免除也无法统计误报率
-                    dispute.markBlocked(order, com.wherelee.cabinet.domain.enums.Presence.PRESENT,
-                            atSite ? "现场结束被拒：物检检测到柜内物品"
-                                    : "远程结束被拒：物检检测到柜内物品");
-                }
-                throw new BizException(ResultCode.BIZ_ERROR, verdict.userMessage());
-            }
-        }
-
+    
         // 误报免除：计费终点回到争议开始那一刻（争议期间是平台在等判定，不该用户付费）
         LocalDateTime settleEnd = waivedByFalseAlarm && order.getDisputeStartedAt() != null
                 ? order.getDisputeStartedAt() : LocalDateTime.now();
         long actualMinutes = order.getStartedAt() == null ? 0L
                 : Math.max(0L, Duration.between(order.getStartedAt(), settleEnd).toMinutes());
         funds.settle(order, actualMinutes, reason);
-
-        if (reason.leavesAnomaly()) {
-            states.markContentLeft(order.getSlotId(), "用户声明放弃柜内物品，需业务运维清柜后才能重新分配");
-        } else if (!verdict.evidenceBacked()) {
-            // 现场没有拿到“柜内已空”的凭据（传感器坏了）：人可以走，不能把他的脚钉在柜机前；
-            // 但这个格子必须锁住等一次人来确认——否则就是“无凭据地把格子放回可售池”，
-            // 而整条结束判据当初要防的就是这件事
+    
+        // 下面三段是“记事实”，不是“拦人”：顺序不可改——钱已经算完了，
+        // 这里怎么标都不能回滚结算（否则又变成“用异常卡住用户”）
+        if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.PRESENT) {
+            // 柜内还有东西：他不拦结束，但这格不能再卖，转滞留待处理（业务员与工单接着走）
+            states.markContentLeft(order.getSlotId(),
+                    "结束订单时物检检测到柜内仍有物品，按滞留处理（待 AI 标签与业务员判断）");
+        } else if (!states.fresh(sensing)) {
+            // 门关了、也说没东西，但测不准（凭据陈旧或设备报未知）：同样不拦人，但锁格待确认
             states.markContentUnverified(order.getSlotId(),
-                    "现场结束订单时设备无法确认柜内已清空（物检不可用），需现场确认");
-        } else {
-            // 凭据齐全：能自动解除的异常就解除（只有 DOOR_OPEN 这一类可自动，见 I9）
+                    "结束订单时拿不到“柜内已空”的可靠凭据，需现场确认");
+        } else if (sensing.doorClosed()) {
             states.tryAutoRecover(order.getSlotId(), sensing);
+        } else {
+            // 门还开着就走了：计费从开柜就已在跑，这里只把“门未关”挂上台账
+            states.markDoorOpenPastTolerance(order.getSlotId(), 0L);
         }
 
         BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
@@ -606,7 +587,12 @@ public class StorageOrderService {
                     // “门开了没人关”的看管也从这里登记——如果只在关门后登记，
                     // 用户开完门就走，单会停在 OPENING、格口停在 RESERVED、押金一直冻着，没人收场
                     states.afterDoorOpened(states.reload(order.getSlotId()), order.getCustomerId());
-                    log.info("格口已开门 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
+                    // 19A（2026-10-11 定稿）：<b>开柜瞬间就是计费起点</b>，不再等关门、
+                    // 也不靠容错到期去“补一个起点”。头 30 分钟免费由计价算法扣除，
+                    // 所以“开了门没放东西”与“开了门忘了关门”都会自然产生费用。
+                    startBilling(order, LocalDateTime.now());
+                    log.info("格口已开门并落定计费起点 orderNo={} slotId={} 起点={}",
+                            order.getOrderNo(), order.getSlotId(), order.getStartedAt());
                     scheduleDoorWatch(order);
                 }
                 case OPEN_TEMP -> {
@@ -693,24 +679,24 @@ public class StorageOrderService {
      * 落定计费起点。<b>一旦写过就不再改（不变量 I10）</b>：结算、逾期看管、账单展示都读它，
      * 改它就等于改掉已经发生的历史。
      *
-     * <p>起点取“关门时刻”与“容错到期时刻”中较早的一个：容错期内关门就从关门起计，
-     * 超容错没关门则从到期时起计（所以“开门不关门”不是免费的）。
-     * 巡检任务比这里晚到也不影响金额：两边都算到同一个 toleranceUntil。
+     * <p>19A 定稿：起点就是**首次开柜成功的时刻**（头 30 分钟免费由计价扣除，不靠这里推）。<br>
+     * 订单期间的暂时开柜、以及后面任何一次关门收敛都进不了这一行（10 行前就 return），
+     * 所以“反复开门”无法反复争取免费时间——这正是用户要求“不是每次开门都给半小时”的落地点。
+     *
+     * <p>关门收敛仍会调它，但只在“开柜回执丢了、起点从未落过”的兼底场景里才生效；
+     * 正常路径下它是一个空动作。<b>保留这个兵底是有理由的</b>：否则回执丢失的单会算出 0 分钟，
+     * 白用一整段。它也不得再“把起点往后推”：这就是为什么起点不能以关门时刻为准。
      */
-    private void startBilling(BizStorageOrder order, LocalDateTime closedAt) {
+    private void startBilling(BizStorageOrder order, LocalDateTime start) {
         if (order.getStartedAt() != null) {
             return;
         }
-        LocalDateTime tolerance = order.getToleranceUntil();
-        LocalDateTime start = tolerance == null || closedAt.isBefore(tolerance) ? closedAt : tolerance;
         order.setStartedAt(start);
-        // C 定案：没有预估时长了，“多久算逾期”只能由已定的总额封顶天数推出来
-        // （capDays=0 表示不限，那就不设 deadline，由封顶与看管窗口自己收口）
+        // “多久算逾期”由已定的总额封顶天数推出（capDays=0 表示不限则不设 deadline）
         int capDays = funds.capDaysOf(order.getPricingSnapshot());
         order.setExpectedFinishAt(capDays > 0 ? start.plusDays(capDays) : null);
         var scheduler = taskScheduler.getIfAvailable();
         if (scheduler != null && order.getExpectedFinishAt() != null) {
-            // 到期即逾期，不再额外加宽限：那个宽限是“hold-grace”时代的残留，没人定义过它该多大
             scheduler.schedule(com.wherelee.cabinet.domain.enums.TaskType.OVERDUE_PICKUP,
                     order.getOrderNo(), order.getTenantId(), order.getExpectedFinishAt());
         }
