@@ -279,19 +279,27 @@ public class WorkOrderService {
 
     /**
      * 电话只从快照取（不回查客户表）：这张单要反映“当时拨的是哪个号”。
-     * 现在用手写解析是因为快照是我们自己写的定长结构，不值得为它拉一个 JSON 依赖。
+     *
+     * <p><b>不能按 {@code "key":"} 拼精确位置</b>：MySQL 的 JSON 列存进去会被重排成
+     * {@code "key": "..."}（冒号后多一个空格），按无空格的模式找就会永远返回 null。
+     * 这个坑我在定价快照断言上已经踩过一次，这次是踩在生产代码里。
+     * 所以改成：定位键名 → 找第一个冒号 → 取冒号后第一个引号里的内容。
      */
     private String phoneFromSnapshot(BizWorkOrder o) {
         String json = o.getSnapshotJson();
         if (json == null) {
             return null;
         }
-        int at = json.indexOf("\"customerPhone\":\"");
-        if (at < 0) {
+        int key = json.indexOf("customerPhone");
+        if (key < 0) {
             return null;
         }
-        int from = at + "\"customerPhone\":\"".length();
-        int to = json.indexOf('"', from);
-        return to < 0 ? null : json.substring(from, to);
+        int colon = json.indexOf(':', key);
+        int from = json.indexOf('"', colon + 1);
+        if (colon < 0 || from < 0) {
+            return null;
+        }
+        int to = json.indexOf('"', from + 1);
+        return to < 0 ? null : json.substring(from + 1, to);
     }
 }

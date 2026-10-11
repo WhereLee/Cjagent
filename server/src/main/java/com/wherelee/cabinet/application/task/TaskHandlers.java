@@ -231,15 +231,18 @@ public final class TaskHandlers {
         private final BizStorageOrderMapper orderMapper;
         private final PricingPolicy pricing;
         private final MeterRegistry meterRegistry;
+        private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
 
         @Value("${cabinet.scheduler.stranded-days:7}")
         private long strandedDays;
 
         OverduePickupHandler(BizStorageOrderMapper orderMapper, PricingPolicy pricing,
-                             MeterRegistry meterRegistry) {
+                             MeterRegistry meterRegistry,
+                             com.wherelee.cabinet.application.workorder.WorkOrderIntake intake) {
             this.orderMapper = orderMapper;
             this.pricing = pricing;
             this.meterRegistry = meterRegistry;
+            this.intake = intake;
         }
 
         @Override

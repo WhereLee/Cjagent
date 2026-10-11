@@ -1,0 +1,274 @@
+package com.wherelee.cabinet;
+
+import com.wherelee.cabinet.application.storage.CompartmentStateService;
+import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.common.context.TenantContext;
+import com.wherelee.cabinet.common.exception.BizException;
+import com.wherelee.cabinet.domain.entity.BizCompartment;
+import com.wherelee.cabinet.domain.entity.BizStorageOrder;
+import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
+import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
+import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
+import com.wherelee.cabinet.interfaces.admin.workorder.AdminWorkOrderController;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.ActiveProfiles;
+
+import javax.sql.DataSource;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * 19B 工单流转：开单幂等、级别映射、认领、派线下、自动转化留底。
+ *
+ * <p>这里最容易被写歪的两件事，都被单独设了用例：
+ * ① 同一异常被反复观察只能有一张未关闭工单（否则队列长度失去意义）；
+ * ② 自动转化<b>不能</b>记成人工结论，也不能删（用户明确要求留底）。
+ */
+@Tag("integration")
+@ActiveProfiles({"dev", "integration"})
+@SpringBootTest(properties = {
+        "cabinet.scheduler.poll-enabled=false",
+})
+@DisplayName("工单流转：一张异常单的一生")
+class WorkOrderFlowTest {
+
+    private static final Long TENANT = 8161L;
+
+    @Autowired
+    private DataSource dataSource;
+    @Autowired
+    private CompartmentStateService states;
+    @Autowired
+    private WorkOrderService workOrders;
+    @Autowired
+    private BizStorageOrderMapper orderMapper;
+
+    private JdbcTemplate jdbc;
+    private Long cabinetId;
+    private Long slotId;
+    private String slotNo;
+
+    @BeforeEach
+    void prepare() {
+        jdbc = new JdbcTemplate(dataSource);
+        String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        Long siteId = 81610000L + Math.abs(suffix.hashCode() % 90000);
+        cabinetId = siteId + 1;
+        slotId = siteId + 2;
+        slotNo = "S" + suffix.substring(0, 4);
+        jdbc.update("insert into biz_site (id, tenant_id, site_code, name, category, status, create_time, update_time, deleted) "
+                + "values (?, ?, ?, '工单测试点位', 'MALL', 1, NOW(3), NOW(3), 0)",
+                siteId, TENANT, "WO-" + suffix);
+        jdbc.update("insert into biz_cabinet (id, tenant_id, site_id, cabinet_no, name, model_id, cabinet_status, online_state, create_time, update_time, deleted) "
+                + "values (?, ?, ?, ?, '工单测试柜机', 90001, 'ENABLED', 'ONLINE', NOW(3), NOW(3), 0)",
+                cabinetId, TENANT, siteId, "CAB-WO-" + suffix);
+        jdbc.update("insert into biz_compartment (id, tenant_id, cabinet_id, slot_no, size_type, status, "
+                + "door_open_at, anomaly, current_order_id, create_time, update_time, deleted) "
+                + "values (?, ?, ?, ?, 'SMALL', 'OCCUPIED', NOW(3), NULL, ?, NOW(3), NOW(3), 0)",
+                slotId, TENANT, cabinetId, slotNo, siteId + 3);
+        // 一个带电话的客户 + 一张绑在这个格口上的活动单：工单要快照“当时能联系到谁”
+        jdbc.update("insert into biz_customer (id, tenant_id, open_id, nickname, phone, status, register_time, create_time, update_time, deleted) "
+                + "values (?, ?, ?, '工单客户', ?, 1, NOW(3), NOW(3), NOW(3), 0)",
+                81619999L, TENANT, "wo-" + suffix, "13800001234");
+        Long orderId = siteId + 3;
+        assertEquals(orderId, jdbc.queryForObject("select current_order_id from biz_compartment where id = ?", Long.class, slotId),
+                "夹具必须把格口绑到单上：工单快照里的电话就是从这条活动单回查客户的");
+        jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
+                + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, settled_points, "
+                + "arrears_points, estimate_minutes, create_time, update_time, deleted, active_flag) "
+                + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', '8888', 0, 0, 0, 0, 0, 0, NOW(3), NOW(3), 0, 1)",
+                orderId, TENANT, "WO-SO-" + suffix, siteId, cabinetId, slotId, 81619999L);
+    }
+
+    @AfterEach
+    void cleanup() {
+        jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
+        jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
+        jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
+        jdbc.update("delete from biz_storage_order where cabinet_id = ?", cabinetId);
+        jdbc.update("delete from biz_compartment where cabinet_id = ?", cabinetId);
+        jdbc.update("delete from biz_cabinet where id = ?", cabinetId);
+        jdbc.update("delete from biz_site where id = (select site_id from biz_cabinet where id = ?)", cabinetId);
+        jdbc.update("delete from biz_customer where id = 81619999");
+        TenantContext.clear();
+    }
+
+    private List<Map<String, Object>> rows(String sql, Object... args) {
+        return jdbc.queryForList(sql, args);
+    }
+
+    private void markDoorOpen() {
+        TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 11));
+    }
+
+    @Test
+    @DisplayName("门未关自动开一张工单；反复标同一异常不刷第二张，但会记下“又看到一次”")
+    void anomalyMarksOpenExactlyOneWorkOrder() {
+        markDoorOpen();
+        markDoorOpen();
+
+        List<Map<String, Object>> orders = rows(
+                "select id, type, urgent, status, active_flag from biz_work_order where tenant_id = ? and slot_id = ?",
+                TENANT, slotId);
+        assertEquals(1, orders.size(), "同一格口的同一类异常在未关闭状态下必须只有一张工单");
+        assertEquals("DOOR_NOT_CLOSED", orders.get(0).get("type"));
+        assertEquals(WorkOrderStatus.PENDING.name(), orders.get(0).get("status"));
+
+        Long id = ((Number) orders.get(0).get("id")).longValue();
+        List<WorkOrderService.EventView> timeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
+        assertTrue(timeline.stream().anyMatch(e -> "CREATED".equals(e.eventType())), "开单必须留第一条痕");
+        assertTrue(timeline.stream().anyMatch(e -> "REPEATED".equals(e.eventType())),
+                "重复观察到也要留痕：它是“这格一直没关”的次数证据");
+
+        // 快照里必须有业务员判断性质需要的东西（位置、编号、时间、电话、检测值）
+        String snapshot = jdbc.queryForObject(
+                "select cast(snapshot_json as char) from biz_work_order where id = ?", String.class, id);
+        assertNotNull(snapshot);
+        assertTrue(snapshot.contains("13800001234"), "用户电话必须快照进来：" + snapshot);
+        assertTrue(snapshot.contains(slotNo), "格口编号必须快照进来：" + snapshot);
+        assertTrue(snapshot.contains("门=开着"), "检测值要能还原当时现场：" + snapshot);
+    }
+
+    @Test
+    @DisplayName("柜内有物时门未关升为紧急异常；遗留物本身就是紧急")
+    void urgentLevelFollowsDetection() {
+        jdbc.update("update biz_compartment set presence = 'PRESENT' where id = ?", slotId);
+        markDoorOpen();
+        // TINYINT(1) 被驱动读成 Boolean，不是数字：拿 Integer 取会 TransientDataAccess/ClassCast
+        assertEquals(Boolean.TRUE, jdbc.queryForObject(
+                "select urgent from biz_work_order where tenant_id = ? and slot_id = ? and type = 'DOOR_NOT_CLOSED'",
+                Boolean.class, TENANT, slotId), "有物的门未关就是紧急异常（用户口径）");
+
+        TenantContext.runAs(TENANT, () -> states.markContentLeft(slotId, "结束后物检报有物"));
+        List<Map<String, Object>> left = rows(
+                "select type, urgent, snapshot_json from biz_work_order where tenant_id = ? and type = 'ITEM_LEFT'", TENANT);
+        assertEquals(1, left.size());
+        assertEquals(Boolean.TRUE, left.get(0).get("urgent"), "遗留物按紧急排队");
+    }
+
+    @Test
+    @DisplayName("门关上：工单自动转化留底，不删除、不记成人工结论，也不再占唯一索引")
+    void autoConvertKeepsRecordButFreesTheSlot() {
+        markDoorOpen();
+        Long id = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
+
+        TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
+                new CompartmentStateService.Sensing(true, Presence.ABSENT, LocalDateTime.now())));
+
+        Map<String, Object> row = rows("select status, active_flag, result_note, assignee_id from biz_work_order where id = ?", id).get(0);
+        assertEquals(WorkOrderStatus.AUTO_CLOSED.name(), row.get("status"), "事实消失要自动转化，不能挂着让人误以为还要办");
+        assertEquals(null, row.get("active_flag"), "关闭必须释放唯一索引槽位，否则这格下次异常开不出单");
+        assertEquals(null, row.get("assignee_id"), "自动转化没有处理人：把机器动作记成人的功劳是假留痕");
+        assertTrue(String.valueOf(row.get("result_note")).contains("自动转化"), "结论位要写清这是自动的：" + row.get("result_note"));
+        assertFalse(rows("select id from biz_work_order where id = ?", id).isEmpty(), "用户要求留底：绝不删除");
+
+        List<WorkOrderService.EventView> timeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
+        assertTrue(timeline.stream().anyMatch(e -> "AUTO_CLOSED".equals(e.eventType()) && e.operatorId() == null),
+                "留痕里系统事件的 operator 必须为空");
+
+        // 关掉之后，同一个格口再出同样的异常必须能开出新单
+        markDoorOpen();
+        assertEquals(2, jdbc.queryForObject(
+                "select count(*) from biz_work_order where tenant_id = ? and slot_id = ?", Integer.class, TENANT, slotId),
+                "关闭后应能再开一张（历史一张、当前一张）");
+    }
+
+    @Test
+    @DisplayName("认领只有一人成功；处理结论必填；派线下是另开子单而不是改父单")
+    void claimThenResolveDispatchesChildOrder() {
+        // 先让这单是紧急的（柜内有物 + 门未关），才能验证“子单继承级别”而不是“子单恒紧急”
+        jdbc.update("update biz_compartment set presence = 'PRESENT' where id = ?", slotId);
+        markDoorOpen();
+        Long id = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
+
+        TenantContext.runAs(TENANT, () -> workOrders.claim(id, 777L));
+        // 第二个人来认领：必须失败，不能静默把 assignee 换掉（那样两人都以为是自己办的）
+        BizException rejected = assertThrows(BizException.class,
+                () -> TenantContext.runAs(TENANT, () -> workOrders.claim(id, 888L)));
+        assertTrue(rejected.getMessage().contains("认领"), rejected.getMessage());
+        // 同一个人重放认领不该报错（前端重试、双击）
+        TenantContext.runAs(TENANT, () -> workOrders.claim(id, 777L));
+
+        assertThrows(BizException.class,
+                () -> TenantContext.runAs(TENANT, () -> workOrders.resolve(id, 777L, "  ", false)),
+                "结论空白必须拒：没有“谁说了什么”的工单没有价值");
+
+        Long child = TenantContext.callAs(TENANT, () -> workOrders.resolve(id, 777L, "确认贵重物品滞留，已电话联系客户，需到场取出", true));
+        assertNotNull(child, "需要线下时必须派出一张子单");
+        assertEquals("FIELD", rows("select queue_side from biz_work_order where id = ?", child).get(0).get("queue_side"));
+        assertEquals(id, ((Number) rows("select parent_id from biz_work_order where id = ?", child).get(0).get("parent_id")).longValue());
+        assertEquals(Boolean.TRUE, rows("select urgent from biz_work_order where id = ?", child).get(0).get("urgent"),
+                "线下子单继承紧急级别（用户：紧急异常需快速处理）");
+        assertEquals(WorkOrderStatus.RESOLVED.name(),
+                rows("select status from biz_work_order where id = ?", id).get(0).get("status"));
+
+        List<WorkOrderService.EventView> parentTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
+        assertTrue(parentTimeline.stream().anyMatch(e -> "CLAIMED".equals(e.eventType()) && 777L == e.operatorId()),
+                "认领要能查到是谁");
+        List<WorkOrderService.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(child));
+        assertTrue(childTimeline.stream().anyMatch(e -> "DISPATCHED".equals(e.eventType())),
+                "派发动作记在子单上：父单说“为什么派人”，子单说“谁派来的”");
+
+        // 队列视图里线上只剩已关闭、线下多了一张待办
+        List<WorkOrderService.View> field = TenantContext.callAs(TENANT,
+                () -> workOrders.queue(WorkOrderService.SIDE_FIELD, true));
+        assertEquals(1, field.size());
+        assertNotNull(field.get(0).customerPhone(), "线下到场要能直接看到联系电话（快照，不回查）");
+    }
+
+    @Test
+    @DisplayName("四个端点各自挂权限点，且接口层不返回实体")
+    void endpointsCarryTheirOwnPermissions() {
+        var methods = AdminWorkOrderController.class.getDeclaredMethods();
+        int guarded = 0;
+        for (var m : methods) {
+            var pre = m.getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+            if (pre != null) {
+                guarded++;
+                assertTrue(pre.value().contains("workorder:"), m.getName() + " 的权限点必须属于 workorder 族：" + pre.value());
+            }
+        }
+        assertEquals(5, guarded, "五个端点都要独立权限点（认领/处理/派单不能靠一个管理员点完）");
+        // 接口层不得回传实体：拿泛型字符串直读，比反射拆 ParameterizedType 清楚得多
+        String onlineReturn = java.util.Arrays.stream(methods)
+                .filter(m -> m.getName().equals("online")).findFirst().orElseThrow()
+                .getGenericReturnType().getTypeName();
+        assertTrue(onlineReturn.contains("WorkOrderService$View"),
+                "队列必须返回应用层视图而不是实体：" + onlineReturn);
+        assertFalse(onlineReturn.contains("BizWorkOrder"), "实体不得出现在接口层返回值里：" + onlineReturn);
+    }
+
+    @Test
+    @DisplayName("无关订单不阻塞工单：空格的传感器矛盾没有物主也要能开单")
+    void anomalyWithoutOrderStillOpensWorkOrder() {
+        jdbc.update("update biz_compartment set current_order_id = null, status = 'FREE' where id = ?", slotId);
+        TenantContext.runAs(TENANT, () -> states.markSensorConflict(slotId, "门磁与物检矛盾"));
+
+        List<Map<String, Object>> list = rows(
+                "select type, urgent, order_no, customer_id from biz_work_order where tenant_id = ? and slot_id = ?",
+                TENANT, slotId);
+        assertEquals(1, list.size());
+        assertEquals("DEVICE_FAULT", list.get(0).get("type"));
+        assertEquals(Boolean.FALSE, list.get(0).get("urgent"), "传感器矛盾按普通排队：它不影响钱");
+        assertEquals(null, list.get(0).get("order_no"), "没有一个活着的单时，工单只指向格口");
+    }
+}

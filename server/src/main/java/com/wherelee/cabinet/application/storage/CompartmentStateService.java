@@ -34,6 +34,13 @@ public class CompartmentStateService {
     private final BizCompartmentMapper slotMapper;
     private final BizFaultEventMapper faultMapper;
     private final DeviceChannel channel;
+    /**
+     * 开单入口（19B）。挂在“标异常的唯一出口”上而不是各业务分支里：
+     * 分散调用一定漏路径，而漏的往往是异常那一条。
+     */
+    private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
+    /** 工单流转（19B）：门关上时把“门未关”工单自动转化留底。 */
+    private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
 
     /**
      * 物检结论的可用时效（分钟）。
@@ -45,10 +52,14 @@ public class CompartmentStateService {
     private int presenceMaxAgeMinutes;
 
     public CompartmentStateService(BizCompartmentMapper slotMapper, BizFaultEventMapper faultMapper,
-                                   DeviceChannel channel) {
+                                   DeviceChannel channel,
+                                   com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
+                                   com.wherelee.cabinet.application.workorder.WorkOrderService workOrders) {
         this.slotMapper = slotMapper;
         this.faultMapper = faultMapper;
         this.channel = channel;
+        this.intake = intake;
+        this.workOrders = workOrders;
     }
 
     /**
@@ -144,6 +155,8 @@ public class CompartmentStateService {
         // 解除也要进台账：运维要能看见“这格何时因什么异常、又是怎么好的”，
         // 只记开始不记结束的事故记录没法用来优化任何事
         logFault(slot, FaultType.Action.RECOVER, "门已关闭，异常自动解除：" + slot.getAnomalyReason());
+        // 19B：“事实自己消失了”不等于“人处理过了”：工单转 AUTO_CLOSED 留底而不删除、不记成结论
+        workOrders.autoClose(slotId, com.wherelee.cabinet.domain.enums.WorkOrderType.DOOR_NOT_CLOSED);
     }
 
     /**
@@ -166,6 +179,10 @@ public class CompartmentStateService {
             return;
         }
         logFault(slot, anomaly.autoRecoverable() ? FaultType.Action.ALARM : FaultType.Action.MARK_UNAVAILABLE, reason);
+        // 19B：异常一旦落下就同时开一张工单（开单幂等，重复标同一种异常不会刷出多张）。
+        // 放在写完当前态与流水之后：工单是“有人该管”，不是异常本身的一部分，
+        // 它失败不能让格口不回写（否则开单问提会拖挂主链路）。
+        intake.onAnomaly(slotId, anomaly, reason);
     }
 
     private void logFault(BizCompartment slot, FaultType.Action action, String reason) {
