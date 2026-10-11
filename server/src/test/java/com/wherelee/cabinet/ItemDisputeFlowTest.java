@@ -34,6 +34,7 @@ import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -79,10 +80,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "cabinet.door-watch.first-remind-minutes=0",
         "cabinet.dispute.max-ai-review=2",
 })
-@DisplayName("柜内物品争议：拦下→否认→AI 复审→误报免除；以及发现者上报")
-@org.junit.jupiter.api.Disabled("争议阶梯的前提已换（19A）：以前靠“拒结束”把用户拦在柜机前逼他取件，新口径不拦人了，"
-        + "所以这一批用例的现场（pickup 被拒 → 记争议起始 → 免除争议期间费用）已不成立。"
-        + "AI 复审与误报免除这些能力不删，它们搬到“结束后的遗留处理”上去（19C 重建，接工单与简单标签）")
+@DisplayName("柜内物品争议与结束后遗留：发现者上报、锁格、弱锁不覆盖强锁")
 class ItemDisputeFlowTest {
 
     private static final Long TENANT = 8118L;
@@ -225,6 +223,8 @@ class ItemDisputeFlowTest {
 
     @Test
     @DisplayName("结束被拦：留证据、记争议起始时刻，但计费不停、状态不动")
+    @Disabled("A-1 第二批：现场靠“拒结束”产生，而 19A 已不拦人。要重建的是“结束后遗留 + 账单异议”，"
+            + "而“误报免除争议期费用”在新口径下是否保留需先定口径（用户 2026-10-12 待拍板）")
     void blockedCloseRecordsEvidenceButKeepsBilling() {
         Long customerId = newCustomer();
         BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
@@ -249,6 +249,7 @@ class ItemDisputeFlowTest {
 
     @Test
     @DisplayName("争议起始时刻只记第一次：反复点否认不能把计费终点往后推")
+    @Disabled("A-1 第二批：同上，“记争议起始用来算免除区间”这个前提随拦人一起作废")
     void disputeStartIsRecordedOnce() {
         Long customerId = newCustomer();
         BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
@@ -266,6 +267,7 @@ class ItemDisputeFlowTest {
 
     @Test
     @DisplayName("AI 判为设备误报：允许结束，且只免掉争议期间的钱")
+    @Disabled("A-1 第二批：结束不再需要被允许（19A），所以“判误报才能结束”不成立；AI 复审应搬到账单异议上")
     void falseAlarmEndsOrderAndWaivesOnlyDisputePeriod() {
         Long customerId = newCustomer();
         BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
@@ -295,6 +297,7 @@ class ItemDisputeFlowTest {
 
     @Test
     @DisplayName("AI 仍判有物：不能结束、继续计费；次数用尽后不再调用模型")
+    @Disabled("A-1 第二批：不能结束已作废；但“复审次数上限防刷模型”这个约束仍有效，重建时要单独钉住")
     void aiStillPresentKeepsBlockingAndBudgetIsEnforced() {
         Long customerId = newCustomer();
         BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
@@ -329,7 +332,8 @@ class ItemDisputeFlowTest {
     }
 
     @Test
-    @DisplayName("AI 说无法判断：转人工，绝不退回红外的结论")
+    @DisplayName("AI 说无法判断：转人工，不得退回红外的结论")
+    @Disabled("A-1 第二批：转人工这一半已接上 19B 工单与 19D 电话任务，重建时验证“UNKNOWN 绝不折成无物”")
     void indeterminateGoesToHumanInsteadOfFallingBackToSensor() {
         Long customerId = newCustomer();
         BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
@@ -351,6 +355,7 @@ class ItemDisputeFlowTest {
 
     @Test
     @DisplayName("门没关时既没有争议可复审，也不能靠误报免除结束")
+    @Disabled("A-1 第二批：门未关现在走 19D 提醒阶梯与工单，不再走争议阶梯；重建时这条应归到门未关那条链")
     void openDoorBlocksTheWholeLadder() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
@@ -413,12 +418,11 @@ class ItemDisputeFlowTest {
     }
 
     @Test
-    @DisplayName("已知遗留物的格口不会被分给下一位：上报走的是同一格的上一张单")
+    @DisplayName("已知遗留物的格口不会被分给下一位：锁只由标异常产生，不再需要一个“声明放弃”动作")
     void reportedCompartmentNeverReappearsInCandidates() {
         Long owner = newCustomer();
-        BizStorageOrder order = activateWithItemLeft(owner, newOrder(owner));
-        TenantContext.runAs(TENANT, () -> orderService.abandon(owner, order.getOrderNo()));
-        Long slotId = order(order.getOrderNo()).getSlotId();
+        BizStorageOrder closed = closeWithItemLeft(owner);
+        Long slotId = closed.getSlotId();
 
         // 门磁又被确认关上（下一个人来之前它物理上是关的）：异常必须仍在
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
@@ -435,13 +439,28 @@ class ItemDisputeFlowTest {
     @DisplayName("弱锁不覆盖强锁：一次探测失败不能把遗留物格口降级")
     void weakerLockNeverDowngradesStrongerOne() {
         Long customerId = newCustomer();
-        BizStorageOrder order = activateWithItemLeft(customerId, newOrder(customerId));
-        TenantContext.runAs(TENANT, () -> orderService.abandon(customerId, order.getOrderNo()));
-        Long slotId = order(order.getOrderNo()).getSlotId();
+        Long slotId = closeWithItemLeft(customerId).getSlotId();
 
         // 门磁不确认时不降级：“遗留物”已经比“没凭据”更强
         TenantContext.runAs(TENANT, () -> states.markContentUnverified(slotId, "模拟一次无凭据的结束"));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(),
-                "遗留物是【已经看见有东西】，测不到只是没凭据；弱锁盖强锁会让被上报的格子被当空柜清走");
+                "遗留物是已经看见有东西，测不到只是没凭据；弱锁盖强锁会让被上报的格子被当空柜清走");
+    }
+
+    /**
+     * 新口径下的“结束后现场真有东西”：19A 不拦人，所以结束会**照收钱并关闭**，
+     * 而物检检到东西就把这一格标成遗留物异常。这就是今天生产上唯一可达的那条路，
+     * 也是旧写法里拿 `abandon`（声明放弃，入口已删）造出现场的替换。
+     */
+    private BizStorageOrder closeWithItemLeft(Long customerId) {
+        BizStorageOrder order = activate(customerId, newOrder(customerId));
+        simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(),
+                "柜里有东西也不能把用户钉在柜机前：照收钱、照关闭（定-13）");
+        assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(order.getSlotId()).getAnomaly(),
+                "不拦人不等于不记：检到东西就必须把这格标成遗留物并进工单（定-14）");
+        return closed;
     }
 }
