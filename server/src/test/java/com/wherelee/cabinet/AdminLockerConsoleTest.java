@@ -272,14 +272,18 @@ class AdminLockerConsoleTest {
 
     @Test
     @DisplayName("强制开柜：必须二次确认并写事由；开完格口自动不可分配")
-    @org.junit.jupiter.api.Disabled("19A 后结束不再被拦，blockedWithDispute 这个造现场的路径已不存在；19C 把争议搬到“结束后遗留”后重写")
     void forceOpenNeedsConfirmationAndLocksSlot() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
-        TenantContext.runAs(TENANT, () -> orderService.abandon(customerId, order.getOrderNo()));
+        // 造现场改走今天唯一可达的那条路：结束不拦人，但物检仍有东西→本格自动标遗留物
+        // （旧的 orderService.abandon“声明放弃”入口随误报免除一起作废了）
+        simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
         Long slotId = order(order.getOrderNo()).getSlotId();
+        assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(),
+                "前提：这一格已经是遗留物（定-14：不拦人不等于不记）");
 
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
                 () -> console.forceOpen(slotId, false, "客户取回遗留物", 777L)), "没勾确认不给开");

@@ -415,33 +415,15 @@ public class StorageOrderService {
         }
     }
 
-    /**
-     * 声明“里面的东西不要了”并结束：这是柜内有物时唯一的自助出口。
-     *
-     * <p><b>只豁免“柜内无物”这一条，不豁免“门关”</b>：门开着就不是结束，而是还在占用。
-     * 结束后格口转 {@code CONTENT_LEFT}：单结束了、钱到此为止，但这一格在有人清走东西之前
-     * 不能再卖（不变量 I12：“钱走了、东西还在柜里、格子又卖给了第三个人”是整份设计里最坏的结果）。
-     */
-    @Transactional
-    public StorageOrderView abandon(Long customerId, String orderNo) {
-        return finish(customerId, orderNo, true, OrderCloseReason.ABANDONED);
-    }
+    // abandon（声明放弃物品）与 remoteClose（远程结束）已于 2026-10-12 删除：
+    // 前者被定-13（结束不拦人）抽掉——柜里有东西也照样结束并自动标遗留物，不需要一个“放弃”按钮；
+    // 后者被定-15 抽掉——结束本来就是在手机上点的，“远程”不再是一种需要加收的情形。
+    // 两个关单原因枚举值（ABANDONED / REMOTE）保留：历史单上写着它们，删了旧单读不出自己是怎么关的。
 
     /**
-     * 远程结束订单（人不在现场）：同一套判据，不豁免任何一条。
+     * 结束订单的共用收口（今天只剩“用户点结束”一个入口：当面与远程已合一）。
      *
-     * <p>如果远程能绕过“无物”，那“离开现场”就比“留在现场”更容易脱身，方向正好反了。
-     * 费用 = 计时计费 + 该格口 {@code remote-close-hours} 小时单价的加收。
-     */
-    @Transactional
-    public StorageOrderView remoteClose(Long customerId, String orderNo) {
-        return finish(customerId, orderNo, false, OrderCloseReason.REMOTE);
-    }
-
-    /**
-     * 结束订单的共用收口：三个入口（当面结束 / 声明放弃 / 远程结束）只差在“谁在作证”与“收不收加收”。
-     *
-     * <p>写成一个而不是三份：分开写过几天就会出现“当面结束会退押金、远程结束漏了退”这种
+     * <p>写成一处而不是三份：分开写过几天就会出现“当面结束会退钱、另一种结束漏了退”这种
      * 只在一半路径上修的 bug（第 12 刀已经为退款路径合并过一次）。
      */
     /**
