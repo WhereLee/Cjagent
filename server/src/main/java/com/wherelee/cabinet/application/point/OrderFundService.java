@@ -171,6 +171,14 @@ public class OrderFundService {
 
         int released = slotMapper.releaseOccupiedSlot(order.getSlotId(), order.getId());
         if (released == 0) {
+            // 19A（开柜即计时）带出来的新分支：“门没关就走了、直接在手机上点结束”。
+            // 这一格从来没被 markOccupied 过（它停在 RESERVED + door_open_at 非空），
+            // 但单已经结、钱已经算，格子必须跟着一起来——否则它永远挂在上一位身上。
+            // 仍然靠 current_order_id 当条件：不是自己绑定的单就不许动，
+            // “误把别人的格口放走”比“多留一个异常”严重得多。
+            released = slotMapper.releaseSlot(order.getSlotId(), order.getId());
+        }
+        if (released == 0) {
             // 结完算却释放不掉：说明格口已被别人改写，必须响而不是把账做平就收工
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，需人工核对 slotId="
                     + order.getSlotId());

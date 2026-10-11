@@ -220,7 +220,9 @@ class DoorAndContentFlowTest {
                 "起点只能是开门时刻，不能比下单还早");
         LocalDateTime start = opened.getStartedAt();
 
-        // 中途取物：再开一次门不得重新发半小时免费（起点不动）
+        // 中途取物：再开一次门不得重新发半小时免费（起点不动）。临时开柜要求单在计费中，
+        // 所以先把门关回去进入 ACTIVE，再点临时开柜
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN_TEMP));
         assertEquals(start.withNano(0), order(order.getOrderNo()).getStartedAt().withNano(0),
@@ -305,10 +307,16 @@ class DoorAndContentFlowTest {
 
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(), "旧口径里“门没关就拒绝结束”已作废（他会卡在柜机前）");
+        // 结束把单与格口解绑是对的（钱已清、物主已走），但这一格仍不可售：
+        // 拦它的不是 status 而是“门还开着 + 挂着 DOOR_OPEN 异常”，两者都在候选判据里
         assertEquals(CompartmentAnomaly.DOOR_OPEN, slot(closed.getSlotId()).getAnomaly(),
                 "不拦人不等于不记：门未关必须进台账（19D 接提醒阶梯与工单）");
-        assertEquals(SlotStatus.OCCUPIED, slot(closed.getSlotId()).getStatus(),
-                "门还开着的格口不能回到可售");
+        assertNotNull(slot(closed.getSlotId()).getDoorOpenAt(),
+                "门未关这个物理事实必须留着：候选判据靠它把这一格排除在外");
+        List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
+                .selectList(SlotCandidateQuery.assignable(cabinetId, SizeType.SMALL)))
+                .stream().map(BizCompartment::getId).toList();
+        assertFalse(candidates.contains(closed.getSlotId()), "门还开着的格口不得被分配给下一位");
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)), "账仍必须平");
     }
 

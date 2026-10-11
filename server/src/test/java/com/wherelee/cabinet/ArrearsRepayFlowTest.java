@@ -238,7 +238,8 @@ class ArrearsRepayFlowTest {
         assertTrue(blocked.getMessage().contains("补缴"), "文案指向的动作必须真的存在：" + blocked.getMessage());
 
         // 走真实充值链路：第一笔不够（欠 525），第二笔才补足
-        TenantContext.runAs(TENANT, () -> rechargeService.recharge(customerId, 300L));
+        TenantContext.runAs(TENANT, () -> rechargeService.recharge(customerId, 40L));
+
         assertTrue(order(owed.getOrderNo()).getArrearsPoints() > 0, "没还完就不得放行");
 
         TenantContext.runAs(TENANT, () -> rechargeService.recharge(customerId, 300L));

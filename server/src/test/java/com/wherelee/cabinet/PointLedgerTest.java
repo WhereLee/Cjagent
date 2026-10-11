@@ -264,7 +264,7 @@ class PointLedgerTest {
         // C 定案：下单不再预冻任何费用（只把账户押金划足），所以下单后冻结栁应为 0；
         // 价格是否生效不在这一步证，看下面结算完的 settledPoints
         assertEquals(0L, created.getFrozenPoints(), "C：下单不再预冻任何费用");
-        assertEquals(1800L, accountPoints(customerId), "可用栁 = 充值 - 划账户押金（不再有冻结）");
+        assertEquals(1900L, accountPoints(customerId), "可用栁 = 充值 - 划账户押金（不再有冻结）");
         assertEquals(0L, created.getDepositPoints(), "新单不再有每单押金（历史单仍按自己身上的金额退）");
         assertNotNull(created.getPricingSnapshot());
         assertTrue(created.getPricingSnapshot().contains("unitPointsPerHour"), "定价快照必须落库");
@@ -292,18 +292,18 @@ class PointLedgerTest {
         assertTrue(account.getFrozenPoints() == 0L, "冻结栏必须清零，押金要回到可用栏");
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "取件后格口必须释放");
 
-        // 结算不碰押金：它长在账户上，只在用户主动“退押金”时才动（定-1/S-03）
+        // 19A：下单只预收 4 小时费用（本用例里 SMALL/MEDIUM 均按测试库单价），不存任何押金
         assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
-                "取件结算不得动账户押金");
+                "账户不应再有押金：预收已经替它完成了担保");
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
     }
 
     @Test
-    @DisplayName("欠费仍可取件：实际用时远超预估、扣不到部分记欠费，但不锁件")
+    @DisplayName("欠费仍可取件：实际用时远超预收、扣不到部分记未支付，但不锁件")
     void pickupWorksEvenWhenBroke() {
         Long customerId = newCustomer();
-        // 只给够“押金 + 预估”的点数；真实用时远超预估时就会扣不到，差额应进欠费而不是锁件
-        TenantContext.runAs(TENANT, () -> points.recharge(customerId, 250, "CHG-" + UUID.randomUUID(), "刚好够冻结"));
+        // 只给“预收 + 少量余额”：真实用时远超预收时就会扣不到，差额应进未支付而不是锁件
+        TenantContext.runAs(TENANT, () -> points.recharge(customerId, 200, "CHG-" + UUID.randomUUID(), "只够预收+一点余额"));
 
         String orderNo = createOrder(customerId, SizeType.MEDIUM);
         TenantContext.runAs(TENANT, () -> {
@@ -319,15 +319,17 @@ class PointLedgerTest {
         assertEquals(OrderStatus.CLOSED.name(), view.status(), "欠费不能阻塞取件——东西是用户的");
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "件必须能拿出来");
         BizStorageOrder after = order(orderNo);
-        // 可用只有 50（剩 250 已被划押占用，不参与消费）→ 欠 250
-        assertEquals(50L, after.getSettledPoints(), "能扣的先扣完");
-        assertEquals(250L, after.getArrearsPoints(), "扣不到的部分必须记成欠费，不能抹掉");
-        assertEquals(300L, after.getSettledPoints() + after.getArrearsPoints(),
-                "应缴总额 = 封顶后的 12 小时价；超过一天的那 5 小时不得再收（规划 §5.10）");
+        // 19A：MEDIUM 25 点/小时，预收 4 小时 = 100；充 200 后可用只剩 100。
+        // 用 1000 分钟→计费 17 小时，但单日封顶 10 小时 → 应缴 250；
+        // 能收到手的只有 100（预收）+ 100（余额）= 200 → 欠 50
+        assertEquals(200L, after.getSettledPoints(), "能扣的先扣完（预收已到账，不算扣不到的那部分）");
+        assertEquals(50L, after.getArrearsPoints(), "扣不到的部分必须记成未支付，不能抹掉");
+        assertEquals(250L, after.getSettledPoints() + after.getArrearsPoints(),
+                "应缴总额 = 封顶后的 10 小时价；超过单日封顶的那 7 小时不得再收（规划 §5.10）");
 
-        // 押金不拿来抵欠：它只在用户主动退押金时才抵（定-1）——所以此处必须仍是 200
+        // 押金已整套作废（19A）：欠费不会自动去占任何担保，预收就是全部担保
         assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
-                "欠费不得自动占用账户押金");
+                "欠费不得自动占用任何担保额度");
         // 欠费不产生流水（它只是“没收到的钱”），所以账依然必须是平的
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
     }
@@ -370,10 +372,10 @@ class PointLedgerTest {
         TenantContext.runAs(TENANT, () -> facade.cancel(customerId, orderNo));
 
         var account = TenantContext.callAs(TENANT, () -> points.accountOf(customerId));
-        assertEquals(800L, account.getPoints(), "可用栁不变（本就没冻东西）；押金仍押在账户里（它不跟单走）");
+        assertEquals(1000L, account.getPoints(), "可用栁不变（本就没冻东西）；押金仍押在账户里（它不跟单走）");
         assertEquals(0L, account.getFrozenPoints());
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
-        assertEquals(200L, account.getDepositPoints(), "取消不得把账户押金退成可花");
+        assertEquals(0L, account.getDepositPoints(), "押金整套已作废（19A 预收取代），不得再有押金额度");
     }
 
     private SlotStatus slotStatus(String orderNo) {
