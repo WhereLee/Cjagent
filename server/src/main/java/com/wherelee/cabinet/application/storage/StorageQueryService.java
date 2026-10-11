@@ -1,9 +1,11 @@
 package com.wherelee.cabinet.application.storage;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wherelee.cabinet.application.billing.PricingPolicy;
 import com.wherelee.cabinet.application.point.PointAccountService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
+import com.wherelee.cabinet.domain.entity.BizPointTxn;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizSite;
@@ -11,11 +13,13 @@ import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
+import com.wherelee.cabinet.infrastructure.mapper.BizPointTxnMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -48,16 +52,21 @@ public class StorageQueryService {
     private final BizCabinetMapper cabinetMapper;
     private final BizCompartmentMapper slotMapper;
     private final BizStorageOrderMapper orderMapper;
+    private final BizPointTxnMapper txnMapper;
     private final PointAccountService accounts;
+    private final PricingPolicy pricing;
 
     public StorageQueryService(BizSiteMapper siteMapper, BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper, BizStorageOrderMapper orderMapper,
-                               PointAccountService accounts) {
+                               BizPointTxnMapper txnMapper, PointAccountService accounts,
+                               PricingPolicy pricing) {
         this.siteMapper = siteMapper;
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
+        this.txnMapper = txnMapper;
         this.accounts = accounts;
+        this.pricing = pricing;
     }
 
     /** 点位：找地方需要的字段 + 各尺寸还剩多少正常格口（全异常就是 0）。 */
@@ -190,5 +199,57 @@ public class StorageQueryService {
 
     private static long nvl(Long value) {
         return value == null ? 0L : value;
+    }
+
+    /** 一笔资金流水（用户能逐笔核对“钱去哪了”）。 */
+    public record BillLine(String type, long amount, long balanceAfter, String remark, LocalDateTime at) {
+    }
+
+    /**
+     * 一张单的账单明细：参数、时长、应收、预收、实收、欠费，以每一笔流水。
+     *
+     * <p>为什么单独给这个接口：用户被“有未支付订单不许再下单”拦住时，现在只能看到一句结论，
+     * 看不到这笔钱怎么来的。拦人的动作必须同时给出一条能自己查清的出口。
+     *
+     * <p><b>不拿当前价重算</b>：参数只从这张单的快照里读（同结算侧的约定）。
+     * 另外“应收”算完还要跟单上记的实收对一下：两处不一致就说明结算与明细用了不同口径，
+     * 这种事必须让接口自己报出来，不能等用户来对账。
+     */
+    public BillView bill(Long customerId, String orderNo) {
+        BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
+                .eq(BizStorageOrder::getOrderNo, orderNo));
+        if (order == null || !java.util.Objects.equals(order.getCustomerId(), customerId)) {
+            throw new BizException(ResultCode.DATA_NOT_FOUND, "没找到这张寄存单");
+        }
+        LocalDateTime end = order.getFinishedAt() != null ? order.getFinishedAt() : LocalDateTime.now();
+        long minutes = order.getStartedAt() == null ? 0L
+                : Math.max(0L, Duration.between(order.getStartedAt(), end).toMinutes());
+        var params = pricing.snapshotParams(order.getPricingSnapshot());
+        var quote = pricing.fromSnapshot(order.getPricingSnapshot(), minutes);
+        java.util.List<BillLine> lines = txnMapper.selectList(Wrappers.<BizPointTxn>lambdaQuery()
+                        .eq(BizPointTxn::getRefId, order.getId())
+                        .orderByAsc(BizPointTxn::getCreateTime)
+                        .last("limit 60"))
+                .stream()
+                .map(t -> new BillLine(t.getBizType() == null ? null : t.getBizType().name(),
+                        nvl(t.getAmount()), nvl(t.getBalanceAfter()), t.getRemark(), t.getCreateTime()))
+                .toList();
+        return new BillView(order.getOrderNo(),
+                order.getStatus() == null ? null : order.getStatus().name(),
+                order.getSizeType() == null ? null : order.getSizeType().name(),
+                order.getStartedAt(), order.getFinishedAt(), minutes,
+                params.unitPointsPerHour(), params.freeMinutes(), params.dailyCapHours(), params.capDays(),
+                quote.billedHours(), quote.consumePoints(),
+                nvl(order.getPrepayPoints()), nvl(order.getSettledPoints()), nvl(order.getArrearsPoints()),
+                lines);
+    }
+
+    /** 账单明细视图。金额全部是点（1 点 = 1 分），不在此处换算成元。 */
+    public record BillView(String orderNo, String status, String sizeType,
+                           LocalDateTime startedAt, LocalDateTime finishedAt, long billedMinutes,
+                           long unitPointsPerHour, int freeMinutes, int dailyCapHours, int capDays,
+                           int billedHours, long chargePoints,
+                           long prepayPoints, long settledPoints, long arrearsPoints,
+                           java.util.List<BillLine> lines) {
     }
 }

@@ -168,7 +168,23 @@ public class PricingPolicy {
         return write(snapshot);
     }
 
-    /** 从快照里取“总额封顶天数”，给逾期看管算截止用（没预估时长后，这就是“多久算呆滞”的唯一依据）。 */
+    /** 快照里“算得出价”的那几个输入，对外只读一份（账单明细用）。 */
+    public record PricingParams(long unitPointsPerHour, int freeMinutes, int dailyCapHours, int capDays) {
+    }
+    
+    /**
+     * 这张单当时按什么参数算的。
+     *
+     * <p>为什么不给用户端自己拿当前配置反推：账单要回答的是“当时按什么价”，
+     * 而参数存在快照里。用今天的配置去解释历史账单，改一次价所有历史账单都跟着变——
+     * 那是最容易失去信任的错，也是结算侧早就定过“只读快照”的同一个理由。
+     */
+    public PricingParams snapshotParams(String snapshotJson) {
+        Snap snap = readSnapshot(snapshotJson);
+        return new PricingParams(snap.unit(), snap.freeMinutes(), snap.dailyCapHours(), snap.capDays());
+    }
+    
+    /** 从快照里取“总额封顶天数”，给超时看管算截止用（没预估时长后，这就是“多久算呆滞”的唯一依据）。 */
     public int capDaysOf(String snapshotJson) {
         return (int) readSnapshot(snapshotJson).capDays();
     }

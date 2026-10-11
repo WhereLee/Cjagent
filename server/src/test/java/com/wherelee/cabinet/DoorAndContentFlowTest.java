@@ -567,4 +567,28 @@ class DoorAndContentFlowTest {
                 .mapToLong(com.wherelee.cabinet.application.storage.StorageQueryService.SiteView::freeSmall)
                 .findFirst().orElse(-1L);
     }
+
+    @Test
+    @DisplayName("账单明细与单上记的实收必须同源同值（A-3）")
+    void billMatchesWhatTheOrderRecords() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        BizStorageOrder closed = order(order.getOrderNo());
+        var bill = TenantContext.callAs(TENANT, () -> queries.bill(customerId, order.getOrderNo()));
+        assertEquals(nvl(closed.getSettledPoints()), bill.settledPoints(), "明细不得自己另算一套实收");
+        assertEquals(nvl(closed.getPrepayPoints()), bill.prepayPoints(), "预收同源");
+        assertTrue(bill.lines().stream().anyMatch(l -> "PREPAY".equals(l.type())),
+                "预收那一笔必须在明细里看得到：" + bill.lines());
+        assertEquals(bill.chargePoints(), bill.settledPoints(),
+                "按快照重算的应收必须等于结算当时收的钱（不等就是两处口径分了）");
+        assertTrue(bill.unitPointsPerHour() > 0, "单价必须从这张单的快照里读出来，不能拿今天的配置猜");
+    }
+
+    private static long nvl(Long value) {
+        return value == null ? 0L : value;
+    }
 }

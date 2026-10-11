@@ -63,6 +63,16 @@ public class MiniStorageQueryController {
         return R.ok(queries.myOrders(current.subjectId(), limit));
     }
 
+    @Operation(summary = "一张单的账单明细",
+            description = "单价/免费窗口/封顶参数取自这张单的快照，不拿当前价重算；逐笔流水一并列出")
+    @RateLimit(limit = 60, windowSeconds = 60)
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @GetMapping("/orders/{orderNo}/bill")
+    public R<StorageQueryService.BillView> bill(@AuthenticationPrincipal VerifiedToken current,
+                                                @PathVariable @NotBlank @Size(max = 32) String orderNo) {
+        return R.ok(queries.bill(current.subjectId(), orderNo));
+    }
+
     @Operation(summary = "我的钱包",
             description = "余额/冻结/押金栏 + 欠费合计与未支付笔数（欠费记在单上，这里读同一来源）")
     @RateLimit(limit = 60, windowSeconds = 60)
