@@ -43,10 +43,14 @@ public class WorkOrderService {
 
     private final BizWorkOrderMapper orders;
     private final BizWorkOrderEventMapper events;
+    /** 19D：升级时同时生成“必须打电话”待办与给客户的站内消息。 */
+    private final com.wherelee.cabinet.application.notify.NoticeService notices;
 
-    public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events) {
+    public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
+                            com.wherelee.cabinet.application.notify.NoticeService notices) {
         this.orders = orders;
         this.events = events;
+        this.notices = notices;
     }
 
     /**
@@ -236,16 +240,36 @@ public class WorkOrderService {
         return true;
     }
 
-    /** 阶梯到点：升级为紧急异常并把处理时限拉到“就是现在”（业务员必须处理）。 */
+    /**
+     * 阶梯到点：升级为紧急并把处理时限拉到“就是现在”，同时产出两件可见的东西：
+     * 业务员一条“必须电话联系客户”的待办，客户一条站内消息。
+     *
+     * <p>去重键用“工单 ID + 档位”而不是“时刻”：阶梯每轮巡检都会重进这里，
+     * 用时刻做键就会每隔几分钟刷出一条一模一样的电话任务。
+     */
     @Transactional
     public boolean escalate(Long slotId, WorkOrderType type, String detail) {
         if (orders.escalateBySlot(slotId, type.name()) == 0) {
             return false;
         }
         BizWorkOrder open = findOpen(type, slotId);
-        if (open != null) {
-            note(open, "ESCALATED", null, detail);
+        if (open == null) {
+            return true;
         }
+        note(open, "ESCALATED", null, detail);
+        String phone = phoneFromSnapshot(open);
+        String where = (open.getSlotNo() == null ? "格口" : "格口 " + open.getSlotNo())
+                + "（" + open.getTitle() + "）";
+        // 业务员侧待办：不假装系统自己打了电话，只把“必须联系”挂在队列里并要求回填结果
+        notices.emit(open.getTenantId(), com.wherelee.cabinet.application.notify.NoticeService.CHANNEL_PHONE,
+                type.name(), "WO" + open.getId() + ":PHONE",
+                "必须电话联系客户 " + (phone == null ? "（无电话记录）" : phone) + "：" + where + " — " + detail,
+                open.getCustomerId(), open.getId(), open.getOrderNo());
+        // 客户侧站内消息：没有推送，他自己打开小程序能看到也算提醒到了
+        notices.emit(open.getTenantId(), com.wherelee.cabinet.application.notify.NoticeService.CHANNEL_MESSAGE,
+                type.name(), "WO" + open.getId() + ":MSG",
+                "你的暂存柜" + where + " 需要处理：" + detail + "。请尽快关门或取走物品并结束订单。",
+                open.getCustomerId(), open.getId(), open.getOrderNo());
         log.warn("工单升级紧急 slotId={} type={} {}", slotId, type, detail);
         return true;
     }

@@ -30,6 +30,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -57,6 +58,8 @@ class WorkOrderFlowTest {
     private CompartmentStateService states;
     @Autowired
     private WorkOrderService workOrders;
+    @Autowired
+    private com.wherelee.cabinet.application.notify.NoticeService notices;
     @Autowired
     private BizStorageOrderMapper orderMapper;
 
@@ -99,6 +102,7 @@ class WorkOrderFlowTest {
 
     @AfterEach
     void cleanup() {
+        jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
@@ -247,7 +251,9 @@ class WorkOrderFlowTest {
                 assertTrue(pre.value().contains("workorder:"), m.getName() + " 的权限点必须属于 workorder 族：" + pre.value());
             }
         }
-        assertEquals(5, guarded, "五个端点都要独立权限点（认领/处理/派单不能靠一个管理员点完）");
+        assertEquals(7, guarded,
+                "七个端点都要独立权限点（两列队列/时间线/认领/处理/派单/电话清单与回填）；"
+                        + "不能靠一个管理员点完，否则留痕里分不出责任");
         // 接口层不得回传实体：拿泛型字符串直读，比反射拆 ParameterizedType 清楚得多
         String onlineReturn = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("online")).findFirst().orElseThrow()
@@ -270,5 +276,68 @@ class WorkOrderFlowTest {
         assertEquals("DEVICE_FAULT", list.get(0).get("type"));
         assertEquals(Boolean.FALSE, list.get(0).get("urgent"), "传感器矛盾按普通排队：它不影响钱");
         assertEquals(null, list.get(0).get("order_no"), "没有一个活着的单时，工单只指向格口");
+    }
+
+    @Test
+    @DisplayName("升到“必须处理”时同时产出：业务员一条电话任务 + 客户一条站内消息，且不得重复发")
+    void escalationEmitsCallTaskAndCustomerMessage() {
+        markDoorOpen();
+        Long wo = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
+
+        assertTrue(TenantContext.callAs(TENANT,
+                () -> workOrders.escalate(slotId, WorkOrderType.DOOR_NOT_CLOSED, "门未关满 10 分钟，需业务员处理")),
+                "升级应当生效（单还开着且未升级过）");
+
+        List<Map<String, Object>> calls = rows(
+                "select channel, content, customer_id, done_at from biz_notice where work_order_id = ? and channel = 'PHONE_CALL'", wo);
+        assertEquals(1, calls.size(), "升级要产出一条“必须打电话”的待办：没有它，“打电话提醒”只是一句口说法");
+        assertTrue(String.valueOf(calls.get(0).get("content")).contains("13800001234"),
+                "任务里必须带客户电话，不能让业务员再去别处查：" + calls.get(0).get("content"));
+        assertEquals(null, calls.get(0).get("done_at"), "没回填就是还欠着，不能一生成就算办完");
+        assertNotNull(calls.get(0).get("customer_id"), "电话任务也要记下是谁的事，否则无法回溯联系对象");
+
+        assertEquals(1, rows(
+                "select id from biz_notice where work_order_id = ? and channel = 'SYSTEM_MESSAGE'", wo).size(),
+                "同时给客户一条站内消息（没有推送，他自己看到也算提醒到）");
+
+        // 阶梯每轮都会重进升级分支：第二次必须什公都不产生
+        assertFalse(TenantContext.callAs(TENANT,
+                () -> workOrders.escalate(slotId, WorkOrderType.DOOR_NOT_CLOSED, "重复升级")),
+                "已升级过的单不应再命中一次升级");
+        assertEquals(2, jdbc.queryForObject(
+                "select count(*) from biz_notice where work_order_id = ?", Integer.class, wo),
+                "升级只产出一次：一条电话任务 + 一条站内消息");
+    }
+
+    @Test
+    @DisplayName("客户只能标自己收到的消息已读；电话结果必填且不得重复回填")
+    void readAndCallDoneGuards() {
+        markDoorOpen();
+        TenantContext.runAs(TENANT, () -> workOrders.escalate(slotId, WorkOrderType.DOOR_NOT_CLOSED, "到点"));
+        // 裸 SQL 必须带租户：同一个 JVM 里别的用例类也在写 biz_notice，
+        // 不带条件的 limit 1 会捞到他们的消息，症状是“标已读报了别人的账号”这种假错
+        Long messageId = jdbc.queryForObject(
+                "select id from biz_notice where tenant_id = ? and channel = 'SYSTEM_MESSAGE' order by id desc limit 1",
+                Long.class, TENANT);
+        Long callId = jdbc.queryForObject(
+                "select id from biz_notice where tenant_id = ? and channel = 'PHONE_CALL' order by id desc limit 1",
+                Long.class, TENANT);
+
+        // 别人来读：条件里带 customer_id，改不到别人的消息
+        assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> notices.markRead(messageId, 999999L)), "不得替别人标已读");
+        TenantContext.runAs(TENANT, () -> notices.markRead(messageId, 81619999L));
+        assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> notices.markRead(messageId, 81619999L)), "重复已读必须失败而不是静默成功");
+
+        assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> notices.markCallDone(callId, "  ")), "不填结果就想销掉电话任务，不行");
+        TenantContext.runAs(TENANT, () -> notices.markCallDone(callId, "已联系，客户十分钟内回来关门"));
+        assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
+                () -> notices.markCallDone(callId, "又被回填一次")), "第二个人不得盖掉第一个人的结论");
+        // 回填后不再出现在待打电话清单里
+        assertTrue(TenantContext.callAs(TENANT, () -> notices.pendingCalls().stream().noneMatch(v -> v.id().equals(callId))),
+                "已回填的任务必须从清单消失，否则队列永远处理不完");
     }
 }

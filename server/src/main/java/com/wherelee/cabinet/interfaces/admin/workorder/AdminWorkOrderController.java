@@ -39,9 +39,38 @@ import java.util.List;
 public class AdminWorkOrderController {
 
     private final WorkOrderService workOrders;
+    private final com.wherelee.cabinet.application.notify.NoticeService notices;
 
-    public AdminWorkOrderController(WorkOrderService workOrders) {
+    public AdminWorkOrderController(WorkOrderService workOrders,
+                                    com.wherelee.cabinet.application.notify.NoticeService notices) {
         this.workOrders = workOrders;
+        this.notices = notices;
+    }
+
+    /**
+     * 待打电话清单（19D）：系统没有外呼能力，所以这里列出的是“人必须去打的电话”，
+     * 打完必须回填结果。它不是装饰：没有这张清单，“10 分钟打电话提醒”就只是一句口说法。
+     */
+    @Operation(summary = "待联系客户的电话任务", description = "阶梯升到“必须处理”时生成，未回填前一直在列")
+    @PreAuthorize("hasAuthority('workorder:online:list')")
+    @GetMapping("/pending-calls")
+    public R<java.util.List<com.wherelee.cabinet.application.notify.NoticeService.View>> pendingCalls() {
+        return R.ok(notices.pendingCalls());
+    }
+
+    @Operation(summary = "回填电话结果", description = "联系结果必填：联系上了/未接/约定多久处理")
+    @OperationLog(module = "workorder", operation = "回填联系结果")
+    @Idempotent(key = "#current.subjectId() + ':call:' + #id", requireKey = false)
+    @PreAuthorize("hasAuthority('workorder:resolve')")
+    @PostMapping("/notices/{id}/call-done")
+    public R<Void> callDone(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
+                            @Valid @RequestBody CallDoneCommand cmd) {
+        notices.markCallDone(id, cmd.resultNote());
+        return R.ok();
+    }
+
+    /** 回填内容：一句人话的结论，空得拒。 */
+    public record CallDoneCommand(@NotBlank @Size(max = 300) String resultNote) {
     }
 
     @Operation(summary = "线上工单队列", description = "紧急在前、开单早的先办；默认只给未关闭的")

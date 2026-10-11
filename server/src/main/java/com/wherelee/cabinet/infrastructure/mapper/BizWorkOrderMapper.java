@@ -54,13 +54,16 @@ public interface BizWorkOrderMapper extends BaseMapper<BizWorkOrder> {
      * 升级到紧急并拉紧处理时限（阶梯到“业务员必须处理”那一档时调）。
      *
      * <p>条件里带 `active_flag = 1`：已经被关（人或事实收口）的单不能被“催回来”，
-     * 否则会出现“已解决的历史单又在等人处理”这种假待办。
+     * 否则会出现“已解决的历史单又在等人处理”这种假待办。<br>
+     * 另带一个“还没升级过”的条件（已紧急且时限已到 = 不再命中）：
+     * 升级在阶梯里会被反复经过，不卡这个条件就会每轮刷一条电话任务与站内消息。
      */
     @Update("""
             update biz_work_order
-               set urgent = 1, due_at = LEAST(coalesce(due_at, NOW(3)), NOW(3)),
+               set urgent = 1, due_at = NOW(3),
                    version = version + 1, update_time = NOW(3)
              where slot_id = #{slotId} and type = #{type} and deleted = 0 and active_flag = 1
+               and (urgent = 0 or due_at is null or due_at > NOW(3))
             """)
     int escalateBySlot(@Param("slotId") Long slotId, @Param("type") String type);
 }
