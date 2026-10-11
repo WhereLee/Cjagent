@@ -66,7 +66,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.hold-grace-minutes=0",
         // 容错期设 0：用例自己决定"到期前 / 到期后"，不靠等待
-        "cabinet.pricing.tolerance-minutes=0",
+        "cabinet.door-watch.first-remind-minutes=0",
 })
 @DisplayName("门态与柜内物品：计费锚点、结束三条件、放弃与远程结束")
 class DoorAndContentFlowTest {
@@ -300,7 +300,7 @@ class DoorAndContentFlowTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        TenantContext.runAs(TENANT, () -> orderService.toleranceExpired(order.getOrderNo(),
+        TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
                 new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
 
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));

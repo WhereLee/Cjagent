@@ -54,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.hold-grace-minutes=0",
-        "cabinet.pricing.tolerance-minutes=0",
+        "cabinet.door-watch.first-remind-minutes=0",
 })
 @DisplayName("用户侧：一人只能占一格、没位就是没位、取件码错 5 次锁定")
 class SingleSlotAndVoucherTest {

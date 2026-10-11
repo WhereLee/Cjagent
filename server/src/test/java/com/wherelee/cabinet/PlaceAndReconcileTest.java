@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.reconcile-minutes=0",
-        "cabinet.pricing.tolerance-minutes=0",
+        "cabinet.door-watch.first-remind-minutes=0",
 })
 @DisplayName("一步存件、待收敛回收（先看事实）、自助退押金抵欠款")
 class PlaceAndReconcileTest {

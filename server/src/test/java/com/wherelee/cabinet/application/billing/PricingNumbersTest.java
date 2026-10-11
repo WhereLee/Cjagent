@@ -74,16 +74,25 @@ class PricingNumbersTest {
     }
 
     @Test
-    @DisplayName("两段计时的两个旧参数标为待删：现在删不得，因为读取方还在")
-    void obsoleteTimingConfigsAreRegisteredDebt() throws Exception {
-        Map<String, Object> pricing = cabinetPricing();
+    @DisplayName("门未关阶梯就是用户给的 3/5/10 分钟；旧的 tolerance-minutes 已不再是计费参数")
+    void doorWatchLadderNumbers() throws Exception {
+        Path file = Path.of("src/main/resources/application.yml");
+        Map<String, Object> root;
+        try (java.io.InputStream in = Files.newInputStream(file)) {
+            root = new Yaml().load(in);
+        }
+        Map<String, Object> cabinet = (Map<String, Object>) root.get("cabinet");
+        Map<String, Object> watch = (Map<String, Object>) cabinet.get("door-watch");
+        assertNotNull(watch, "19D 的提醒阶梯必须存在于 cabinet.door-watch");
 
-        // 2026-10-11 定稿：开柜即计时 + 每单头 30 分钟免费，“5 分钟容错”与“未关门加收 2 小时”都下位。
-        // 但删配置必须与删读取方同批做（否则 @Value 静默回退到默认值，行为看不出来），
-        // 而读取方属于 19A 后半。所以这里不断言它们已消失（那是假绿），只把它们记成显式欠账。
-        assertNotNull(pricing.get("tolerance-minutes"),
-                "19A 后半：与 scheduleDoorWatch/toleranceOf 一起删除，不得单独删配置");
-        assertNotNull(pricing.get("remote-close-hours"),
-                "19A 后半：与远程结束入口一起删除，不得单独删配置");
+        // 用户 2026-10-11 原话：3 分钟提醒、5 分钟连发三条、10 分钟业务员必须处理
+        assertEquals(3, ((Number) watch.get("first-remind-minutes")).intValue(), "第一次提醒是用户定的 3 分钟");
+        assertEquals(5, ((Number) watch.get("repeat-remind-minutes")).intValue(), "连发提醒从用户定的 5 分钟起");
+        assertEquals(10, ((Number) watch.get("escalate-minutes")).intValue(), "必须处理是用户定的 10 分钟");
+        assertEquals(3, ((Number) watch.get("repeat-times")).intValue(), "连发三条就是三条");
+
+        // 旧的单一容错参数已拆掉：它过去既当计费起点又当提醒时刻（19A 后前者已不存在）
+        assertNull(cabinetPricing().get("tolerance-minutes"),
+                "tolerance-minutes 不得回来：计费起点是开柜瞬间，不再需要容错期参数");
     }
 }

@@ -49,4 +49,18 @@ public interface BizWorkOrderMapper extends BaseMapper<BizWorkOrder> {
              where slot_id = #{slotId} and type = #{type} and deleted = 0 and active_flag = 1
             """)
     int autoCloseBySlot(@Param("slotId") Long slotId, @Param("type") String type);
+
+    /**
+     * 升级到紧急并拉紧处理时限（阶梯到“业务员必须处理”那一档时调）。
+     *
+     * <p>条件里带 `active_flag = 1`：已经被关（人或事实收口）的单不能被“催回来”，
+     * 否则会出现“已解决的历史单又在等人处理”这种假待办。
+     */
+    @Update("""
+            update biz_work_order
+               set urgent = 1, due_at = LEAST(coalesce(due_at, NOW(3)), NOW(3)),
+                   version = version + 1, update_time = NOW(3)
+             where slot_id = #{slotId} and type = #{type} and deleted = 0 and active_flag = 1
+            """)
+    int escalateBySlot(@Param("slotId") Long slotId, @Param("type") String type);
 }

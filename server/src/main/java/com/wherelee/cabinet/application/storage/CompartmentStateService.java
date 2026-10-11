@@ -42,6 +42,17 @@ public class CompartmentStateService {
     /** 工单流转（19B）：门关上时把“门未关”工单自动转化留底。 */
     private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
 
+    // 19D 阶梯的三个数（用户在 2026-10-11 给出）：3 分钟首响、5 分钟连发三条、10 分钟必须处理
+    @Value("${cabinet.door-watch.first-remind-minutes:3}")
+    private long firstRemindMinutes;
+    @Value("${cabinet.door-watch.repeat-remind-minutes:5}")
+    private long repeatRemindMinutes;
+    @Value("${cabinet.door-watch.escalate-minutes:10}")
+    private long escalateMinutes;
+    /** “连发三条”的条数（用户描述的“连发提醒”，不是发一条长消息）。 */
+    @Value("${cabinet.door-watch.repeat-times:3}")
+    private int repeatRemindTimes;
+
     /**
      * 物检结论的可用时效（分钟）。
      *
@@ -109,10 +120,56 @@ public class CompartmentStateService {
         }
     }
 
-    /** 容错期满而门还开着：这时才真的是异常（计费已经起计，必须有人看见）。 */
+    /**
+     * 容错期满而门还开着：这时才真的是异常（计费从开柜就在跑，必须有人看见）。
+     *
+     * <p>19D 把提醒阶梯也落在这里（而不是各调度分支里）：这里已经是“标异常”的唯一出口，
+     * 开单也在同一个调用链上。阶梯用**已催次数**而不是“当前几分”判定，因为巡检可能被
+     * 租约接管后重跑，拿墙上时间判会在同一分钟重复发提醒。
+     */
     public void markDoorOpenPastTolerance(Long slotId, long openMinutes) {
         markAnomalyAndLog(slotId, CompartmentAnomaly.DOOR_OPEN,
-                "柜门已开 " + openMinutes + " 分钟仍未关闭，计费已起计，直到关门或用户远程结束");
+                "柜门已开 " + openMinutes + " 分钟仍未关闭，计费已起计，直到关门或用户结束订单");
+        runReminderLadder(slotId, openMinutes);
+    }
+
+    /**
+     * 提醒阶梯：3 分钟一次、5 分钟连发三条并做检测、10 分钟升级到“业务员必须处理”。
+     *
+     * <p>为什么能靠“已催几次”推台阶而不存台阶字段：每一步都写一行事件流水，
+     * 次数就是状态。多一列就要多一处同步，而那处同步一定会错。
+     */
+    private void runReminderLadder(Long slotId, long openMinutes) {
+        BizCompartment slot = slotMapper.selectById(slotId);
+        if (slot == null || slot.getAnomaly() != CompartmentAnomaly.DOOR_OPEN) {
+            return;
+        }
+        var type = com.wherelee.cabinet.domain.enums.WorkOrderType.DOOR_NOT_CLOSED;
+        int already = workOrders.remindedTimes(slotId, type);
+        int totalReminds = 1 + repeatRemindTimes;
+        if (already >= totalReminds) {
+            // 提醒档已走完：该做的只剩升级。到点没升级成功就下一轮再试，不卡死也不刷屏
+            if (openMinutes >= escalateMinutes) {
+                workOrders.escalate(slotId, type, "门未关满 " + escalateMinutes
+                        + " 分钟，需线上业务员处理并联系客户");
+            }
+            return;
+        }
+        if (already == 0) {
+            workOrders.remind(slotId, type, "提醒 1/" + totalReminds + "：门开了 "
+                    + firstRemindMinutes + " 分钟未关（已开单，计费从开柜起算）");
+            return;
+        }
+        // 第二档起：连发提醒（到 repeat-remind-minutes 才开始，不是“下一轮巡检就发”）
+        if (openMinutes < repeatRemindMinutes) {
+            return;
+        }
+        workOrders.remind(slotId, type, "提醒 " + (already + 1) + "/" + totalReminds
+                + "：门已开 " + openMinutes + " 分钟，请关门或带走物品后结束");
+        // 每发一次就做一次检测：检测说柜内有物，这张单就是紧急异常（现场可能正在丢件）
+        if (slot.getPresence() == Presence.PRESENT) {
+            workOrders.escalate(slotId, type, "检测到柜内有物而门还开着：升为紧急异常");
+        }
     }
 
     /**

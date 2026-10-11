@@ -75,7 +75,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.hold-grace-minutes=0",
-        "cabinet.pricing.tolerance-minutes=0",
+        "cabinet.door-watch.first-remind-minutes=0",
 })
 @DisplayName("后台处置：清柜、强制开柜、误报免除、欠费拦截、禁用客户")
 class AdminLockerConsoleTest {
@@ -228,7 +228,7 @@ class AdminLockerConsoleTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        TenantContext.runAs(TENANT, () -> orderService.toleranceExpired(order.getOrderNo(),
+        TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
                 new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
 
         var page = TenantContext.callAs(TENANT, () ->
@@ -252,7 +252,7 @@ class AdminLockerConsoleTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        TenantContext.runAs(TENANT, () -> orderService.toleranceExpired(order.getOrderNo(),
+        TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
                 new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
         Long slotId = order(order.getOrderNo()).getSlotId();
 

@@ -1,0 +1,4 @@
+[
+  ["cabinet.pricing.tolerance-minutes=0", "cabinet.door-watch.first-remind-minutes=0"],
+  ["orderService.toleranceExpired(", "orderService.doorWatchTick("]
+]

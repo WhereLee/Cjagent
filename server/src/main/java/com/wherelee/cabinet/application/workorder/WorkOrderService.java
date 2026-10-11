@@ -219,6 +219,64 @@ public class WorkOrderService {
                 .toList();
     }
 
+    /**
+     * 记一次“被催办”（19D 阶梯）。返回 false 表示没有未关闭的对应工单（异常已收口）。
+     *
+     * <p>为什么不开一张 `biz_reminder` 表：提醒的语义就是“这张单又被催了一次”，
+     * 它本来就是工单事件流水里的一行；另建一张表只会多出一个要同步的真相。
+     * 真正的投递（站内消息、需打电话的任务）是另一件事，落在 `biz_notice` 上。
+     */
+    @Transactional
+    public boolean remind(Long slotId, WorkOrderType type, String detail) {
+        BizWorkOrder open = findOpen(type, slotId);
+        if (open == null) {
+            return false;
+        }
+        note(open, "REMINDER", null, detail);
+        return true;
+    }
+
+    /** 阶梯到点：升级为紧急异常并把处理时限拉到“就是现在”（业务员必须处理）。 */
+    @Transactional
+    public boolean escalate(Long slotId, WorkOrderType type, String detail) {
+        if (orders.escalateBySlot(slotId, type.name()) == 0) {
+            return false;
+        }
+        BizWorkOrder open = findOpen(type, slotId);
+        if (open != null) {
+            note(open, "ESCALATED", null, detail);
+        }
+        log.warn("工单升级紧急 slotId={} type={} {}", slotId, type, detail);
+        return true;
+    }
+
+    /**
+     * 这张单已催过几次。阶梯靠它判重：一轮巡检可能跑两次（租约过期被接管），
+     * 不数已发过多少就会在同一时刻重复发提醒。
+     */
+    public int remindedTimes(Long slotId, WorkOrderType type) {
+        BizWorkOrder open = findOpen(type, slotId);
+        if (open == null) {
+            return 0;
+        }
+        return Math.toIntExact(events.selectCount(Wrappers.<BizWorkOrderEvent>lambdaQuery()
+                .eq(BizWorkOrderEvent::getWorkOrderId, open.getId())
+                .eq(BizWorkOrderEvent::getEventType, "REMINDER")));
+    }
+
+    /** 异常 → 工单映射所需的类型入口（阶梯升级时要升级同一类单）。 */
+    public Long openIdOf(Long slotId, WorkOrderType type) {
+        BizWorkOrder open = findOpen(type, slotId);
+        return open == null ? null : open.getId();
+    }
+
+    /**
+     * 按格口取当前绑定的活动单（阶梯里用来区分“订单中”与“结束后”的措辞）。 */
+    public Long boundOrderId(Long slotId) {
+        BizWorkOrder open = findOpen(WorkOrderType.DOOR_NOT_CLOSED, slotId);
+        return open == null ? null : open.getStorageId();
+    }
+
     private BizWorkOrder findOpen(WorkOrderType type, Long slotId) {
         return orders.selectOne(Wrappers.<BizWorkOrder>lambdaQuery()
                 .eq(BizWorkOrder::getType, type)

@@ -152,7 +152,7 @@ public final class TaskHandlers {
      *
      * <p>{@link #transactional()} 返回 false：设备探测在真接上 MQTT 后是一次 RPC，
      * 不能拿着数据库连接等它回答（第 11 刀拆事务的同一理由）；收敛自己在
-     * {@code StorageOrderService.toleranceExpired} 里成一个短事务。
+     * {@code StorageOrderService.doorWatchTick} 里成一个短事务。
      */
     @Component
     public static class DoorNotClosedHandler implements TaskHandler {
@@ -195,7 +195,7 @@ public final class TaskHandlers {
                 recordFault(order, "柜门长时间未关且计费已到顶，转对账与运维清单");
                 return false;
             }
-            boolean remindAgain = orders.toleranceExpired(order.getOrderNo(),
+            boolean remindAgain = orders.doorWatchTick(order.getOrderNo(),
                     states.sense(order.getCabinetId(), order.getSlotId()));
             if (remindAgain) {
                 recordFault(order, "柜门仍未关闭：已开始计费，直到关门或用户远程结束");

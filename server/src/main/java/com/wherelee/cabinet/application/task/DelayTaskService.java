@@ -200,6 +200,14 @@ public class DelayTaskService {
     }
 
     /** 续排间隔：不继承上一次 fire_at，避免“越跑越早”的漂移（执行慢了就把下一轮拉得更近）。 */
+    @Value("${cabinet.door-watch.tick-minutes:5}")
+    private long doorWatchTickMinutes;
+
+    /** 上面那个分钟的秒数形式（与阶梯参数同一源头，不单独再配一个）。 */
+    private long doorWatchTickSeconds() {
+        return doorWatchTickMinutes * 60L;
+    }
+
     private long rearmSeconds(TaskType type) {
         return switch (type) {
             case OVERDUE_PICKUP -> overdueRemindMinutes * 60L;
@@ -209,6 +217,10 @@ public class DelayTaskService {
             // 回扫的下一轮就是下一次重试的间隔：与首次登记用同一个参数，
             // 否则“首次 30 秒、重试 5 分钟”这种不人能解释的节奏就会出现在同一条指令上
             case COMMAND_RESCAN -> commandRescanSeconds;
+            // 门未关看管：续排间隔必须显式给。以前它落到 default -> 0，意思是
+            // “做完就再排一次”，而提醒阶梯（3/5/10 分钟）恰恰靠这个间隔推进；
+            // 没间隔就成了“同一分钟刷屏”而阶梯永远走不到第二档。
+            case DOOR_NOT_CLOSED -> doorWatchTickSeconds();
             default -> 0L;
         };
     }

@@ -63,7 +63,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.hold-grace-minutes=0",
-        "cabinet.pricing.tolerance-minutes=0",
+        "cabinet.door-watch.first-remind-minutes=0",
 })
 @DisplayName("欠费清偿：不足额不动钱、足额自动放行、先欠先还、重复触发不双扣")
 class ArrearsRepayFlowTest {

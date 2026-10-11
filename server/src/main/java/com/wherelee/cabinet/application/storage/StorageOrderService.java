@@ -100,8 +100,8 @@ public class StorageOrderService {
      * 同一个时刻的两个说法，存两个近似参数总有一天会被配成不一样，那时没人说得清
      * 哪个是计费起点。到期同时做三件事：落定计费起点、标格口异常、发提醒。
      */
-    @org.springframework.beans.factory.annotation.Value("${cabinet.pricing.tolerance-minutes:5}")
-    private long toleranceMinutes;
+    @org.springframework.beans.factory.annotation.Value("${cabinet.door-watch.first-remind-minutes:3}")
+    private long firstRemindMinutes;
 
     public StorageOrderService(BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper,
@@ -803,7 +803,7 @@ public class StorageOrderService {
      */
     private long toleranceOf(BizStorageOrder order) {
         com.wherelee.cabinet.domain.entity.BizPriceRule rule = priceRules.effective(order.getSiteId());
-        return rule == null ? toleranceMinutes : rule.getToleranceMinutes();
+        return rule == null ? firstRemindMinutes : rule.getToleranceMinutes();
     }
 
     /** 登记“门开未关”看管，并把容错到期时刻定下来（两者是同一个时刻）。 */
@@ -837,7 +837,7 @@ public class StorageOrderService {
      * @return true 表示还要继续盯着（下一轮提醒）；false 表示这条看管到此为止
      */
     @Transactional
-    public boolean toleranceExpired(String orderNo, CompartmentStateService.Sensing sensing) {
+    public boolean doorWatchTick(String orderNo, CompartmentStateService.Sensing sensing) {
         BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getOrderNo, orderNo));
         if (order == null || order.getStatus().isTerminal()) {

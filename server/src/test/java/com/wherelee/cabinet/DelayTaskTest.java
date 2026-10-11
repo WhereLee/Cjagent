@@ -120,6 +120,11 @@ class DelayTaskTest {
     @BeforeEach
     void prepare() {
         jdbc = new JdbcTemplate(dataSource);
+        // 干净起点：runDue() 设计上不分租户抢任务（worker 就是全局的），而 batch-size 只冇 50。
+        // 19D 后“门未关”的看管任务会活到下一个 tick（以前要么 0 秒刷屏要么立刻了结），
+        // 别的用例类留下的到期任务能把整批吃完，本类的任务就会“根本没轮到跑”——
+        // 症状是断言拿到 PENDING，看上去像判据错，其实是隔级污染。（消费偏窄的调度问题已记入第 16 刀）
+        jdbc.update("delete from biz_delay_task");
         cabinetNo = "CAB-S-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         TenantContext.runAs(TENANT, () -> {
             BizSite site = new BizSite();
@@ -559,8 +564,16 @@ class DelayTaskTest {
         TenantContext.callAs(TENANT, tasks::runDue);
 
         BizDelayTask done = task(TaskType.OVERDUE_PICKUP, order.getOrderNo());
+        // 失败时把现场一并打出来：不靠人再去猜“是没跑还是跑了没到顶”
+        Map<String, Object> row = jdbc.queryForMap(
+                "select status, fire_at, attempt from biz_delay_task where task_type='OVERDUE_PICKUP' and biz_key = ?",
+                order.getOrderNo());
+        Map<String, Object> ord = jdbc.queryForMap(
+                "select expected_finish_at, started_at, cast(pricing_snapshot as char) snap from biz_storage_order where id = ?",
+                order.getId());
         assertEquals(TaskStatus.DONE, done.getStatus(),
-                "价格已到顶（cap-days=3）就不该再排：多盯一轮也不会多一分，只多一条日志");
+                "价格已到顶（cap-days=2，即 48 小时）就不该再排：多盯一轮也不会多一分，只多一条日志；"
+                        + "任务行=" + row + " 订单行=" + ord);
         assertEquals(OrderStatus.EXPIRED, TenantContext.callAs(TENANT,
                 () -> orderMapper.selectById(order.getId())).getStatus(), "停看管不能把单推到终态");
     }

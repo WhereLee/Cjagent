@@ -76,7 +76,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.hold-grace-minutes=0",
-        "cabinet.pricing.tolerance-minutes=0",
+        "cabinet.door-watch.first-remind-minutes=0",
         "cabinet.dispute.max-ai-review=2",
 })
 @DisplayName("柜内物品争议：拦下→否认→AI 复审→误报免除；以及发现者上报")
@@ -357,7 +357,7 @@ class ItemDisputeFlowTest {
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         // 容错期满（本刀 tolerance=0）把单推到计费中，但门仍开着：不这样做 pickup 会被“状态不可结束”先拦下，
         // 测到的就不是“门未关”这条判据
-        TenantContext.runAs(TENANT, () -> orderService.toleranceExpired(order.getOrderNo(),
+        TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
                 new CompartmentStateService.Sensing(false, Presence.PRESENT, LocalDateTime.now())));
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
 
