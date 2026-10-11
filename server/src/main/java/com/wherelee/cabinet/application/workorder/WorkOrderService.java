@@ -45,12 +45,45 @@ public class WorkOrderService {
     private final BizWorkOrderEventMapper events;
     /** 19D：升级时同时生成“必须打电话”待办与给客户的站内消息。 */
     private final com.wherelee.cabinet.application.notify.NoticeService notices;
+    /** 19C：证据记录（四个采集点）随工单一起看，不然采集了也等于没人看到。 */
+    private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
 
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
-                            com.wherelee.cabinet.application.notify.NoticeService notices) {
+                            com.wherelee.cabinet.application.notify.NoticeService notices,
+                            com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper) {
         this.orders = orders;
         this.events = events;
         this.notices = notices;
+        this.evidenceMapper = evidenceMapper;
+    }
+
+    /** 一条证据的可读视图（采集点 + 三值结论 + 置信度 + AI 标签 + 照片引用）。 */
+    public record EvidenceView(String moment, String source, String presence, java.math.BigDecimal confidence,
+                               String aiLabel, String photoRef, String note, java.time.LocalDateTime at) {
+    }
+
+    /**
+     * 这张工单相关格口的证据时间线（19C）。
+     *
+     * <p>按格口取而不是按单号取：代关、上报遗留这些事可能根本没有活动单可挂，
+     * 而业务员要看的是这个格子先后被看到过什么。
+     */
+    public java.util.List<EvidenceView> evidenceFor(Long workOrderId) {
+        BizWorkOrder order = require(workOrderId);
+        if (order.getSlotId() == null) {
+            return java.util.List.of();
+        }
+        return evidenceMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
+                        .<com.wherelee.cabinet.domain.entity.BizItemEvidence>lambdaQuery()
+                        .eq(com.wherelee.cabinet.domain.entity.BizItemEvidence::getCompartmentId, order.getSlotId())
+                        .orderByAsc(com.wherelee.cabinet.domain.entity.BizItemEvidence::getCreateTime)
+                        .last("limit 60"))
+                .stream()
+                .map(e -> new EvidenceView(e.getMoment() == null ? null : e.getMoment().name(),
+                        e.getSource() == null ? null : e.getSource().name(),
+                        e.getPresence() == null ? null : e.getPresence().name(),
+                        e.getConfidence(), e.getAiLabel(), e.getPhotoRef(), e.getNote(), e.getCreateTime()))
+                .toList();
     }
 
     /**

@@ -253,8 +253,8 @@ class WorkOrderFlowTest {
                 assertTrue(pre.value().contains("workorder:"), m.getName() + " 的权限点必须属于 workorder 族：" + pre.value());
             }
         }
-        assertEquals(7, guarded,
-                "七个端点都要独立权限点（两列队列/时间线/认领/处理/派单/电话清单与回填）；"
+        assertEquals(8, guarded,
+                "八个端点都要独立权限点（两列队列/时间线/证据/认领/处理/派单/电话清单与回填）；"
                         + "不能靠一个管理员点完，否则留痕里分不出责任");
         // 接口层不得回传实体：拿泛型字符串直读，比反射拆 ParameterizedType 清楚得多
         String onlineReturn = java.util.Arrays.stream(methods)
@@ -389,5 +389,22 @@ class WorkOrderFlowTest {
         TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 4));
         assertEquals(1, TenantContext.callAs(TENANT, () -> states.closableSlots(cabinetId)).size(),
                 "可代关清单只能包含「门未关」这一类");
+    }
+
+    @Test
+    @DisplayName("证据采集：看管检测留一条带三值结论的记录，能从工单上读到；虚拟设备下不存图片引用")
+    void evidenceCollectedAndReadableFromWorkOrder() {
+        markDoorOpen();
+        Long wo = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
+
+        List<WorkOrderService.EvidenceView> evidence =
+                TenantContext.callAs(TENANT, () -> workOrders.evidenceFor(wo));
+        assertTrue(evidence.stream().anyMatch(e -> "WATCH_DETECT".equals(e.moment())),
+                "门未关阶梯上的检测必须留证据，否则业务员事后不知道当时看到什么：" + evidence);
+        assertTrue(evidence.stream().allMatch(e -> e.presence() != null),
+                "三值结论不得为空：测不准也要写 UNKNOWN，不能留空让人当“没东西”读");
+        assertTrue(evidence.stream().allMatch(e -> e.photoRef() == null),
+                "本项目是虚拟设备，不得存一个不存在的图片引用");
     }
 }

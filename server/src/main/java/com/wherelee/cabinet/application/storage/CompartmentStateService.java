@@ -5,6 +5,8 @@ import com.wherelee.cabinet.application.device.DeviceChannel;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
+import com.wherelee.cabinet.domain.entity.BizItemEvidence;
+import com.wherelee.cabinet.domain.enums.EvidenceSource;
 import com.wherelee.cabinet.domain.entity.BizFaultEvent;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.FaultType;
@@ -44,6 +46,13 @@ public class CompartmentStateService {
     private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
     /** 工单流转（19B）：门关上时把“门未关”工单自动转化留底。 */
     private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
+    /**
+     * 证据留底（19C）：四个采集点各一条。
+     *
+     * <p>写在这里而不是各调用方自己写：这已经是门态与物检的唯一写入点，
+     * 分散写必然出现“实时路径记了、巡检路径漏了”那种同事件不同结果（第 13 刀为此合并过一次）。
+     */
+    private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
     // 19D 阶梯的三个数（用户在 2026-10-11 给出）：3 分钟首响、5 分钟连发三条、10 分钟必须处理
     @Value("${cabinet.door-watch.first-remind-minutes:3}")
     private long firstRemindMinutes;
@@ -67,12 +76,14 @@ public class CompartmentStateService {
     public CompartmentStateService(BizCompartmentMapper slotMapper, BizFaultEventMapper faultMapper,
                                    DeviceChannel channel,
                                    com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
-                                   com.wherelee.cabinet.application.workorder.WorkOrderService workOrders) {
+                                   com.wherelee.cabinet.application.workorder.WorkOrderService workOrders,
+                                   com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper) {
         this.slotMapper = slotMapper;
         this.faultMapper = faultMapper;
         this.channel = channel;
         this.intake = intake;
         this.workOrders = workOrders;
+        this.evidenceMapper = evidenceMapper;
     }
 
     /**
@@ -120,6 +131,26 @@ public class CompartmentStateService {
         if (slotMapper.markDoorOpen(slot.getId(), customerId, now) == 0) {
             log.debug("门已经是开着的，起点保持不动 slotNo={}", slot.getSlotNo());
         }
+        recordEvidence(BizItemEvidence.Moment.DOOR_OPENED, slot, "开门采集：此时柜内应为空，作为后续比对的基准");
+    }
+
+    /**
+     * 落一条证据记录（19C）。<b>不写 photoRef</b>：我们是虚拟设备，没有摄像头，
+     * 宁可留空也不能存一个不存在的图片引用——那会比没记录更坏（业务员会去调一张不存在的图）。
+     */
+    private void recordEvidence(BizItemEvidence.Moment moment, BizCompartment slot, String note) {
+        BizItemEvidence evidence = new BizItemEvidence();
+        evidence.setTenantId(slot.getTenantId());
+        evidence.setCabinetId(slot.getCabinetId());
+        evidence.setCompartmentId(slot.getId());
+        evidence.setSource(EvidenceSource.DEVICE_PROBE);
+        // 三值结论直接带上：测不准就是 UNKNOWN，不折成“没东西”
+        Presence presence = slot.getPresence() == null ? Presence.UNKNOWN : slot.getPresence();
+        evidence.setPresence(presence);
+        evidence.setMoment(moment);
+        evidence.setNote(note);
+        evidence.setCreateTime(LocalDateTime.now());
+        evidenceMapper.insert(evidence);
     }
 
     /**
@@ -146,6 +177,10 @@ public class CompartmentStateService {
             return "门看起来还没关上，请再推一下确认锁好";
         }
         afterDoorClosed(slot, helperCustomerId);
+        BizCompartment after = slotMapper.selectById(slotId);
+        recordEvidence(BizItemEvidence.Moment.HELPER_CLOSED,
+                after == null ? slot : after,
+                "他人代关后采集（id=" + helperCustomerId + "）：与代关前的记录比对后才判定能不能放回可售");
         // 代关的人要进台账：将来争辩“谁关的、为什么关”时这是唯一依据
         logFault(slot, FaultType.Action.RECOVER,
                 "由另一位用户（id=" + helperCustomerId + "）代关门，转正常前先做柜内检测");
@@ -203,6 +238,9 @@ public class CompartmentStateService {
         }
         var type = com.wherelee.cabinet.domain.enums.WorkOrderType.DOOR_NOT_CLOSED;
         int already = workOrders.remindedTimes(slotId, type);
+        // 看管期间每次检测都留一条（“5 分钟检测到有物时再来一张”就落在这里）
+        recordEvidence(BizItemEvidence.Moment.WATCH_DETECT, slot,
+                "门未关第 " + already + " 次检测：柜内=" + slot.getPresence());
         int totalReminds = 1 + repeatRemindTimes;
         if (already >= totalReminds) {
             // 提醒档已走完：该做的只剩升级。到点没升级成功就下一轮再试，不卡死也不刷屏
@@ -239,6 +277,7 @@ public class CompartmentStateService {
         if (moved == 0) {
             log.debug("关门事件重复到达，忽略 slotNo={}", slot.getSlotNo());
         }
+        recordEvidence(BizItemEvidence.Moment.DOOR_CLOSED, slot, "关门采集：结单与遗留判定的主要凭据");
         return moved == 1;
     }
 

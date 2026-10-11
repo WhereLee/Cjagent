@@ -119,6 +119,19 @@ public class AdminWorkOrderController {
         return R.ok(workOrders.timeline(id));
     }
 
+    /**
+     * 这个格口的证据时间线（19C）：四个采集点各一条，含三值结论与 AI 标签。
+     *
+     * <p>它存在理由是：“你先 AI 识图打简单标签，再由我判断要不要派人”——没有这一面，
+     * 业务员就只能凭一句描述决定跑不跑一趟。
+     */
+    @Operation(summary = "格口证据时间线", description = "开门/关门/看管检测/代关后四个采集点的观测记录")
+    @PreAuthorize("hasAuthority('workorder:online:list')")
+    @GetMapping("/{id}/evidence")
+    public R<List<WorkOrderService.EvidenceView>> evidence(@PathVariable Long id) {
+        return R.ok(workOrders.evidenceFor(id));
+    }
+
     /** requestId 由前端生成：处理反馈会派生子单，重放不能派出第二张。 */
     public record ResolveCommand(@NotBlank @Size(max = 200) String requestId,
                                  @NotBlank @Size(max = 400) String resultNote,
