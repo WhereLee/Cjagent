@@ -208,7 +208,7 @@ public class StorageOrderService {
             // 那次 update 影响 0 行却被忽略，定价快照静默丢失（结算时才发现）——
             // 顺序改对比“记住检查每个 updateById”更可靠。
             funds.holdFunds(order);
-            orderMapper.insert(order);
+            insertWithFreshVoucher(order);
         } catch (RuntimeException e) {
             // 罕见但必须留痕：格口已绑单而订单没落库。事务会回滚掉占用，
             // 但如果不打日志，压测时看到的就是"莫名失败"而查不到根因
@@ -303,14 +303,44 @@ public class StorageOrderService {
         }
     }
 
+    /** 换码最多重试几次。取件码冲突是十万一级别的小概率，3 次足够；再多就是拿下单时长换概率。 */
+    private static final int VOUCHER_RETRIES = 3;
+
+    /**
+     * 落库；取件码撞号时只重“换码”这一步（缺陷 7）。
+     *
+     * <p>不能重来整个下单：格口已经分配、预收已经扣过，重来会把一次码冲突放大成用户能感到的失败。
+     * <p>只认 {@code uk_order_voucher} 这一种冲突：别的唯一索引报错（比如格口被抢先占了）
+     * 重试多少次都一样，掩盖成“正在重试”反而让真正的并发原因查不出来。
+     */
+    private void insertWithFreshVoucher(BizStorageOrder order) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                orderMapper.insert(order);
+                return;
+            } catch (org.springframework.dao.DuplicateKeyException collision) {
+                boolean voucherClash = String.valueOf(collision.getMessage()).contains("uk_order_voucher");
+                if (!voucherClash || attempt >= VOUCHER_RETRIES) {
+                    throw collision;
+                }
+                order.setVoucherCode(voucherOf(order.getId()));
+                log.warn("取件码撞号，换码重试 orderNo={} 第 {} 次", order.getOrderNo(), attempt);
+            }
+        }
+    }
+
     /**
      * 取件码：随机不可枚举。
      *
-     * <p>不用订单号后 6 位——订单号是雪花 ID，相邻注册即可猜测，等于把别人的行李交给任何人。
+     * <p>不用订单号后几位——订单号是雪花 ID，相邻注册即可猜测，等于把别人的行李交给任何人。
+     * <p>位数取 8 见下方实现注释（全表唯一且不归档，码位只增不减）。
      */
     private String voucherOf(Long orderId) {
-        int random = java.util.concurrent.ThreadLocalRandom.current().nextInt(100000, 1000000);
-        return String.format("V%06d", random);
+        // 8 位而不是 6 位：`uk_order_voucher` 是全表唯一，而订单表不参与归档（码位只增不减）。
+        // 6 位只有 90 万个可能，堆到十万单后每单约 11% 概率撞码，而撞码就是整单下单失败；
+        // 9 千万个可能 + 上面的换码重试，才能把这件事降到“事实上不会发生”
+        int random = java.util.concurrent.ThreadLocalRandom.current().nextInt(10000000, 100000000);
+        return String.format("V%08d", random);
     }
 
     private String slotNoOf(Long slotId) {

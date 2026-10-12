@@ -30,10 +30,48 @@ public class CabinetAvailabilityService {
 
     private final BizCabinetMapper cabinetMapper;
     private final BizCompartmentMapper slotMapper;
+    private final CompartmentStateService states;
 
-    public CabinetAvailabilityService(BizCabinetMapper cabinetMapper, BizCompartmentMapper slotMapper) {
+    public CabinetAvailabilityService(BizCabinetMapper cabinetMapper, BizCompartmentMapper slotMapper,
+                                      CompartmentStateService states) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
+        this.states = states;
+    }
+
+    /**
+     * 可代关清单（按柜机编号）。<b>对外一律用编号，不泄内部 ID</b>：
+     * 内部 ID 一旦落到客户端，就会有人拿它去猜别的接口入参（这条约定本接口自己先违反了）。
+     */
+    public record ClosableView(String cabinetNo, String slotNo, String sizeType) {
+    }
+
+    public List<ClosableView> closableSlots(String cabinetNo) {
+        BizCabinet cabinet = requireCabinet(cabinetNo);
+        return states.closableSlots(cabinet.getId()).stream()
+                .map(slot -> new ClosableView(cabinet.getCabinetNo(), slot.slotNo(), slot.sizeType()))
+                .toList();
+    }
+
+    /** 另一位用户反馈“我帮他关上了”：按编号定位到格口再走业务判断。 */
+    public String confirmClosedByAnother(String cabinetNo, String slotNo, Long helperCustomerId) {
+        BizCabinet cabinet = requireCabinet(cabinetNo);
+        BizCompartment slot = slotMapper.selectOne(Wrappers.<BizCompartment>lambdaQuery()
+                .eq(BizCompartment::getCabinetId, cabinet.getId())
+                .eq(BizCompartment::getSlotNo, slotNo));
+        if (slot == null) {
+            throw new BizException(ResultCode.DATA_NOT_FOUND, "这台暂存柜上没有这个格口：" + slotNo);
+        }
+        return states.confirmClosedByAnother(slot.getId(), helperCustomerId);
+    }
+
+    private BizCabinet requireCabinet(String cabinetNo) {
+        BizCabinet cabinet = cabinetMapper.selectOne(Wrappers.<BizCabinet>lambdaQuery()
+                .eq(BizCabinet::getCabinetNo, cabinetNo));
+        if (cabinet == null) {
+            throw new BizException(ResultCode.DATA_NOT_FOUND, "暂存柜不存在：" + cabinetNo);
+        }
+        return cabinet;
     }
 
     /** 一个尺寸的剩余正常格口数。 */
