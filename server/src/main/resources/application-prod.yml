@@ -30,6 +30,13 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    diskspace:
+      # 服务器上磁盘将满时 /actuator/health 必须能看见（主配置里 dev 关闭，注释就写着“服务器上再开”）。
+      # 阈值 1GB：一份 OOM dump 约几百 MB，两次崩溃就该报警而不是把盘写满
+      enabled: true
+      path: .
+      threshold: 1GB
 
 springdoc:
   api-docs:

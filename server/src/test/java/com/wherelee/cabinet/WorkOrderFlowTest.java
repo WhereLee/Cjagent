@@ -2,6 +2,8 @@ package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.application.storage.CompartmentStateService;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.common.api.PageQuery;
+import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
@@ -236,11 +238,55 @@ class WorkOrderFlowTest {
         assertTrue(childTimeline.stream().anyMatch(e -> "DISPATCHED".equals(e.eventType())),
                 "派发动作记在子单上：父单说“为什么派人”，子单说“谁派来的”");
 
-        // 队列视图里线上只剩已关闭、线下多了一张待办
-        List<WorkOrderService.View> field = TenantContext.callAs(TENANT,
-                () -> workOrders.queue(WorkOrderService.SIDE_FIELD, true));
-        assertEquals(1, field.size());
-        assertNotNull(field.get(0).customerPhone(), "线下到场要能直接看到联系电话（快照，不回查）");
+        // 队列视图里线上只剩已关闭、线下多了一张待办（返回已改统一分页）
+        PageResult<WorkOrderService.View> field = TenantContext.callAs(TENANT,
+                () -> workOrders.queue(WorkOrderService.SIDE_FIELD, true, new PageQuery()));
+        assertEquals(1, field.total());
+        assertEquals(1, field.records().size());
+        WorkOrderService.View fieldOrder = field.records().get(0);
+        assertNotNull(fieldOrder.customerPhone(), "线下到场要能直接看到联系电话（快照，不回查）");
+        assertEquals(Boolean.TRUE, fieldOrder.urgent(), "线下子单继承紧急级别，队列排序依赖它");
+    }
+
+    @Test
+    @DisplayName("队列视图必须带回柜机编号/点位地址/检测值：业务员凭一行就知道去哪、看什么")
+    void queueViewCarriesSnapshotFacts() {
+        markDoorOpen();
+        PageResult<WorkOrderService.View> online = TenantContext.callAs(TENANT,
+                () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, new PageQuery()));
+        assertEquals(1, online.records().size());
+        WorkOrderService.View v = online.records().get(0);
+        assertNotNull(v.cabinetNo());
+        assertTrue(v.cabinetNo().startsWith("CAB-WO-"), "柜机编号来自快照：" + v.cabinetNo());
+        assertEquals("工单测试点位", v.siteAddress(), "点位地址来自快照（回查会被改名带跑）");
+        assertNotNull(v.detection());
+        assertTrue(v.detection().contains("门=开着"), "检测值要能还原现场：" + v.detection());
+        assertEquals("13800001234", v.customerPhone());
+    }
+
+    @Test
+    @DisplayName("队列分页：3 张工单按 pageSize=2 翻页；紧急的排最前（兜底排序）")
+    void queuePaginatesInsteadOfHardLimit() {
+        markDoorOpen();
+        TenantContext.runAs(TENANT, () -> states.markContentLeft(slotId, "结束后检出物品"));
+        TenantContext.runAs(TENANT, () -> states.markSensorConflict(slotId, "门磁与物检矛盾"));
+
+        PageQuery first = new PageQuery();
+        first.setPageSize(2);
+        PageResult<WorkOrderService.View> page1 = TenantContext.callAs(TENANT,
+                () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, first));
+        assertEquals(3, page1.total());
+        assertEquals(2, page1.pages());
+        assertEquals(2, page1.records().size());
+        assertEquals("ITEM_LEFT", page1.records().get(0).type(),
+                "兜底排序：紧急在前（遗留物紧急，其余普通）");
+
+        PageQuery second = new PageQuery();
+        second.setPageNum(2);
+        second.setPageSize(2);
+        PageResult<WorkOrderService.View> page2 = TenantContext.callAs(TENANT,
+                () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, second));
+        assertEquals(1, page2.records().size(), "第二页拿到剩下的 1 张，而不是被写死的 limit 200 丢掉");
     }
 
     @Test
@@ -258,6 +304,16 @@ class WorkOrderFlowTest {
         assertEquals(8, guarded,
                 "八个端点都要独立权限点（两列队列/时间线/证据/认领/处理/派单/电话清单与回填）；"
                         + "不能靠一个管理员点完，否则留痕里分不出责任");
+        // 线下运维有 claim/resolve 却看不了单内容是自相矛盾：timeline/evidence 必须
+        // 让两个队列的查看权都能过（field_ops 只有 field:list，缺了它认领后寸步难行）
+        for (String name : List.of("timeline", "evidence")) {
+            var pre = java.util.Arrays.stream(methods)
+                    .filter(m -> m.getName().equals(name)).findFirst().orElseThrow()
+                    .getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+            assertTrue(pre.value().contains("workorder:online:list")
+                            && pre.value().contains("workorder:field:list"),
+                    name + " 必须同时放行线上与线下队列查看权：" + pre.value());
+        }
         // 接口层不得回传实体：拿泛型字符串直读，比反射拆 ParameterizedType 清楚得多
         String onlineReturn = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("online")).findFirst().orElseThrow()

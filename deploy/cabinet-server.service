@@ -1,0 +1,42 @@
+# systemd unit for the cabinet server (deliverable only - NOT installed by CI).
+# JVM flags are NOT duplicated here: they come from deploy/jvm.opts, the single
+# source of truth also read by scripts/run-app.ps1. The file format (KEY=VALUE
+# lines) is exactly what systemd EnvironmentFile expects.
+#
+# Install on the server (adjust paths/user first):
+#   sudo cp deploy/cabinet-server.service /etc/systemd/system/cabinet-server.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cabinet-server
+#   systemctl status cabinet-server      # verify
+# Rollback: sudo systemctl disable --now cabinet-server && \
+#           sudo rm /etc/systemd/system/cabinet-server.service && \
+#           sudo systemctl daemon-reload
+# Not installing it changes nothing: the ops-check script then covers liveness.
+
+[Unit]
+Description=Cabinet storage server (Spring Boot, Java 17)
+Wants=network-online.target
+After=network-online.target
+# If MySQL/Redis/RocketMQ are managed by systemd on the same host, add them to
+# After= at install time (e.g. "mysql.service redis.service") so startup waits.
+
+[Service]
+Type=simple
+# Run as a dedicated non-login user, not root. Create once:
+#   sudo useradd -r -s /usr/sbin/nologin cabinet
+User=cabinet
+# logs\ paths in jvm.opts and logback are RELATIVE - they land here.
+WorkingDirectory=/opt/cabinet
+EnvironmentFile=/opt/cabinet/jvm.opts
+# $JAVA_OPTS is expanded by systemd and split on whitespace, which is exactly
+# what the flag list needs. SuccessExitStatus=143 = clean SIGTERM shutdown
+# (graceful shutdown in application.yml), so restart is not triggered on stop.
+ExecStart=/usr/bin/java $JAVA_OPTS -jar cabinet-server.jar
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+# OOM kills come back as SIGKILL -> non-zero exit -> Restart=on-failure covers it.
+# ExitOnOutOfMemoryError (in jvm.opts) makes the JVM exit before the kernel does.
+
+[Install]
+WantedBy=multi-user.target

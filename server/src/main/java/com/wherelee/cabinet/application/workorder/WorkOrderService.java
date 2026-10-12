@@ -1,6 +1,10 @@
 package com.wherelee.cabinet.application.workorder;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.wherelee.cabinet.application.support.PageSupport;
+import com.wherelee.cabinet.common.api.PageQuery;
+import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizWorkOrder;
@@ -17,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 工单流转（19B）。
@@ -236,15 +241,23 @@ public class WorkOrderService {
         return closed;
     }
 
-    /** 队列分页：紧急在前、开单时间在前的先办。 */
-    public List<View> queue(String queueSide, boolean openOnly) {
-        return orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
+    /** 允许前端自定义排序的字段（PageSupport 白名单）：开单时间与要求处理时刻。 */
+    private static final Set<String> QUEUE_SORTABLE = Set.of("createTime", "dueAt");
+
+    /**
+     * 队列分页：紧急在前、开单时间在前的先办（兜底排序，用户传了 orderBy 再追加）。
+     *
+     * <p>原来这里是写死的 {@code limit 200}——第 201 张单在队列里永远看不到，
+     * 而项目的统一分页约定（PageQuery/PageResult）早已立好，这里补齐而不是另造一套。
+     */
+    public PageResult<View> queue(String queueSide, boolean openOnly, PageQuery query) {
+        Page<BizWorkOrder> page = PageSupport.toPage(query, QUEUE_SORTABLE);
+        return PageSupport.toResult(orders.selectPage(page, Wrappers.<BizWorkOrder>lambdaQuery()
                 .eq(BizWorkOrder::getQueueSide, queueSide)
                 .eq(BizWorkOrder::getDeleted, 0)
                 .in(openOnly, BizWorkOrder::getStatus, WorkOrderStatus.PENDING, WorkOrderStatus.CLAIMED)
                 .orderByDesc(BizWorkOrder::getUrgent)
-                .orderByAsc(BizWorkOrder::getCreateTime)
-                .last("limit 200")).stream().map(this::toView).toList();
+                .orderByAsc(BizWorkOrder::getCreateTime)), this::toView);
     }
 
     public List<EventView> timeline(Long workOrderId) {
@@ -290,7 +303,7 @@ public class WorkOrderService {
             return true;
         }
         note(open, "ESCALATED", null, detail);
-        String phone = phoneFromSnapshot(open);
+        String phone = readSnapshotString(open, "customerPhone");
         String where = (open.getSlotNo() == null ? "格口" : "格口 " + open.getSlotNo())
                 + "（" + open.getTitle() + "）";
         // 业务员侧待办：不假装系统自己打了电话，只把“必须联系”挂在队列里并要求回填结果
@@ -453,30 +466,37 @@ public class WorkOrderService {
     }
 
     private View toView(BizWorkOrder o) {
+        // 柜机编号/点位地址/检测值必须从快照带出来：业务员接了单要能凭这一行知道去哪、看什么，
+        // 而不是只看到一句“格口 S12 门未关”就出发（这三个字段一直在快照里，只是以前没读）
         return new View(o.getId(), o.getType().name(), Boolean.TRUE.equals(o.getUrgent()),
-                o.getStatus().name(), o.getQueueSide(), o.getSlotNo(), null, null, o.getOrderNo(),
-                phoneFromSnapshot(o), o.getTitle(), null, o.getResultNote(), o.getAssigneeId(),
+                o.getStatus().name(), o.getQueueSide(), o.getSlotNo(),
+                readSnapshotString(o, "cabinetNo"), readSnapshotString(o, "siteAddress"), o.getOrderNo(),
+                readSnapshotString(o, "customerPhone"), o.getTitle(),
+                readSnapshotString(o, "detection"), o.getResultNote(), o.getAssigneeId(),
                 o.getDueAt(), o.getCreateTime());
     }
 
     /**
-     * 电话只从快照取（不回查客户表）：这张单要反映“当时拨的是哪个号”。
+     * 从快照 JSON 取一个字符串字段（电话、柜机编号、点位地址、检测值都走它）。
+     *
+     * <p>这些值只从快照取、不回查业务表：这张单要反映“开单当时看到的是什么”，
+     * 用户改绑手机号、点位改了名之后，快照不能跟着变。
      *
      * <p><b>不能按 {@code "key":"} 拼精确位置</b>：MySQL 的 JSON 列存进去会被重排成
      * {@code "key": "..."}（冒号后多一个空格），按无空格的模式找就会永远返回 null。
      * 这个坑我在定价快照断言上已经踩过一次，这次是踩在生产代码里。
      * 所以改成：定位键名 → 找第一个冒号 → 取冒号后第一个引号里的内容。
      */
-    private String phoneFromSnapshot(BizWorkOrder o) {
+    private String readSnapshotString(BizWorkOrder o, String key) {
         String json = o.getSnapshotJson();
         if (json == null) {
             return null;
         }
-        int key = json.indexOf("customerPhone");
-        if (key < 0) {
+        int keyAt = json.indexOf(key);
+        if (keyAt < 0) {
             return null;
         }
-        int colon = json.indexOf(':', key);
+        int colon = json.indexOf(':', keyAt);
         int from = json.indexOf('"', colon + 1);
         if (colon < 0 || from < 0) {
             return null;

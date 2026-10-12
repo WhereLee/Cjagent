@@ -1,6 +1,8 @@
 package com.wherelee.cabinet.interfaces.admin.workorder;
 
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.common.api.PageQuery;
+import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
@@ -28,6 +30,9 @@ import java.util.List;
  * <p><b>两条队列两个权限点</b>：线上业务员看不到也办不了线下队列的反向操作，反之亦然。
  * 这不是权限洁癖——“谁该做这一步”是工单流转的语义本身，全靠一个管理员账号点完，
  * 留痕里就分不出责任。
+ *
+ * <p>例外只有单据详情（timeline/evidence）：认领与处理都要求先能看单，
+ * 所以持有任一队列查看权的人都放行——否则线下运维认领之后寸步难行。
  *
  * <p>返回的全是应用层视图（{@link WorkOrderService.View}），不回传实体：
  * 实体带着 active_flag、version 这些流转内部字段，暴露出去迟早有人拿它们当业务状态用
@@ -73,18 +78,20 @@ public class AdminWorkOrderController {
     public record CallDoneCommand(@NotBlank @Size(max = 300) String resultNote) {
     }
 
-    @Operation(summary = "线上工单队列", description = "紧急在前、开单早的先办；默认只给未关闭的")
+    @Operation(summary = "线上工单队列", description = "紧急在前、开单早的先办；默认只给未关闭的；支持统一分页与排序（createTime/dueAt）")
     @PreAuthorize("hasAuthority('workorder:online:list')")
     @GetMapping("/online")
-    public R<List<WorkOrderService.View>> online(@RequestParam(defaultValue = "true") boolean openOnly) {
-        return R.ok(workOrders.queue(WorkOrderService.SIDE_ONLINE, openOnly));
+    public R<PageResult<WorkOrderService.View>> online(@Valid PageQuery query,
+                                                       @RequestParam(defaultValue = "true") boolean openOnly) {
+        return R.ok(workOrders.queue(WorkOrderService.SIDE_ONLINE, openOnly, query));
     }
 
-    @Operation(summary = "线下工单队列", description = "线上业务员判断“需跑一趟”后派发到这里的工单")
+    @Operation(summary = "线下工单队列", description = "线上业务员判断“需跑一趟”后派发到这里的工单；支持统一分页与排序")
     @PreAuthorize("hasAuthority('workorder:field:list')")
     @GetMapping("/field")
-    public R<List<WorkOrderService.View>> field(@RequestParam(defaultValue = "true") boolean openOnly) {
-        return R.ok(workOrders.queue(WorkOrderService.SIDE_FIELD, openOnly));
+    public R<PageResult<WorkOrderService.View>> field(@Valid PageQuery query,
+                                                      @RequestParam(defaultValue = "true") boolean openOnly) {
+        return R.ok(workOrders.queue(WorkOrderService.SIDE_FIELD, openOnly, query));
     }
 
     @Operation(summary = "认领工单", description = "并发下只有一个人认领成功，其余拿到“已被他人认领”")
@@ -112,8 +119,8 @@ public class AdminWorkOrderController {
         return R.ok(workOrders.resolve(id, current.subjectId(), cmd.resultNote(), cmd.needOffline()));
     }
 
-    @Operation(summary = "工单流转留痕", description = "从开单到关闭的每一步，含系统自动转化")
-    @PreAuthorize("hasAuthority('workorder:online:list')")
+    @Operation(summary = "工单流转留痕", description = "从开单到关闭的每一步，含系统自动转化；线上/线下队列查看人均可读")
+    @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @GetMapping("/{id}/timeline")
     public R<List<WorkOrderService.EventView>> timeline(@PathVariable Long id) {
         return R.ok(workOrders.timeline(id));
@@ -125,8 +132,8 @@ public class AdminWorkOrderController {
      * <p>它存在理由是：“你先 AI 识图打简单标签，再由我判断要不要派人”——没有这一面，
      * 业务员就只能凭一句描述决定跑不跑一趟。
      */
-    @Operation(summary = "格口证据时间线", description = "开门/关门/看管检测/代关后四个采集点的观测记录")
-    @PreAuthorize("hasAuthority('workorder:online:list')")
+    @Operation(summary = "格口证据时间线", description = "开门/关门/看管检测/代关后四个采集点的观测记录；线上/线下队列查看人均可读")
+    @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @GetMapping("/{id}/evidence")
     public R<List<WorkOrderService.EvidenceView>> evidence(@PathVariable Long id) {
         return R.ok(workOrders.evidenceFor(id));
