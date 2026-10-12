@@ -63,7 +63,7 @@ public class CustomerAuthService {
 
         boolean newRegister = customer == null;
         if (newRegister) {
-            customer = registerCustomer(openId, request.tenantCode());
+            customer = registerCustomer(openId, request.tenantCode(), request.phone());
         } else {
             assertExistingCustomerUsable(customer, request.tenantCode());
             final Long customerTenant = customer.getTenantId();
@@ -80,14 +80,22 @@ public class CustomerAuthService {
                 newRegister);
     }
 
-    private BizCustomer registerCustomer(String openId, String tenantCode) {
+    private BizCustomer registerCustomer(String openId, String tenantCode, String phone) {
         if (!StringUtils.hasText(tenantCode)) {
             throw new BizException(ResultCode.TENANT_INVALID, "首次登录需要指定归属运营商（扫码或选择服务商）");
         }
         SysTenant tenant = tenantGuard.requireUsableByCode(tenantCode);
+        // 定-26：注册强制绑定手机号。校验只看格式，不做归属核验（没短信通道也没微信手机号接口）。
+        // 这个因子的真实价值与局限写在 CustomerLoginRequest 上；少了它，定-25 的双因子取件会因无号可用而永远走不通。
+        // 顺序在租户之后：“归属不存在”是比“没填号”更根本的拒绝，把它排后面会让现有用例拿到错的错因
+        String trimmed = phone == null ? null : phone.trim();
+        if (trimmed == null || !trimmed.matches("1[3-9]\\d{9}")) {
+            throw new BizException(ResultCode.PARAM_INVALID, "首次注册需绑定手机号（十一位）");
+        }
 
         BizCustomer customer = new BizCustomer();
         customer.setOpenId(openId);
+        customer.setPhone(trimmed);
         customer.setNickname("客户" + openId.substring(Math.max(0, openId.length() - 4)));
         customer.setStatus(1);
         customer.setRegisterTime(LocalDateTime.now());

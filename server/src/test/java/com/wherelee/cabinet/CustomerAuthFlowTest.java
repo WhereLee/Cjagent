@@ -52,7 +52,7 @@ class CustomerAuthFlowTest {
     private String login(String code, String tenantCode) throws Exception {
         String json = tenantCode == null
                 ? "{\"code\":\"" + code + "\"}"
-                : "{\"code\":\"" + code + "\",\"tenantCode\":\"" + tenantCode + "\"}";
+                : "{\"code\":\"" + code + "\",\"tenantCode\":\"" + tenantCode + "\",\"phone\":\"13800001111\"}";
         MvcResult result = mockMvc.perform(post("/api/mini/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(json))
@@ -72,7 +72,7 @@ class CustomerAuthFlowTest {
     void firstLoginRegistersWithTenantCode() throws Exception {
         String body = mockMvc.perform(post("/api/mini/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"code\":\"cust-new-01\",\"tenantCode\":\"t-one\"}"))
+                        .content("{\"code\":\"cust-new-01\",\"tenantCode\":\"t-one\",\"phone\":\"13812345678\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.newRegister").value(true))
@@ -89,11 +89,29 @@ class CustomerAuthFlowTest {
                 .andExpect(jsonPath("$.data.customerId").isString())
                 // 注册本次就是首次登录：不能出现"刚注册完却显示从未登录过"这种语义空缺
                 .andExpect(jsonPath("$.data.lastLoginAt").isNotEmpty())
+                // 定-26：注册带的号必须真的落库（脱敏回显也证明读得出来）
+                .andExpect(jsonPath("$.data.phone").isNotEmpty())
                 // 实体不得直出：openId / unionId / deleted 是服务端内部字段，
                 // 之前这个用例反过来断言了 openId 存在，等于把泄露固化进测试
                 .andExpect(jsonPath("$.data.openId").doesNotExist())
                 .andExpect(jsonPath("$.data.unionId").doesNotExist())
                 .andExpect(jsonPath("$.data.deleted").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("定-26：首次注册不带手机号就拒，带了不合格的号也拒")
+    void firstLoginWithoutUsablePhoneRejected() throws Exception {
+        mockMvc.perform(post("/api/mini/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"cust-no-phone-01\",\"tenantCode\":\"t-one\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40000));
+
+        mockMvc.perform(post("/api/mini/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"code\":\"cust-bad-phone-01\",\"tenantCode\":\"t-one\",\"phone\":\"12345\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40000));
     }
 
     @Test
@@ -113,7 +131,7 @@ class CustomerAuthFlowTest {
 
         mockMvc.perform(post("/api/mini/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"code\":\"cust-fixed-01\",\"tenantCode\":\"t-two\"}"))
+                        .content("{\"code\":\"cust-fixed-01\",\"tenantCode\":\"t-two\",\"phone\":\"13800001111\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(40301));
     }
@@ -123,7 +141,7 @@ class CustomerAuthFlowTest {
     void unknownTenantCodeRejected() throws Exception {
         mockMvc.perform(post("/api/mini/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"code\":\"cust-bad-tenant\",\"tenantCode\":\"no-such-tenant\"}"))
+                        .content("{\"code\":\"cust-bad-tenant\",\"tenantCode\":\"no-such-tenant\",\"phone\":\"13800001111\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(40301));
     }

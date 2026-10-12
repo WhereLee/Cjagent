@@ -92,7 +92,7 @@ class RechargeFlowTest {
     private Session login(String code) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/mini/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"code\":\"" + code + "\",\"tenantCode\":\"t-one\"}"))
+                        .content("{\"code\":\"" + code + "\",\"tenantCode\":\"t-one\",\"phone\":\"13700001234\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andReturn();
