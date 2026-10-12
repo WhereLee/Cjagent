@@ -48,7 +48,7 @@ public class MiniStorageOrderController {
     }
 
     @Operation(summary = "存件（下单并开门）",
-            description = "一步完成：占格 + 划账户押金 + 冻结预估 + 下发开门，返回格口号；10409 无位 / 10410 抢输")
+            description = "一步完成：占格 + 预收 4 小时费用 + 预备开握手后下发开门，返回格口号；10409 无位 / 10410 抢输")
     @OperationLog(module = "storage", operation = "存件下单")
     @RateLimit(limit = 20, windowSeconds = 60, message = "操作过于频繁，请稍后再试")
     @Idempotent(key = "#cmd.requestId", requireKey = true, message = "该请求已处理，请勿重复提交")
@@ -93,7 +93,7 @@ public class MiniStorageOrderController {
      * 状态已 CLOSED 而被状态机拒绝），再加一层幂等键只会把正常的“再查一次”也拦掉。
      */
     @Operation(summary = "取件结算",
-            description = "需同时满足“门已关 + 柜内无物”才停计费；可带取件码（柜机输码路径），连错 5 次锁定该单开柜")
+            description = "一律不拦人（定-17）：按实际时长结算、预收多退少补；门没关或柜内有物也照常结束，只记异常与证据。可带取件码做二次校验（连错 5 次锁定该单开柜）")
     @OperationLog(module = "storage", operation = "取件结算")
     @RateLimit(limit = 12, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")

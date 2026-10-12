@@ -51,7 +51,8 @@ public class PricingPolicy {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /**
-     * 账户级押金门槛（2026-10-10 定-1：50 元 = 5000 点，1 点 = 1 分）。
+     * 【已作废】账户级押金门槛（定-1 的 50 元 = 5000 点）：定-14 已改为“下单预收 4 小时”，
+     * 新单不再有任何押金门槛。这个字段只为读旧单快照而留，新逻辑不得再依据它做判断。
      *
      * <p>它不再是“每单押金”，所以**不进计费公式**，也不进新单的快照；
      * 旧单快照里的 depositPoints 仍由 {@code fromSnapshot} 原样读出来退，不追溯。
@@ -140,7 +141,7 @@ public class PricingPolicy {
      * 下单时写进订单的**纯参数快照**（C 定案：不再冻结预估，所以快照里不应出现一个凭空的预估金额）。
      *
      * <p>快照仍然是结算的唯一依据：里面只有“当时怎么算”的输入（单价、免费窗口、封顶、加收、
-     * 押金门槛、策略版本），实际用时由服务端在取件时算。这跟“把预估写迺快照”的区别很实在：
+     * 押金门槛、策略版本），实际用时由服务端在取件时算。这跟“把预估写进快照”的区别很实在：
      * 后者会让有人误把 consumePoints 当应收，而它基于一个用户根本没选过的时长。
      */
     public String inputSnapshot(SizeType size, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
