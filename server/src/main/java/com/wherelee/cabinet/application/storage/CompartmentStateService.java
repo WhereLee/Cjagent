@@ -301,6 +301,12 @@ public class CompartmentStateService {
         if (!sensing.doorClosed()) {
             return;
         }
+        // 门关了不等于格子空了：检到有物就不能解除回可售，否则“把别人的东西卖给下一位”
+        // 正是 I12 立约要防的那件事。这条也是“结束取物→关门”之后的真正收口点。
+        if (sensing.presence() == Presence.PRESENT) {
+            markContentLeft(slotId, "门已关上但柜内仍检测到物品（关门复检）");
+            return;
+        }
         if (slotMapper.clearAnomaly(slotId) == 0) {
             log.info("异常已被其它路径解除，跳过 slotNo={}", slot.getSlotNo());
             return;

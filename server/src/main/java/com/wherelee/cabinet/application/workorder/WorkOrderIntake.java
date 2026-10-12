@@ -102,8 +102,12 @@ public class WorkOrderIntake {
         // 绑在这个格口上的活动单（可能没有：空格的传感器矛盾就没有物主）
         BizStorageOrder order = slot.getCurrentOrderId() == null
                 ? null : orderMapper.selectById(slot.getCurrentOrderId());
-        BizCustomer customer = order == null || order.getCustomerId() == null
-                ? null : customerMapper.selectById(order.getCustomerId());
+        // 客户回退路径：单子一旦结算完成，格口上的 `current_order_id` 就被抹掉了，
+        // 而“门未关/结束后遗留”这类异常往往正是在那之后才标上的——只认绑定关系就会开出
+        // 一张**没有电话、拨不了也发不出消息**的紧急工单（审计报告缺陷 13）。
+        // “是谁把这格打开的”就是当下用这一格的人，这个事实格口自己记着。
+        Long customerId = order != null ? order.getCustomerId() : slot.getDoorOpenedBy();
+        BizCustomer customer = customerId == null ? null : customerMapper.selectById(customerId);
 
         workOrders.open(new WorkOrderService.NewOrder(
                 slot.getTenantId(), type, urgent,
