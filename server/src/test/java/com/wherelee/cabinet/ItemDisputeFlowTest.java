@@ -207,8 +207,13 @@ class ItemDisputeFlowTest {
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(),
                 "柜里有东西也不能把用户钉在柜机前：照收钱、照关闭（定-13）");
+        // 定-17（2026-10-12 修正时机）：遗留与否不在点结束时判——那时柜里必然还是他自己的东西，
+        // 判了就是每次正常取物都误报一次遗弃。等他取完东西、把门关上之后那次检测才判
+        simulator.simulateDoor(cabinetId, closed.getSlotId(), true);
+        BizCompartment openedSlot = slot(closed.getSlotId());
+        TenantContext.runAs(TENANT, () -> states.afterDoorClosed(openedSlot, customerId));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(order.getSlotId()).getAnomaly(),
-                "不拦人不等于不记：检到东西就必须把这格标成遗留物并进工单（定-14）");
+                "不拦人不等于不记：门关了还检到东西，就必须把这格标成遗留物并进工单（定-14）");
         return closed;
     }
 

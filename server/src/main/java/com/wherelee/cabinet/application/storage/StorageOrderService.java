@@ -403,7 +403,7 @@ public class StorageOrderService {
             if (withVoucher) {
                 verifyVoucher(order, voucherCode);
             }
-            return finish(customerId, orderNo, true, OrderCloseReason.NORMAL);
+            return finish(customerId, orderNo, OrderCloseReason.NORMAL);
         });
         return openForPickup(customerId, orderNo, settled);
     }
@@ -425,12 +425,17 @@ public class StorageOrderService {
         if (cabinet == null || slot == null) {
             log.error("结算后取物开门缺少柜机或格口信息 orderNo={} cabinetId={} slotId={}",
                     orderNo, order.getCabinetId(), order.getSlotId());
+            // 门没开成就不能留下“FREE 且无异常”的空位：那会把还放着东西的格子卖给下一位
+            states.markContentUnverified(order.getSlotId(),
+                    "结算后无法下发取物开门（柜机或格口信息缺失），物品仍在柜内，需现场确认");
             return settled.withMessage("柜机信息不完整，门未打开：请找现场工作人员协助取物");
         }
 
         if (order.getVoucherLockedAt() != null) {
             // 凭码锁定：单照结（钱已在事务里算完），但不开门——锁的就是“凭这张单开柜”；
             // 把他困在柜前不是本锁的目的，找客服核验才是出路
+            states.markContentUnverified(order.getSlotId(),
+                    "结算后因取件码连错锁定而未能开门取物，物品仍在柜内，需客服核验后开门");
             return settled.withMessage("本单取件码连续输错已被锁定，柜门未打开：请联系客服核验后取物");
         }
 
@@ -443,6 +448,8 @@ public class StorageOrderService {
         } catch (RuntimeException offline) {
             // 柜机离线/通道异常：从 dispatch 直接抛出来，不在这里吃掉（吃掉就把“整柜离线”好成了“格口坏了”）
             log.error("结算后取物开门下发失败 orderNo={}: {}", orderNo, offline.getMessage());
+            states.markContentUnverified(order.getSlotId(),
+                    "结算后取物开门下发失败（柜机离线或通道异常），物品仍在柜内，需现场开门");
             intake.onOrderEvent(order, com.wherelee.cabinet.domain.enums.WorkOrderType.DEVICE_FAULT, true,
                     "用户已结束订单但取物开门下发失败（柜机离线或通道异常），需现场协助开门",
                     "取物开门无响应，已标格口异常", LocalDateTime.now().plusMinutes(10));
@@ -464,7 +471,9 @@ public class StorageOrderService {
             return settled.withMessage("这个柜口打不开：已通知现场人员处理，请联系客服或现场工作人员");
         }
 
-        // 门开了（或柜机应答正常但未回明细）：登记门态与证据，取物期间这一格不会被分给别人
+        // 门开了（或柜机应答正常但未回明细）：登记门态与证据，取物期间这一格不会被分给别人。
+        // 不再在这里顺手标“门未关”台账：door_open_at 本身就是超时回扫的输入，
+        // 而“结束后门一直没关”属于取完东西不收尾的现场，由回扫与对账接手，不在这里刷一张单
         states.afterDoorOpened(slot, customerId);
         return settled.withMessage(outcome.businessSuccess()
                 ? "柜门已打开，请取走物品并随手关好柜门"
@@ -558,7 +567,7 @@ public class StorageOrderService {
      * 新口径把这些判据从**拦人降级成记事实**：门没关、物检报有东西，都不阻止结束与取物，
      * 只留下证据与异常，后面的 AI 标签与工单流转（19C/19D）接着处理它。
      */
-    private StorageOrderView finish(Long customerId, String orderNo, boolean atSite, OrderCloseReason reason) {
+    private StorageOrderView finish(Long customerId, String orderNo, OrderCloseReason reason) {
         BizStorageOrder order = findOwned(customerId, orderNo);
         if (order.getStatus() == OrderStatus.CLOSED || order.getStatus() == OrderStatus.CANCELLED) {
             throw new BizException(ResultCode.BIZ_ERROR, "这单已经结束了：" + order.getStatus());
@@ -567,32 +576,17 @@ public class StorageOrderService {
             // 还没开过柜：没占用过这一格，走取消路径（预收整笔退回），不该混进结算
             throw new BizException(ResultCode.BIZ_ERROR, "柜门还没打开过，无需结束：请直接取消防错");
         }
-        CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
-    
+        // 定-17 之后这里**不再读柜内**（2026-10-12 用户点破：“点结束直接开门不就好了，读它做什么”）。
+        // 那次读数是已作废的“结束三条件”残留：它发生在开门取物**之前**，而此刻柜内必然还放着他
+        // 自己的东西——读到“有物”是常态，旧代码却把它当成“他遗弃了物品”标成 CONTENT_LEFT，
+        // 于是每一次正常取物都会锁住一格等人工清。遗留与否只能在“门关上之后”判，
+        // 见 CompartmentStateService#afterDoorClosed。
         // 2026-10-12：误报免除作废——不存在“把计费终点回拨到争议起始时刻”这回事，
         // 结束从来只算到此刻
         LocalDateTime settleEnd = LocalDateTime.now();
         long actualMinutes = order.getStartedAt() == null ? 0L
                 : Math.max(0L, Duration.between(order.getStartedAt(), settleEnd).toMinutes());
         funds.settle(order, actualMinutes, reason);
-    
-        // 下面三段是“记事实”，不是“拦人”：顺序不可改——钱已经算完了，
-        // 这里怎么标都不能回滚结算（否则又变成“用异常卡住用户”）
-        if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.PRESENT) {
-            // 柜内还有东西：他不拦结束，但这格不能再卖，转滞留待处理（业务员与工单接着走）
-            states.markContentLeft(order.getSlotId(),
-                    "结束订单时物检检测到柜内仍有物品，按滞留处理（待 AI 标签与业务员判断）");
-        } else if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.UNKNOWN
-                || !states.fresh(sensing)) {
-            // 门关了、也说没东西，但测不准（凭据陈旧或设备报未知）：同样不拦人，但锁格待确认
-            states.markContentUnverified(order.getSlotId(),
-                    "结束订单时拿不到“柜内已空”的可靠凭据，需现场确认");
-        } else if (sensing.doorClosed()) {
-            states.tryAutoRecover(order.getSlotId(), sensing);
-        } else {
-            // 门还开着就走了：计费从开柜就已在跑，这里只把“门未关”挂上台账
-            states.markDoorOpenPastTolerance(order.getSlotId(), 0L);
-        }
 
         BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
         return new StorageOrderView(order.getOrderNo(), cabinet == null ? "-" : cabinet.getCabinetNo(),

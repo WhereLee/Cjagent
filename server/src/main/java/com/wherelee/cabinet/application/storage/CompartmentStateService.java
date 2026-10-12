@@ -278,6 +278,24 @@ public class CompartmentStateService {
             log.debug("关门事件重复到达，忽略 slotNo={}", slot.getSlotNo());
         }
         recordEvidence(BizItemEvidence.Moment.DOOR_CLOSED, slot, "关门采集：结单与遗留判定的主要凭据");
+        // “遗留与否”只能在这个时刻判：人已结完单、取完东西、把门关上了（定-17，2026-10-12 用户点破）。
+        // 以前这件事做在“点结束”那一瞬，而那时柜里必然还是他自己的东西，每次正常取物都会被误判成遗弃。
+        // 只对已没有活动单绑定的格口判：还在投件/临时开门流程里的格口由那条路径自己判（applyCloseVerified），不在这里抢判
+        if (slot.getCurrentOrderId() == null) {
+            Sensing sensing = sense(slot.getCabinetId(), slot.getId());
+            if (sensing.doorClosed()) {
+                if (sensing.presence() == Presence.PRESENT) {
+                    markContentLeft(slot.getId(),
+                            "取物后门已关上而柜内仍检测到物品：这才是遗留，需人工清走");
+                } else if (sensing.presence() == Presence.UNKNOWN || !fresh(sensing)) {
+                    markContentUnverified(slot.getId(),
+                            "取物后关门但拿不到“柜内已空”的可靠凭据，需现场确认");
+                } else {
+                    tryAutoRecover(slot.getId(), sensing);
+                }
+            }
+            // 门其实还没关（谎报或时序乱了）：不在这里下结论，留给门未关阶梯与待收敛回收
+        }
         return moved == 1;
     }
 

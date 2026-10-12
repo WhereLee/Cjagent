@@ -282,6 +282,10 @@ class AdminLockerConsoleTest {
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
         Long slotId = order(order.getOrderNo()).getSlotId();
+        // 定-17：遗留判定不在点结束时做（那时柜里必然还是他自己的东西），
+        // 而是等他取完东西、把门关上之后那一次检测
+        simulator.simulateDoor(cabinetId, slotId, true);
+        TenantContext.runAs(TENANT, () -> states.afterDoorClosed(slotForClose(slotId), customerId));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(),
                 "前提：这一格已经是遗留物（定-14：不拦人不等于不记）");
 

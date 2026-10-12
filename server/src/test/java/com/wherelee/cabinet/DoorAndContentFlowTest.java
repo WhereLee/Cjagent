@@ -270,6 +270,10 @@ class DoorAndContentFlowTest {
         // 19A：柜内有物不再拦结束。他自己点结束，单就结、费就收；
         // 但这一格在有人清走东西之前不算空位（I9/I12：“记事实”取代了“拦人”）
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+        // 定-17：遗留判定在“取物后门又关上”这一刻发生，不在点结束时
+        simulator.simulateDoor(cabinetId, order.getSlotId(), true);
+        BizCompartment closedSlotA = slot(order.getSlotId());
+        TenantContext.runAs(TENANT, () -> states.afterDoorClosed(closedSlotA, customerId));
         Long slotId = order(order.getOrderNo()).getSlotId();
 
         // 门是关着的、物检也报“没有”，也必须等人来清：自动解除只服务 DOOR_OPEN
@@ -284,7 +288,7 @@ class DoorAndContentFlowTest {
         assertFalse(candidates.contains(slotId), "异常格口不该出现在候选里");
     }
     @Test
-    @DisplayName("柜内有物：不拦结束也不停表；结束后格口转滞留异常（I12）")
+    @DisplayName("柜内有物：不拦结束也不停表；遗留判定推到取物关门之后（I12）")
     void contentLeftDoesNotBlockPickupButMarksAnomaly() {
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
@@ -295,8 +299,17 @@ class DoorAndContentFlowTest {
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(), "19A：柜内有东西也不能把用户钉在柜机前");
         assertNotNull(closed.getFinishedAt());
+        // 定-17：点结束时不再读柜内，也不再顺手开单——门开着本身就是超时回扫的输入
+        assertTrue(slot(closed.getSlotId()).getAnomaly() == null,
+                "取物之后什么都没判才是对的：那时他随时可能把东西拿走");
+
+        // 他东西没拿走就把门关上了——这一刻才判得出遗留
+        simulator.simulateDoor(cabinetId, closed.getSlotId(), true);
+        BizCompartment openedSlotA = slot(closed.getSlotId());
+        TenantContext.runAs(TENANT, () -> states.afterDoorClosed(openedSlotA, customerId));
+
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(closed.getSlotId()).getAnomaly(),
-                "钱到此为止，但这一格没被清走之前不是空位");
+                "门关了而东西还在：这才是遗留，在清走之前不是空位");
         List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
                 .selectList(SlotCandidateQuery.assignable(cabinetId, SizeType.SMALL)))
                 .stream().map(BizCompartment::getId).toList();
@@ -366,6 +379,10 @@ class DoorAndContentFlowTest {
 
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(), "用户不该被一台坏传感器钉在柜机前");
+        // 定-17：门关上之后才判得出“拿不到凭据”，而这时必须锁格（无凭据绝不放回可售池）
+        simulator.simulateDoor(cabinetId, closed.getSlotId(), true);
+        BizCompartment closedSlotB = slot(closed.getSlotId());
+        TenantContext.runAs(TENANT, () -> states.afterDoorClosed(closedSlotB, customerId));
         assertEquals(CompartmentAnomaly.CONTENT_UNVERIFIED, slot(closed.getSlotId()).getAnomaly(),
                 "没有凭据的结束必须把格口锁住（否则就是无凭据地把格子放回可售池）");
         List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
