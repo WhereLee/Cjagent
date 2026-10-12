@@ -22,7 +22,7 @@ public enum OrderStatus {
 
     /** 已下单，还没分配格口 */
     INIT,
-    /** 格口已预占（带 TTL），等待客户确认投件 */
+    /** 已下单并分到格口，等首次开柜（没开始计费；超时未开门由回收任务解绑） */
     RESERVED,
     /** 开柜指令已下发，尚未收到"门已开"回执 */
     OPENING,
@@ -57,7 +57,9 @@ public enum OrderStatus {
         TRANSITIONS.put(OPENING, EnumSet.of(STORED, ACTIVE, RESERVED, CANCELLED, ABNORMAL));
         TRANSITIONS.put(STORED, EnumSet.of(ACTIVE, CANCELLED, ABNORMAL));
         TRANSITIONS.put(ACTIVE, EnumSet.of(TEMP_OPEN, SETTLING, EXPIRED, ABNORMAL));
-        TRANSITIONS.put(TEMP_OPEN, EnumSet.of(ACTIVE, ABNORMAL));
+        // TEMP_OPEN 必须能去 SETTLING：临时开门后直接点结束不能报“非法迁移”（以前是死端）；
+        // 也必须能去 EXPIRED：门卡在临时开启、人走了，看管任务要能把它转逾期而不是反复失败到判死。
+        TRANSITIONS.put(TEMP_OPEN, EnumSet.of(ACTIVE, SETTLING, EXPIRED, ABNORMAL));
         TRANSITIONS.put(SETTLING, EnumSet.of(CLOSED, ABNORMAL));
         TRANSITIONS.put(EXPIRED, EnumSet.of(SETTLING, ABNORMAL));
         TRANSITIONS.put(ABNORMAL, EnumSet.of(ACTIVE, CANCELLED, CLOSED));

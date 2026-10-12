@@ -390,6 +390,24 @@ class DoorAndContentFlowTest {
     }
 
     @Test
+    @DisplayName("临时开柜后直接点结束必须能结算（TEMP_OPEN 以前是死端）")
+    void settleRightAfterTempOpenMustBeLegal() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN_TEMP);
+        assertEquals(OrderStatus.TEMP_OPEN, order(order.getOrderNo()).getStatus(), "前提：现在在临时开柜中");
+
+        // 以前这一步会撞“不允许从 TEMP_OPEN 迁移到 SETTLING”：用户拿着东西、门开着，系统告诉他不能结单
+        TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(), "临时开门后必须能直接结束（否则单子卡死在这一格）");
+        assertTrue(closed.getSettledPoints() >= 0L, "结算金额得算出来：" + closed.getSettledPoints());
+    }
+
+    @Test
     @DisplayName("柜机回报预备开失败：重试完→换格→仍不成才退单退预收（定-21/定-23）")
     void prepareFailureRetriesSwapsThenRefunds() {
         Long customerId = newCustomer();

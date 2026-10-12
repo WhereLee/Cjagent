@@ -559,6 +559,11 @@ class DelayTaskTest {
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
         backdateDeadline(order.getId(), 5L * 24 * 60);
+        // 封顶看的是“从计费起点算的总时长”，所以造数必须把起点一起回拨：
+        // 持有 50 小时（cap-days=2 → 48 小时到顶）、应结束时刻已在 2 小时前。
+        // 以前只回拨到期时刻而起点还在“刚刚”，恰好把“拿逾期分钟判封顶”这个错掩盖掉了。
+        jdbc.update("update biz_storage_order set started_at = date_sub(now(3), interval 50 hour) where id = ?",
+                order.getId());
         scheduleNow(TaskType.OVERDUE_PICKUP, order.getOrderNo());
 
         TenantContext.callAs(TENANT, tasks::runDue);
