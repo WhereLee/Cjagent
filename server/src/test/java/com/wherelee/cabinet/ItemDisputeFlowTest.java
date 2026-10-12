@@ -222,6 +222,10 @@ class ItemDisputeFlowTest {
         simulator.simulateItemInside(cabinetId, first.getSlotId(), true);
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.ITEM_UNDETECTED);
         TenantContext.runAs(TENANT, () -> orderService.pickup(owner, first.getOrderNo()));
+        // 结束即开门（定-17 后半句）之后，门开着时这一格不可卖是物理事实：
+        // 本用例要走到“下一位抢到同一格”，必须先让他把门关上（漏检下柜内仍被判为空）
+        BizCompartment justOpened = slot(first.getSlotId());
+        TenantContext.runAs(TENANT, () -> states.afterDoorClosed(justOpened, owner));
 
         BizStorageOrder closedFirst = order(first.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closedFirst.getStatus());

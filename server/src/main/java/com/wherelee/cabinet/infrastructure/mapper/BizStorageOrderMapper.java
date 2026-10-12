@@ -23,6 +23,27 @@ import java.util.List;
 public interface BizStorageOrderMapper extends BaseMapper<BizStorageOrder> {
 
     /**
+     * 按取件码找一张还活着的单（定-25 的双因子入口专用）。
+     *
+     * <p>{@code @InterceptorIgnore(tenantLine)}：这个端点匿名可达，请求里本来就没有租户，
+     * 带租户条件的 SQL 会被守卫拒掉（与归档、调度取任务同一套做法）。码是全表唯一的（uk_order_voucher），
+     * 所以跳租户不会造成歧义；拿到 tenant_id 后上层立即切回租户上下文。
+     *
+     * <p>只取定位需要的几列（不取金额与快照）：拿到的只是一个“去哪儿读完整单”的坐标，
+     * 真正的结算必须重读完整行。
+     */
+    @com.baomidou.mybatisplus.annotation.InterceptorIgnore(tenantLine = "true")
+    @org.apache.ibatis.annotations.Select("""
+            select id, tenant_id, order_no, customer_id, status, voucher_code,
+                   voucher_wrong_count, voucher_locked_at
+              from biz_storage_order
+             where voucher_code = #{voucherCode} and deleted = 0
+               and status in ('RESERVED', 'OPENING', 'ACTIVE', 'TEMP_OPEN')
+             limit 1
+            """)
+    BizStorageOrder pickAliveByVoucher(@org.apache.ibatis.annotations.Param("voucherCode") String voucherCode);
+
+    /**
      * 记下争议起始时刻：只有仍为 NULL 时才写。
      *
      * <p>这不是为了省一次更新，而是为了**让反复点“我没落东西”无法把计费终点往后推**：

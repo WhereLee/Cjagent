@@ -126,7 +126,7 @@ public class AsyncStorageOrderAppService {
         }
 
         return new StorageOrderView(orderNo, cabinet.getCabinetNo(), slotNoOf(deducted.slotId()),
-                deducted.size().name(), STATUS_QUEUED, command.estimateMinutes(), 1, "prealloc");
+                deducted.size().name(), STATUS_QUEUED, command.estimateMinutes(), 1, "prealloc", null);
     }
 
     /**

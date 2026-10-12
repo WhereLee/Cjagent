@@ -231,7 +231,7 @@ public class StorageOrderService {
 
         return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), slotNoOf(allocated.slotId()),
                 allocated.actualSize().name(), order.getStatus().name(), order.getEstimateMinutes(),
-                allocated.triedSlots(), allocator.strategy());
+                allocated.triedSlots(), allocator.strategy(), null);
     }
 
     @Transactional
@@ -292,7 +292,7 @@ public class StorageOrderService {
         }
         return new StorageOrderView(order.getOrderNo(), cabinetNoOf(order.getCabinetId()),
                 slotNoOf(order.getSlotId()), order.getSizeType().name(), order.getStatus().name(),
-                order.getEstimateMinutes(), 0, allocator.strategy());
+                order.getEstimateMinutes(), 0, allocator.strategy(), null);
     }
 
     private SizeType parseSize(String value) {
@@ -365,28 +365,110 @@ public class StorageOrderService {
     }
 
     /**
-     * 取件（用户当面结束）：<b>门关 + 柜内无物才停计费</b>。
+     * 取件（用户当面结束）：按实际时长结算，开柜与取物紧跟着发生。
      *
      * <p>计费时长从 {@code started_at} 算到此刻，全部用服务端时间（S-07）。
      * 没落定过起点（容错期内就结束）就是 0 分钟——他确实还没占用过这个格子。
      */
-    @Transactional
     public StorageOrderView pickup(Long customerId, String orderNo) {
-        return finish(customerId, orderNo, true, OrderCloseReason.NORMAL);
+        // 登录态主路径不校验取件码（定-15：锁住的是“凭这张单开柜”，不是“把单结掉”）
+        return settleAndOpen(customerId, orderNo, false, null);
     }
 
     /**
-     * 带取件码的取件入口（定-6）。
+     * 取件（用户当面结束）：<b>算钱与开门是两件事，一内一外分开</b>。
      *
-     * <p>码不是必填：**主路径是登录态**（用户在自己手机上点结束）；
-     * 柜机上输码是手机没电时的第二条路径，柜机批次会带这个参数过来。
-     * 不填码时行为与以前一致，不会因此拒任何合法用户。
+     * <p>结算（算钱 + 记事实）走一个短事务，提交后用<b>事务外</b>的一次开门把东西还给人。
+     * 为什么不能一把垒在事务里：下发开门要等设备回执最长 2.5 秒，
+     * 在事务里等外部设备就是第 9 刀压测抓出来的连接耗尽瓶颈（{@code openDoor} 为此早已跳出事务）。
+     *
+     * <p>定-17 说“不阻止结束与取物”，以前只做到了前半句：点了结束只算钱不开门，
+     * 用户要把自己的东西拿走只能等后台强制开柜——这等于把“结束”做成了“放弃物品”（审计报告缺陷 1）。
+     * 柜机上输码是手机没电时的第二条路径（定-6，定-25 把它做成双因子）。
+     * 不填码时行为与登录态一致，不会因此拒任何合法用户；错码计数走独立事务，活过外层回滚。
      */
-    @Transactional
     public StorageOrderView pickup(Long customerId, String orderNo, String voucherCode) {
+        return settleAndOpen(customerId, orderNo, true, voucherCode);
+    }
+
+    /**
+     * 结算与取物开门的实现体。<b>事务边界就这一处</b>：结算走短事务，开门在事务外。
+     *
+     * @param withVoucher 是否走“凭码”那条路（只有带了码才校码）
+     */
+    private StorageOrderView settleAndOpen(Long customerId, String orderNo,
+                                          boolean withVoucher, String voucherCode) {
+        StorageOrderView settled = newTx.execute(status -> {
+            BizStorageOrder order = findOwned(customerId, orderNo);
+            if (withVoucher) {
+                verifyVoucher(order, voucherCode);
+            }
+            return finish(customerId, orderNo, true, OrderCloseReason.NORMAL);
+        });
+        return openForPickup(customerId, orderNo, settled);
+    }
+
+    /**
+     * 结算之后把门打开，让用户取走自己的东西（定-17 后半句，缺陷 1 与缺陷 2 的同一个出口）。
+     *
+     * <p><b>失败不回滚、也不换格</b>：钱已算完、单已结束，换格等于凭空造一张新订单（没人授权过）。
+     * 这时只做三件事：留下日志、复用定-23 已定的设备故障工单机制（不新增任何类型或阈值）、
+     * 把“现在该找谁”写进返回话里。
+     *
+     * <p>为什么门开了就不会被卖：这一格的 {@code door_open_at} 有值，而可分配判据要求门已关，
+     * 取物窗口内不需要额外的锁或状态。
+     */
+    private StorageOrderView openForPickup(Long customerId, String orderNo, StorageOrderView settled) {
         BizStorageOrder order = findOwned(customerId, orderNo);
-        verifyVoucher(order, voucherCode);
-        return finish(customerId, orderNo, true, OrderCloseReason.NORMAL);
+        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
+        BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        if (cabinet == null || slot == null) {
+            log.error("结算后取物开门缺少柜机或格口信息 orderNo={} cabinetId={} slotId={}",
+                    orderNo, order.getCabinetId(), order.getSlotId());
+            return settled.withMessage("柜机信息不完整，门未打开：请找现场工作人员协助取物");
+        }
+
+        if (order.getVoucherLockedAt() != null) {
+            // 凭码锁定：单照结（钱已在事务里算完），但不开门——锁的就是“凭这张单开柜”；
+            // 把他困在柜前不是本锁的目的，找客服核验才是出路
+            return settled.withMessage("本单取件码连续输错已被锁定，柜门未打开：请联系客服核验后取物");
+        }
+
+        long attempts = countAttempts(orderNo, com.wherelee.cabinet.domain.enums.CommandAction.OPEN);
+        com.wherelee.cabinet.application.device.DeviceCommandService.CommandOutcome outcome;
+        try {
+            outcome = deviceCommands.dispatch(cabinet, order.getSlotId(),
+                    com.wherelee.cabinet.domain.enums.CommandAction.OPEN, order.getId(),
+                    orderNo + ":PICKUP:" + (attempts + 1));
+        } catch (RuntimeException offline) {
+            // 柜机离线/通道异常：从 dispatch 直接抛出来，不在这里吃掉（吃掉就把“整柜离线”好成了“格口坏了”）
+            log.error("结算后取物开门下发失败 orderNo={}: {}", orderNo, offline.getMessage());
+            intake.onOrderEvent(order, com.wherelee.cabinet.domain.enums.WorkOrderType.DEVICE_FAULT, true,
+                    "用户已结束订单但取物开门下发失败（柜机离线或通道异常），需现场协助开门",
+                    "取物开门无响应，已标格口异常", LocalDateTime.now().plusMinutes(10));
+            return settled.withMessage("柜机现在连不上，门没打开：已通知现场人员，请联系客服或现场工作人员");
+        }
+
+        if (outcome.faultType() == com.wherelee.cabinet.domain.enums.FaultType.OPEN_FAILED) {
+            // 柜机自己说开不了：东西还在里面而人拿不到。这时最危的不是“他拿不到”，
+            // 而是这一格在系统里已经回 FREE——下一位会被分到同一个开着不了、里面却有东西的格子。
+            // markFaulty 拓不了这个情：它的条件限定只摘 RESERVED/OCCUPIED 的格（不抢别人已分走的），
+            // 而可分配判据里的 anomaly IS NULL 正好能挡住——拿不到“柜内已空”凭据、必须人工到场，
+            // 这就是 CONTENT_UNVERIFIED 本来的语义，不是新造的异常类型。
+            log.warn("结算后取物开门被柜机明确拒绝 orderNo={}", orderNo);
+            states.markContentUnverified(order.getSlotId(),
+                    "用户已结束订单但柜机明确回报打不开门：物品仍在柜内，需现场开门核验");
+            intake.onOrderEvent(order, com.wherelee.cabinet.domain.enums.WorkOrderType.DEVICE_FAULT, true,
+                    "用户已结束订单但柜机明确回报打不开门，物品仍在柜内",
+                    "取物开门失败，需现场开门", LocalDateTime.now().plusMinutes(10));
+            return settled.withMessage("这个柜口打不开：已通知现场人员处理，请联系客服或现场工作人员");
+        }
+
+        // 门开了（或柜机应答正常但未回明细）：登记门态与证据，取物期间这一格不会被分给别人
+        states.afterDoorOpened(slot, customerId);
+        return settled.withMessage(outcome.businessSuccess()
+                ? "柜门已打开，请取走物品并随手关好柜门"
+                : "已下发开门，请确认柜门已开；若没反应请联系现场工作人员");
     }
 
     /**
@@ -410,11 +492,25 @@ public class StorageOrderService {
             }
             return;
         }
+        int counted = registerVoucherWrong(order);
+        throw new BizException(ResultCode.BIZ_ERROR,
+                "取件码不正确（还剩 " + (VOUCHER_MAX_WRONG - counted) + " 次机会）");
+    }
+    
+    static final String LOCK_MESSAGE = "取件码连续输错次数过多，本单开柜已锁定；请联系客服核验后处理";
+    
+    /**
+     * 记一次凭据错误：到阈值就锁这张单的开柜能力，没到就返回当前错次。
+     *
+     * <p>写成方法而不是留在 {@code verifyVoucher} 里：定-25 的第二条路径（取件码 + 手机尾号）
+     * 要用**完全同一套计数**。复制两份就会有一边漏掉锁定，而“锁不住”正是这个机制唯一要防的事。
+     * <p>先落库再报错：这两列要活过外层回滚，不然锁定永远不生效。
+     */
+    int registerVoucherWrong(BizStorageOrder order) {
         int wrong = (order.getVoucherWrongCount() == null ? 0 : order.getVoucherWrongCount()) + 1;
         boolean lock = wrong >= VOUCHER_MAX_WRONG;
         LocalDateTime at = lock ? LocalDateTime.now() : null;
         final int counted = wrong;
-        // 先落库再抛错：这两列要活过外层回滚，不然锁定永远不生效
         newTx.executeWithoutResult(status -> {
             BizStorageOrder fresh = orderMapper.selectById(order.getId());
             if (fresh == null) {
@@ -431,11 +527,9 @@ public class StorageOrderService {
             order.setVoucherLockedAt(at);
             log.warn("取件码连续输错 {} 次，锁定该单开柜能力 orderNo={} customer={}",
                     counted, order.getOrderNo(), order.getCustomerId());
-            throw new BizException(ResultCode.BIZ_ERROR,
-                    "取件码连续输错次数过多，本单开柜已锁定；请联系客服核验后处理");
+            throw new BizException(ResultCode.BIZ_ERROR, LOCK_MESSAGE);
         }
-        throw new BizException(ResultCode.BIZ_ERROR,
-                "取件码不正确（还剩 " + (VOUCHER_MAX_WRONG - counted) + " 次机会）");
+        return counted;
     }
 
     private void requireNotVoucherLocked(BizStorageOrder order) {
@@ -503,7 +597,7 @@ public class StorageOrderService {
         BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
         return new StorageOrderView(order.getOrderNo(), cabinet == null ? "-" : cabinet.getCabinetNo(),
                 slotNoOf(order.getSlotId()), order.getSizeType().name(), order.getStatus().name(),
-                order.getEstimateMinutes(), 0, allocator.strategy());
+                order.getEstimateMinutes(), 0, allocator.strategy(), null);
     }
 
     /**
@@ -582,7 +676,7 @@ public class StorageOrderService {
 
         return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), slotNoOf(order.getSlotId()),
                 order.getSizeType().name(), order.getStatus().name(), order.getEstimateMinutes(),
-                0, allocator.strategy());
+                0, allocator.strategy(), null);
     }
 
     /**

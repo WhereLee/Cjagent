@@ -78,6 +78,11 @@ class SingleSlotAndVoucherTest {
     private PointAccountService points;
     @Autowired
     private StorageOrderService orderService;
+    @Autowired
+    private com.wherelee.cabinet.application.storage.PublicPickupService publicPickup;
+
+    /** 夹具里写下的客户手机号，双因子用例要拿它的后四位。 */
+    private final java.util.Map<Long, String> phoneOf = new java.util.concurrent.ConcurrentHashMap<>();
 
     private JdbcTemplate jdbc;
     private String cabinetNo;
@@ -151,9 +156,13 @@ class SingleSlotAndVoucherTest {
     private Long newCustomer() {
         Long id = 998000L + Math.abs(UUID.randomUUID().getLeastSignificantBits() % 15000);
         customerIds.add(id);
-        jdbc.update("insert into biz_customer (id, tenant_id, open_id, nickname, status, register_time, create_time, update_time, deleted) "
-                        + "values (?, ?, ?, '单格客户', 1, now(3), now(3), now(3), 0)",
-                id, TENANT, "tk-" + id);
+        // 定-25 的第二条路径要手机尾号：夹具里的客户以前根本不写 phone，
+        // 不补上就只能测“永远不可能命中”的那一支
+        String phone = "1390" + String.format("%07d", Math.abs(id % 10000000));
+        phoneOf.put(id, phone);
+        jdbc.update("insert into biz_customer (id, tenant_id, open_id, nickname, phone, status, register_time, create_time, update_time, deleted) "
+                        + "values (?, ?, ?, '单格客户', ?, 1, now(3), now(3), now(3), 0)",
+                id, TENANT, "tk-" + id, phone);
         Long finalId = id;
         TenantContext.runAs(TENANT, () -> points.recharge(finalId, FREEZE * 4,
                 "CHG-" + UUID.randomUUID(), "单格用例 funding"));
@@ -274,5 +283,39 @@ class SingleSlotAndVoucherTest {
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, orderNo));
         assertNotNull(order(orderNo).getFinishedAt(), "锁定不影响登录态结束（结掉才能把件拿走或走客服）");
         assertEquals(0L, occupiedBy(SizeType.SMALL), "结束后格口释放");
+    }
+
+    @Test
+    @DisplayName("定-25 第二条路径：取件码 + 手机尾号才能结单取物，且不告诉攻击者哪个凭据错了")
+    void twoFactorPickupSettlesAndRevealsNothing() {
+        Long customerId = newCustomer();
+        String orderNo = orderNo(customerId, SizeType.SMALL);
+        door(orderNo, customerId, CommandAction.OPEN);
+        door(orderNo, customerId, CommandAction.CLOSE_VERIFY);
+        String code = order(orderNo).getVoucherCode();
+        String phone = phoneOf.get(customerId);
+        String tail = phone.substring(phone.length() - 4);
+
+        // 码真、尾号不对：不能结算，而且报的话与“码不存在”一模一样
+        BizException wrongTail = assertThrows(BizException.class, () -> TenantContext.callAs(TENANT,
+                () -> publicPickup.pickup(code, "0000")));
+        assertTrue(wrongTail.getMessage().contains("取件码或手机尾号不正确"), wrongTail.getMessage());
+        assertTrue(order(orderNo).getFinishedAt() == null, "尾号不对绝不能结算");
+        assertEquals(1, order(orderNo).getVoucherWrongCount().intValue(),
+                "拿着真码试尾号就是在猜号，必须计入这张单的错次（定-15 同一套）");
+
+        // 码根本不存在：同一句话（能区分就等于把“哪些码是真实存在的”送出去）
+        BizException noOrder = assertThrows(BizException.class, () -> TenantContext.callAs(TENANT,
+                () -> publicPickup.pickup("V00000000", tail)));
+        assertEquals(wrongTail.getMessage(), noOrder.getMessage(), "两种失败必须同一句话");
+
+        // 两个都对了：结单、取物开门、错次归零
+        com.wherelee.cabinet.application.storage.dto.StorageOrderView view =
+                TenantContext.callAs(TENANT, () -> publicPickup.pickup(code, tail));
+        BizStorageOrder done = order(orderNo);
+        assertEquals("CLOSED", done.getStatus().name(), "双因子过了就必须能当场结单");
+        assertNotNull(done.getFinishedAt());
+        assertTrue(view.message().contains("柜门已打开"), view.message());
+        assertEquals(0, done.getVoucherWrongCount().intValue(), "走对了就要把错次归零");
     }
 }

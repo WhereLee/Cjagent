@@ -93,7 +93,7 @@ public class StorageOrderFacade {
                     && e.getResultCode() == ResultCode.RESOURCE_NOT_FOUND
                     && asyncService.cancelQueued(orderNo, customerId)) {
                 return new StorageOrderView(orderNo, "-", "-", "-",
-                        OrderStatus.CANCELLED.name(), null, 0, strategy);
+                        OrderStatus.CANCELLED.name(), null, 0, strategy, null);
             }
             throw e;
         }

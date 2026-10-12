@@ -408,6 +408,59 @@ class DoorAndContentFlowTest {
     }
 
     @Test
+    @DisplayName("点结束必须真的把门打开（定-17 后半句：结束不等于放弃物品）")
+    void pickupMustOpenTheDoorForRetrieval() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
+
+        com.wherelee.cabinet.application.storage.dto.StorageOrderView view =
+                TenantContext.callAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        assertTrue(view.message() != null && view.message().contains("柜门已打开"),
+                "结束要回一句话告诉用户门开了（缺陷 16：以前这种结果只进服务端日志）：" + view.message());
+        BizCompartment after = TenantContext.callAs(TENANT, () -> slotMapper.selectById(order.getSlotId()));
+        assertNotNull(after.getDoorOpenAt(), "结束后这一格的门必须是开着的：门不开他拿不出东西，就是“结束=放弃”");
+        // 取物窗口不靠新增锁：这一格不可卖是“门已关”这个现成判据自己说的
+        Integer opened = jdbc.queryForObject(
+                "select count(*) from biz_item_evidence where compartment_id = ? and moment = 'DOOR_OPENED'",
+                Integer.class, order.getSlotId());
+        assertTrue(opened != null && opened >= 2,
+                "取物这次开门也要留证据（第 19C 的采集点）：" + opened);
+    }
+
+    @Test
+    @DisplayName("取物开门被柜机拒绝：钱照算单照结，格口摘出可售池并开设备故障工单")
+    void pickupOpenFailureKeepsSettlementAndRaisesFaultOrder() {
+        Long customerId = newCustomer();
+        BizStorageOrder order = newOrder(customerId);
+        door(order.getOrderNo(), customerId, CommandAction.OPEN);
+        door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
+
+        // 前面两次开门是好的，到结束这一步柜机才开始“自己说开不了”
+        simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.EXEC_FAIL);
+        com.wherelee.cabinet.application.storage.dto.StorageOrderView view =
+                TenantContext.callAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
+
+        BizStorageOrder closed = order(order.getOrderNo());
+        assertEquals(OrderStatus.CLOSED, closed.getStatus(),
+                "开门失败不能回滚结算：钱在事务里已经算完，单也已经结掉");
+        assertTrue(view.message() != null && view.message().contains("打不开"),
+                "失败要说清下一步找谁：" + view.message());
+        BizCompartment blocked = TenantContext.callAs(TENANT,
+                () -> slotMapper.selectById(closed.getSlotId()));
+        assertEquals(CompartmentAnomaly.CONTENT_UNVERIFIED, blocked.getAnomaly(),
+                "东西还在里面而门开不了：这一格必须带异常，否则 FREE 且无异常的格子会被分给下一个人");
+        assertTrue(blocked.getDoorOpenAt() == null,
+                "柜机说开不了，就不该在库里留下“门开着”的假象");
+        assertEquals(1, jdbc.queryForObject(
+                        "select count(*) from biz_work_order where storage_id = ? and type = 'DEVICE_FAULT'",
+                        Integer.class, closed.getId()).intValue(),
+                "要有人被指向这件事：得开出一张设备故障工单");
+    }
+
+    @Test
     @DisplayName("柜机回报预备开失败：重试完→换格→仍不成才退单退预收（定-21/定-23）")
     void prepareFailureRetriesSwapsThenRefunds() {
         Long customerId = newCustomer();
