@@ -5,7 +5,8 @@
 
 > **设计文档不在仓库内**。领域决策、架构约定、压测报告等已经移出（不在版本库中）。
 > 本文件只保留能由代码与配置自证的运行说明；**任何 agent 不得阅读或引用这批文档**。
-当前处于**阶段 1（寄存业务）**：阶段 0 底座与两个前端已完成，业务地基（表与状态机）已落地。
+当前处于**阶段 1（寄存业务）**：阶段 0 后端底座已完成，业务地基（表与状态机）已落地；
+**前端工程已于 2026-10-12 删除**（理由见下面“前端”一节）。
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
@@ -18,7 +19,7 @@
 
 - **后端** Java 17 · Spring Boot 3.5 · Maven（单模块分包）· MyBatis-Plus · Flyway · Spring Security + JWT · SpringDoc
 - **数据** MySQL 8（业务主库）· PostgreSQL + pgvector（agent / 向量）· Redis（缓存、登录态、限流、设备在线判定）· RocketMQ 5（业务异步事件）
-- **前端** uni-app + Vue 3 + TS（用户端，可编译 H5 本地直连后端）· Vue 3 + Element Plus（运营后台）
+- **前端**：暂无。原先的 uni-app 用户端与 Vue3 后台已删除，接界面时按当时的真实路由重写
 
 ## 目录
 
@@ -33,10 +34,6 @@ server/                 后端 Spring Boot 工程
     config/             Spring 装配：双数据源、MyBatis-Plus、Jackson、CORS、OpenAPI
   src/main/resources/db/migration/   Flyway 版本化 DDL
   src/test/java/        单测 + @Tag(integration) 集成测试
-admin/                Vue3 + Vite + Element Plus 运营后台
-mini/                 uni-app 用户端（H5 + 微信小程序，Vue3 + TS）
-  src/pages/          寄存登录 / 首页 / 扫码（占位）/ 我的
-  tools/gen-page-flow.mjs  页面流转图生成与静态检查
 scripts/dev-env.ps1     本地中间件一键起停与体检
 scripts/run-app.ps1     本地启动后端（读 deploy/jvm.opts 的 JVM 参数）
 scripts/sync-free-sets.ps1  用 DB 真相重建 Redis 空闲格口集合（预扣策略的校准入口）
@@ -88,7 +85,7 @@ curl.exe -s http://127.0.0.1:8080/actuator/prometheus | Select-String jvm_memory
 | 端 | 登录 | 说明 |
 |---|---|---|
 | 后台 | `POST /api/admin/auth/login`，body 带 `tenantCode` + `username` + `password` | 用户名只**租户内**唯一，所以必须带租户；口令用 BCrypt 存 |
-| 寄存客户 | `POST /api/mini/auth/login`，body 带 `code`（首次注册再加 `tenantCode`） | dev 下 `cabinet.mini.mock-login=true` 可无 AppID 跑通；生产必须关掉 |
+| 寄存客户 | `POST /api/mini/auth/login`，body 带 `code`（首次注册必须再加 `tenantCode` **与 `phone`**） | dev 下 `cabinet.mini.mock-login=true` 可无 AppID 跑通；生产必须关掉 |
 | 两端 | `refresh` / `logout` / `me` | access 30 分、refresh 7 天；**refresh 一次性**，用过即废 |
 
 三条安全链：公开（`/api/system/**`、文档、actuator health）、`/api/admin/**`、`/api/mini/**`。
@@ -133,20 +130,15 @@ GET /api/admin/users?pageNum=1&pageSize=20&orderBy=createTime&asc=false
 → 需要权限码 system:user:list；手机号已脱敏；只返回本租户数据
 ```
 
-## 前端（admin）
+## 前端
 
-```bash
-cd admin
-npm install
-npm run dev                       # http://127.0.0.1:8082
-npm run lint && npm run typecheck && npm run build
-```
+**本项目当前不含前端工程**。2026-10-12 用户决定将 `admin/`（Vue3 后台）与 `mini/`（uni-app 用户端）
+整体删除：它们停在阶段 0 的登录骨架，而后端已推进到预收计费、预备开握手、工单两条队列、
+双因子取件——两边契约差得远，留着门禁只是守一堆没人调的接口。
+以后要做界面，从后端现在的真实路由重开（`/api/mini/**`、`/api/admin/**`、`/api/public/storage/pickup`），
+不要拿旧页面的接口清单当依据。历史代码在版本库的历史提交里可取回。
 
-端口用 **8082 而不是 8081**：8081 已被本机 RocketMQ 5 的 proxy 组件占用（抢它会得到
-`EACCES: permission denied`，容易误读成权限问题）。后端 dev 的来源白名单在
-`application-dev.yml` 里，**改端口要两边一起改**。
-
-本地第一个后台账号（仓库不存可用口令，需自己建）：
+本地第一个后台账号（仓库不存可用口令，需自己建；不依赖前端也能直接调接口验证）：
 
 1. 生成 BCrypt 哈希（强度 10，与后端编码器一致），用 `spring-security-crypto` 的
    `BCrypt.hashpw` 即可；用命令行 `javac` 跑小工具时要加 `-encoding UTF-8`（Windows 默认 GBK）
@@ -156,25 +148,6 @@ npm run lint && npm run typecheck && npm run build
 
 账号数据**不要写进 `db/migration`**：迁移脚本一经发布不可修改，而带口令的种子数据几乎肯定要反复改动。
 
-## 前端（mini 用户端）
-
-```bash
-cd mini
-npm install
-npm run dev:h5                    # http://127.0.0.1:8083
-npm run lint && npm run typecheck && npm run flow
-npm run build:h5 && npm run build:mp-weixin
-```
-
-- **H5 直连后端调试**，不需要小程序 AppID：登录走后端 mock 通道（`code` 直接当 openId），
-  本地 code 存在 Storage 里保持稳定（否则每登录一次就多一个新客户）。编译到微信小程序时
-  改用 `uni.login` 取真实 code，mock 分支由 `mini.mock-login` + `@Profile("!prod")` 两层锁住。
-- 端口 **8083**（admin 8082、后端 8080、8081 被本机 RocketMQ proxy 占用），后端 dev
-  的来源白名单已同时放行两个，改端口要两边一起改。
-- `npm run flow` 会从 `pages.json` 与页面源码生成 `docs/页面流转.md`（Mermaid），
-  并顺带检查两件事：**跳转目标未注册**（点了白屏）与**页面不可达**（死页面），不过则退出码 1。
-- 扫码页在 H5 下必然失败（`uni.scanCode` 不支持 H5），那是预期分支不是 bug。
-
 ## 测试与 CI
 
 ```powershell
@@ -183,8 +156,8 @@ mvn -B -ntp test                 # 单测，不依赖中间件
 mvn -B -ntp test -Pintegration   # 集成测试，需真实中间件 + server/.env（连 cabinet_test 库）
 ```
 
-GitHub Actions（`.github/workflows/ci.yml`）**五个 job**：`unit-tests`、`frontend-admin`、
-`frontend-mini`、`secret-scan`、`integration-tests`（服务容器 MySQL/pgvector/Redis + step 起 RocketMQ）。
+GitHub Actions（`.github/workflows/ci.yml`）**三个 job**：`unit-tests`、`secret-scan`、
+`integration-tests`（服务容器 MySQL/pgvector/Redis + step 起 RocketMQ）。前端两个 job 已随工程删除。
 **本地与 CI 跑同一批 `@Tag(integration)` 用例**，只是环境由"本机实例"换成"容器"，测试代码不分叉。
 实测一次流水线约 2~3 分钟。
 

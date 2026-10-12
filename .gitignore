@@ -6,9 +6,7 @@ git与CI操作手册.md
 .env
 .env.*
 !.env.example
-# 前端环境文件只存本地地址（VITE_API_BASE 等），无密钥，必须入库才能新人跑得起来
-!admin/.env.development
-!mini/.env.development
+# 前端工程已于 2026-10-12 删除，原先为它们的环境文件白名单一并作废
 *.pem
 id_rsa*
 
@@ -72,7 +70,7 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Redis ����ʵ���� RDB ��������Ŀ¼ʱ�������ļ������ǹ������Ҳ������⣩
+# Redis ����ʵ���� RDB ��������Ŀ¼ʱ�������ļ������ǹ������Ҳ������⣩
 dump.rdb
 
 # 设计与分析文档已移出仓库（用户 2026-10-12 决定），此处防止被重新提交

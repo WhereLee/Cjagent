@@ -42,77 +42,10 @@ jobs:
           path: server/target/surefire-reports/
           retention-days: 3
 
-  # ── 2. 前端（admin）门禁：lint + 类型检查 + 构建 ────────────────────
-  frontend-admin:
-    name: 前端 admin 检查
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    defaults:
-      run:
-        working-directory: admin
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 准备 Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: admin/package-lock.json
-
-      # npm ci 而不是 install：锁定文件不一致时直接失败，不会静默升版
-      - name: 安装依赖
-        run: npm ci
-
-      - name: ESLint（--max-warnings 0）
-        run: npm run lint
-
-      - name: 类型检查
-        run: npm run typecheck
-
-      - name: 生产构建
-        run: npm run build
-
-  # ── 3. 前端（mini 用户端）门禁：lint + 类型 + 页面流转检查 + 两端构建 ──────
-  # 两个构建目标都跑：只验 H5 的话，“uni-app 能编小程序”就只是纸面承诺
-  frontend-mini:
-    name: 前端 mini 检查
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: mini
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
-
-      - name: 准备 Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: |
-            admin/package-lock.json
-            mini/package-lock.json
-
-      - name: 安装依赖
-        run: npm ci
-
-      - name: ESLint（--max-warnings 0）
-        run: npm run lint
-
-      - name: 类型检查
-        run: npm run typecheck
-
-      - name: 页面流转检查（跳转目标已注册、无不可达页面）
-        run: npm run flow
-
-      - name: 构建 H5
-        run: npm run build:h5
-
-      - name: 构建微信小程序
-        run: npm run build:mp-weixin
+  # ── 2. 前端门禁已移除 ─────────────────────────────────────────
+  # 2026-10-12 用户决定把 mini/ 与 admin/ 两个前端工程整体删除（只保留后端）：
+  # 它们还停在阶段 0 的登录骨架，而后端已推进到预收、预备开握手、工单队列、双因子取件。
+  # 留着门禁只会守着一堆没人调的接口。下面的编号保持原样，不重排历史 job 名。
 
   # ── 4. 密钥与入库范围扫描 ────────────────────────────────────────
   secret-scan:
