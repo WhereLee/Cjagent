@@ -202,6 +202,18 @@ cabinet:
       max-completion-tokens: 1200
       # 低于此置信度一律降为 UNKNOWN：模型会用肯定的语气说不确定的事
       min-confidence: 0.6
+  agent:
+    # C 端智能客服（第 22 刀）：stub（桩，默认）| real（Spring AI tool calling + MiMo）。
+    # 沿用复审同一哲学：CI 与集成测试永不调用付费接口；接真模型只改这一项 + 环境变量。
+    # 真模型的工具循环“查单/重开门/建单”都是真实动作，所以频控在端点层再兜一道（RateLimit）
+    client: stub
+    mimo:
+      base-url: https://api.xiaomimimo.com/v1
+      api-key: ${MIMO_API_KEY:}
+      model: mimo-v2.6-flash
+      timeout-ms: 20000
+      # 每一轮工具循环都在花思考+正文 token（13C 实测结论：预算给小了正文会是空的）
+      max-completion-tokens: 1500
   pay:
     # 支付通道：mock | none。**这里默认 mock 是因为 dev 需要能充值**；
     # application-prod.yml 显式改成 none（不靠运行时的判断拦，而是让通道 bean 根本不存在，

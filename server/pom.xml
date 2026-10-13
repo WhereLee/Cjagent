@@ -27,7 +27,21 @@
         <archunit.version>1.3.0</archunit.version>
         <redisson.version>3.49.0</redisson.version>
         <rocketmq-spring.version>2.3.1</rocketmq-spring.version>
+        <spring-ai.version>1.1.3</spring-ai.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Spring AI 版本域：agent 工具循环走它（第 22 刀）。2.0 要求 Boot 4，Boot 3.5 锁 1.1.x -->
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
@@ -148,6 +162,22 @@
             <artifactId>jjwt-jackson</artifactId>
             <version>${jjwt.version}</version>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- 智能客服 agent（第 22 刀）：tool calling 工具循环。
+             只允许出现在 infrastructure.ai 包（ArchitectureTest 守住），
+             application/domain 只看 SupportAgentPort 接口，换模型或换框架不外溢。
+             不引 starter 而引两个核心 artifact：starter 的自动配置在缺 spring.ai.openai.api-key
+             时启动即炸（实测踩过：audio/embedding 等自动配置无条件生效），
+             而我们的认证（api-key 头，13C 实测）与参数在 MimoSupportAgent 里手动构建，
+             根本不需要那套装配。 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-client-chat</artifactId>
         </dependency>
 
         <dependency>

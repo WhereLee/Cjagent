@@ -115,4 +115,16 @@ class ArchitectureTest {
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".interfaces..");
         rule.check(PRODUCTION_CLASSES);
     }
+
+    @Test
+    @DisplayName("AI 框架不外泄：spring-ai 只允许出现在 infrastructure（换模型/框架不击穿端口）")
+    void springAiStaysInInfrastructure() {
+        // 第 22 刀起 agent 依赖 Spring AI：SupportAgentPort 是业务端口，
+        // 哪天换 LangChain4j 或自写循环，改的只是 infrastructure.ai 一个包
+        ArchRule rule = noClasses().that().resideInAnyPackage(
+                        ROOT + ".domain..", ROOT + ".application..",
+                        ROOT + ".interfaces..", ROOT + ".common..")
+                .should().dependOnClassesThat().resideInAnyPackage("org.springframework.ai..");
+        rule.check(PRODUCTION_CLASSES);
+    }
 }

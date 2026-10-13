@@ -140,8 +140,13 @@ public class WorkOrderIntake {
                 java.time.LocalDateTime.now().plusHours(2));
     }
 
-    /** 直接开一张（超封顶未结束这类没有“异常标记”事件的场景）。 */
-    public void onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
+    /**
+     * 直接开一张（超封顶未结束这类没有“异常标记”事件的场景）。
+     *
+     * <p>返回工单 ID：新建的返回新 ID，幂等合并的返回已存在那张的 ID。
+     * AI 客服转报建单（第 22 刀）靠它把单号回给用户，其余调用方不关心返回值，不受影响。
+     */
+    public Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
                              String detection, String title, LocalDateTime dueAt) {
         BizCompartment slot = order.getSlotId() == null ? null : slotMapper.selectById(order.getSlotId());
         BizCabinet cabinet = slot == null || slot.getCabinetId() == null
@@ -149,7 +154,7 @@ public class WorkOrderIntake {
         BizSite site = cabinet == null ? null : siteMapper.selectById(cabinet.getSiteId());
         BizCustomer customer = order.getCustomerId() == null
                 ? null : customerMapper.selectById(order.getCustomerId());
-        workOrders.open(new WorkOrderService.NewOrder(
+        return workOrders.open(new WorkOrderService.NewOrder(
                 order.getTenantId(), type, urgent,
                 site == null ? null : site.getId(), cabinet == null ? null : cabinet.getId(),
                 order.getSlotId(), slot == null ? null : slot.getSlotNo(),
