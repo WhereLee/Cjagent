@@ -128,6 +128,8 @@ class RealAgentLiveTest {
     @Test
     @DisplayName("计费问题：不碰设备与工单，wiki 口径直答")
     void realModelAnswersBillingFromWiki() {
+        briefBeforeAnswer = jdbc.queryForObject(
+                "select count(*) from biz_work_order where tenant_id = ?", Integer.class, TENANT);
         SupportAgentPort.AgentReply reply = TenantContext.callAs(TENANT, () ->
                 support.chat(new SupportAgentPort.SupportSession(
                         CUSTOMER, null, "在最小的柜子里放一整天，最多收多少钱？")));
@@ -135,10 +137,13 @@ class RealAgentLiveTest {
         System.out.println("[真模型] 计费回复\n" + reply.reply());
         assertFalse(reply.reply() == null || reply.reply().isBlank(), "wiki 口径问题必须能答");
         assertFalse(reply.escalated(), "纯问答不该建单");
-        Integer tickets = jdbc.queryForObject(
+        // 纯问答不新增工单：比对待答前后（prepare 里已有简报目标单，不能断言总数为 0）
+        Integer after = jdbc.queryForObject(
                 "select count(*) from biz_work_order where tenant_id = ?", Integer.class, TENANT);
-        assertTrue(tickets == null || tickets == 0, "问答不该留下工单");
+        assertEquals(briefBeforeAnswer, after, "问答不该留下新工单");
     }
+
+    private Integer briefBeforeAnswer;
 
     @Test
     @DisplayName("B 端工单简报：一次工具循环产出三件，摘要非空且不碰工单状态")
