@@ -212,8 +212,10 @@ cabinet:
       api-key: ${MIMO_API_KEY:}
       model: mimo-v2.6-flash
       timeout-ms: 20000
-      # 每一轮工具循环都在花思考+正文 token（13C 实测结论：预算给小了正文会是空的）
-      max-completion-tokens: 1500
+      # 每一轮工具循环都在花思考+正文 token（13C 实测结论：预算给小了正文会是空的）；
+      # 24 刀实测：运维诊断报告四件+两组长文本列表在 1500 时被截断致 JSON 解析失败，
+      # 提到 4000（共享装配，三个 agent 同一预算，stub 模式不花钱）
+      max-completion-tokens: 4000
   ops:
     # 运维诊断副驾（第 24 刀）读日志的目录：与 logback 的 ${LOG_DIR} 同源语义，
     # 默认相对路径（工作目录下 logs/）；服务器上由部署路径/环境变量覆盖。
