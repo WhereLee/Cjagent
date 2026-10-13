@@ -139,6 +139,21 @@ public class AdminWorkOrderController {
         return R.ok(workOrders.evidenceFor(id));
     }
 
+    @Operation(summary = "记录电话联系", description = "业务员主动拨打后的结果留痕（系统不强制派电话任务，打不打由业务员判断）；结果必填")
+    @OperationLog(module = "workorder", operation = "记录电话联系")
+    @Idempotent(key = "#current.subjectId() + ':phone:' + #id", requireKey = false)
+    @PreAuthorize("hasAuthority('workorder:resolve')")
+    @PostMapping("/{id}/phone-note")
+    public R<Void> phoneNote(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
+                             @Valid @RequestBody PhoneNoteCommand cmd) {
+        workOrders.notePhoneCall(id, current.subjectId(), cmd.resultNote());
+        return R.ok();
+    }
+
+    /** 结果必填：只记"打过电话"不留结果，这条流水没有价值。 */
+    public record PhoneNoteCommand(@NotBlank @Size(max = 300) String resultNote) {
+    }
+
     /** requestId 由前端生成：处理反馈会派生子单，重放不能派出第二张。 */
     public record ResolveCommand(@NotBlank @Size(max = 200) String requestId,
                                  @NotBlank @Size(max = 400) String resultNote,

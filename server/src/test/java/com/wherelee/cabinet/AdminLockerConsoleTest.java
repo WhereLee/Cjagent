@@ -159,6 +159,8 @@ class AdminLockerConsoleTest {
         reviewPort.reset();
         Object[] customers = customerIds.toArray();
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
+        // 第 21 刀起 markContentLeft 会给物主发站内消息，按租户清掉避免共享库堆积
+        jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_item_evidence where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_device_report where order_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);

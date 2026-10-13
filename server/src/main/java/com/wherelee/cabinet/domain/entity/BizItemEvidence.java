@@ -52,6 +52,8 @@ public class BizItemEvidence extends BaseEntity {
         /** 看管期间的定时检测（门未关阶梯上每发一次提醒做一次）。 */
         WATCH_DETECT,
         /** 另一位用户代关之后的检测（用于与代关前的记录对比）。 */
-        HELPER_CLOSED
+        HELPER_CLOSED,
+        /** 物主自助取回后的复检（第 21 刀）：确认柜内已空才放格子回可售。 */
+        RETRIEVED_CHECK
     }
 }

@@ -11,6 +11,7 @@ import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
+import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizPointTxnMapper;
@@ -78,10 +79,14 @@ public class StorageQueryService {
     public record CabinetView(String cabinetNo, String name, String status, String onlineState) {
     }
 
-    /** 一张寄存单的可见信息（含柜机与格口编号，用户凭这两个字段才能在柜机前对上位置）。 */
+    /**
+     * 一张寄存单的可见信息（含柜机与格口编号，用户凭这两个字段才能在柜机前对上位置）。
+     * leftoverRetrievable：这张单的格口正有他的遗留物待取回（第 21 刀，与开门校验同一判据）。
+     */
     public record OrderView(String orderNo, String cabinetNo, String slotNo, String sizeType, String status,
                             LocalDateTime startedAt, LocalDateTime expectedFinishAt, LocalDateTime createTime,
-                            long settledPoints, long arrearsPoints) {
+                            long settledPoints, long arrearsPoints,
+                            boolean leftoverRetrievable) {
     }
 
     /** 钱包：余额、冻结、押金栏（历史遗留栏，仍要如实读出来）、欠费合计与未支付笔数。 */
@@ -158,11 +163,15 @@ public class StorageQueryService {
                 .collect(Collectors.toSet());
         Set<Long> cabinetIds = orders.stream().map(BizStorageOrder::getCabinetId).filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
-        Map<Long, String> slotNos = slotIds.isEmpty() ? Map.of()
+        // 格口取全列：除了编号，“待取回”标记要读 anomaly 与 currentOrderId（第 21 刀取回闭环的入口）
+        Map<Long, BizCompartment> slots = slotIds.isEmpty() ? Map.of()
                 : slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                        .select(BizCompartment::getId, BizCompartment::getSlotNo)
+                        .select(BizCompartment::getId, BizCompartment::getSlotNo,
+                                BizCompartment::getAnomaly, BizCompartment::getCurrentOrderId)
                         .in(BizCompartment::getId, slotIds))
-                .stream().collect(Collectors.toMap(BizCompartment::getId, BizCompartment::getSlotNo));
+                .stream().collect(Collectors.toMap(BizCompartment::getId, s -> s));
+        Map<Long, String> slotNos = slots.entrySet().stream()
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getSlotNo()));
         Map<Long, String> cabinetNos = cabinetIds.isEmpty() ? Map.of()
                 : cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
                         .select(BizCabinet::getId, BizCabinet::getCabinetNo)
@@ -170,12 +179,21 @@ public class StorageQueryService {
                 .stream().collect(Collectors.toMap(BizCabinet::getId, BizCabinet::getCabinetNo));
 
         return orders.stream()
-                .map(order -> new OrderView(order.getOrderNo(),
-                        cabinetNos.get(order.getCabinetId()), slotNos.get(order.getSlotId()),
-                        order.getSizeType() == null ? null : order.getSizeType().name(),
-                        order.getStatus() == null ? null : order.getStatus().name(),
-                        order.getStartedAt(), order.getExpectedFinishAt(), order.getCreateTime(),
-                        nvl(order.getSettledPoints()), nvl(order.getArrearsPoints())))
+                .map(order -> {
+                    BizCompartment slot = order.getSlotId() == null ? null : slots.get(order.getSlotId());
+                    // “待取回” = 单已终态 且 它的格口正是遗留物状态且没人占用：
+                    // 三个条件与 LeftoverRetrieveService 的开门校验同一判据，列表亮了按钮点进去才不会扑空
+                    boolean retrievable = order.getStatus() != null && order.getStatus().isTerminal()
+                            && slot != null && slot.getAnomaly() == CompartmentAnomaly.CONTENT_LEFT
+                            && slot.getCurrentOrderId() == null;
+                    return new OrderView(order.getOrderNo(),
+                            cabinetNos.get(order.getCabinetId()), slotNos.get(order.getSlotId()),
+                            order.getSizeType() == null ? null : order.getSizeType().name(),
+                            order.getStatus() == null ? null : order.getStatus().name(),
+                            order.getStartedAt(), order.getExpectedFinishAt(), order.getCreateTime(),
+                            nvl(order.getSettledPoints()), nvl(order.getArrearsPoints()),
+                            retrievable);
+                })
                 .toList();
     }
 

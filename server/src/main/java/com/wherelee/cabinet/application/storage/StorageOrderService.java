@@ -971,8 +971,8 @@ public class StorageOrderService {
      * 下一位使用者上报“这个格口里有别人的东西”。
      *
      * <p>这是唯一能兑住“物检漏检 + 当事人没及时发现”的路径：传感器看不到的东西，
-     * 开门的人看得到。三个动作缺一不可：锁格（不得再卖）、上报者的单不收费退回、
-     * 给原主单打标（他下次看页面时能知道，也是纠纷还原的依据）。
+     * 开门的人看得到。两个动作缺一不可：锁格（不得再卖）、上报者的单不收费退回；
+     * 给原主打标与发站内消息由 markContentLeft 统一负责（第 21 刀，取回闭环的起点）。
      *
      * <p><b>上报者免费是故意的</b>：他的单可能已计费几分钟，一律按取消处理不收费。
      * 要他为一个不是自己造成的现场付钱，得到的只会是“下次不开这扇门直接走人”——
@@ -988,32 +988,8 @@ public class StorageOrderService {
         Long slotId = order.getSlotId();
         // 先标异常再释放：顺序反过来会有一个窗口让这一格“看起来是空的”被别人抢走
         states.markContentLeft(slotId, "下一位使用者开门发现他人遗留物，需业务运维清柜");
-        markOriginalOwner(order);
         log.warn("格口遗留物上报 orderNo={} slotId={} 上报人={}", order.getOrderNo(), slotId, customerId);
         return releaseOrder(order);
-    }
-
-    /**
-     * 给同一格口上一个终态单打标（“你的东西被别人看到过”）。
-     *
-     * <p>找不到也不影响上报成立：遗留物可能属于很久以前那张单，甚至属于一张被物理清柜时的无主物；
-     * 这种情况不报错而是让台账自己说（否则一个上报会被“无法归因”直接拒绝，那是把好处处推给用户）。
-     */
-    private void markOriginalOwner(BizStorageOrder current) {
-        BizStorageOrder previous = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
-                .eq(BizStorageOrder::getSlotId, current.getSlotId())
-                .ne(BizStorageOrder::getId, current.getId())
-                .in(BizStorageOrder::getStatus, OrderStatus.CLOSED, OrderStatus.CANCELLED)
-                .orderByDesc(BizStorageOrder::getFinishedAt)
-                .last("limit 1"));
-        if (previous == null) {
-            log.info("遗留物无法归因到上一张单，仅记台账 slotId={}", current.getSlotId());
-            return;
-        }
-        int marked = orderMapper.markLeftoverReported(previous.getId(), LocalDateTime.now());
-        if (marked == 0) {
-            log.debug("该单已被上报过一次，不刷时间 orderNo={}", previous.getOrderNo());
-        }
     }
 
     /**

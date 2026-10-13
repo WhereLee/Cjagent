@@ -14,6 +14,7 @@ import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizItemEvidence;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper;
@@ -132,10 +133,14 @@ public class LockerConsoleService {
     // ------------------------------------------------------------------ 写
 
     /**
-     * 人工清柜：把异常格口标回正常。两道硬前置——<b>门必须已关</b>（门关着却标异常会永久锁死这一格）、
-     * <b>必须留说明</b>。异常是否还在由条件更新兜住，重复点第二次影响 0 行。
+     * 人工清柜：把异常格口标回正常。三道硬前置——<b>门必须已关</b>（门关着却标异常会永久锁死这一格）、
+     * <b>必须留说明</b>、<b>必须拿到“柜内已空”的可靠凭据</b>（第 21 刀安全闸：之前只查门不查物，
+     * 运维关上门点清柜就能把还放着东西的格子放回可售池——那正是把别人的东西卖给下一位）。
+     * 异常是否还在由条件更新兜住，重复点第二次影响 0 行。
+     *
+     * <p>故意不开事务：物检（sense）是一次设备问答，不能握着数据库连接等它（第 9/11 刀同一纪律）；
+     * clearAnomaly 与 recordManualRecovery 各自成短事务，两者无需原子绑定。
      */
-    @Transactional
     public void resolveAnomaly(Long compartmentId, String note) {
         if (note == null || note.isBlank()) {
             throw new BizException(ResultCode.PARAM_INVALID, "清除异常必须填写现场说明（看到了什么、如何处理）");
@@ -150,6 +155,11 @@ public class LockerConsoleService {
         }
         if (slot.doorOpen()) {
             throw new BizException(ResultCode.BIZ_ERROR, "柜门尚未关闭，不能标为正常：请先关好门再清柜");
+        }
+        var sensing = states.sense(slot.getCabinetId(), compartmentId);
+        if (!sensing.doorClosed() || sensing.presence() != Presence.ABSENT || !states.fresh(sensing)) {
+            throw new BizException(ResultCode.BIZ_ERROR, "柜内检测到物品或无法确认已空：不能解除异常"
+                    + "（物主自助取回后会自动恢复，或现场确认已清空后再清柜）");
         }
         if (slotMapper.clearAnomaly(compartmentId) == 0) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "异常已被他人处理，请刷新后重试 compartmentId=" + compartmentId);

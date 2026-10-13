@@ -245,6 +245,22 @@ public class WorkOrderService {
     private static final Set<String> QUEUE_SORTABLE = Set.of("createTime", "dueAt");
 
     /**
+     * 业务员主动记录一次电话联系（第 21 刀，用户定：系统不强制派电话任务，但打了要留痕）。
+     *
+     * <p>与 {@code escalate} 自动产的 PHONE_CALL 待办分工清楚：那个是"系统要求必须打"，
+     * 这个是"我自己判断要打，结果是什么"——写进事件流水而不是待办清单，
+     * 两类记录混在一起就分不清哪些欠着、哪些是已完成的历史。
+     */
+    @Transactional
+    public void notePhoneCall(Long workOrderId, Long operatorId, String resultNote) {
+        if (resultNote == null || resultNote.isBlank()) {
+            throw new BizException(ResultCode.BIZ_ERROR, "联系结果必填：联系上了/未接/约定多久处理");
+        }
+        BizWorkOrder order = require(workOrderId);
+        note(order, "PHONE_CALLED", operatorId, truncate(resultNote));
+    }
+
+    /**
      * 队列分页：紧急在前、开单时间在前的先办（兜底排序，用户传了 orderBy 再追加）。
      *
      * <p>原来这里是写死的 {@code limit 200}——第 201 张单在队列里永远看不到，

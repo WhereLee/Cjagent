@@ -2,17 +2,22 @@ package com.wherelee.cabinet.application.storage;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.device.DeviceChannel;
+import com.wherelee.cabinet.application.notify.NoticeService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizItemEvidence;
 import com.wherelee.cabinet.domain.enums.EvidenceSource;
 import com.wherelee.cabinet.domain.entity.BizFaultEvent;
+import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.FaultType;
+import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +58,10 @@ public class CompartmentStateService {
      * 分散写必然出现“实时路径记了、巡检路径漏了”那种同事件不同结果（第 13 刀为此合并过一次）。
      */
     private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
+    /** 遗留物通知（第 21 刀）：物主收到的站内消息走它，一张未关闭工单只发一条。 */
+    private final NoticeService notices;
+    /** 遗留物归因：发现遗留物时活动单早已结束，能指认的就是这个格口最近一张终态单的主人。 */
+    private final BizStorageOrderMapper orderMapper;
     // 19D 阶梯的三个数（用户在 2026-10-11 给出）：3 分钟首响、5 分钟连发三条、10 分钟必须处理
     @Value("${cabinet.door-watch.first-remind-minutes:3}")
     private long firstRemindMinutes;
@@ -77,13 +86,17 @@ public class CompartmentStateService {
                                    DeviceChannel channel,
                                    com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
                                    com.wherelee.cabinet.application.workorder.WorkOrderService workOrders,
-                                   com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper) {
+                                   com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
+                                   NoticeService notices,
+                                   BizStorageOrderMapper orderMapper) {
         this.slotMapper = slotMapper;
         this.faultMapper = faultMapper;
         this.channel = channel;
         this.intake = intake;
         this.workOrders = workOrders;
         this.evidenceMapper = evidenceMapper;
+        this.notices = notices;
+        this.orderMapper = orderMapper;
     }
 
     /**
@@ -373,9 +386,63 @@ public class CompartmentStateService {
         faultMapper.insert(event);
     }
 
-    /** 用户声明放弃柜内物品后：格口转遗留物异常（订单可以结束，但这个格子不能再卖）。 */
+    /**
+     * 格口转入“遗留物”异常：关门复检有物 / 代关检测有物 / 下一位上报，三个入口共用。
+     *
+     * <p>标异常与开单由 {@link #markAnomalyAndLog} 负责；这里额外补一步
+     * <b>通知物主</b>（第 21 刀，用户定：自动发站内消息、业务员可选打电话）——
+     * 发现遗留物的那一刻，最该知道的人就是把它落在这里的那位。
+     */
     public void markContentLeft(Long slotId, String reason) {
         markAnomalyAndLog(slotId, CompartmentAnomaly.CONTENT_LEFT, reason);
+        notifyOwnerForLeftover(slotId);
+    }
+
+    /**
+     * 遗留物通知物主：找这个格口最近一张终态单的主人，打标并发一条站内消息。
+     *
+     * <p>为什么是“最近一张终态单”：发现遗留物时那张活动单早已结束
+     * （取物关门后才判遗留，或更晚由下一位上报），格口上没有活动单可指认。
+     * 找不到终态单（无主物）就不发，工单自己会走人工。
+     *
+     * <p>两处幂等：打标条件 {@code leftover_reported_at is null}（不刷时间），
+     * 消息 dedup_key 挂工单 ID（同一张未关闭工单只发一条，重复观察不打扰物主）。
+     * 通知失败不能拖挂主链路：异常与工单是事实，消息只是触达，下一轮重复观察会再试。
+     */
+    private void notifyOwnerForLeftover(Long slotId) {
+        try {
+            BizCompartment slot = slotMapper.selectById(slotId);
+            if (slot == null) {
+                return;
+            }
+            BizStorageOrder previous = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
+                    .eq(BizStorageOrder::getSlotId, slotId)
+                    .in(BizStorageOrder::getStatus, OrderStatus.CLOSED, OrderStatus.CANCELLED)
+                    .orderByDesc(BizStorageOrder::getFinishedAt)
+                    .last("limit 1"));
+            if (previous == null) {
+                log.info("遗留物无法归因到终态单，仅开工单不发消息 slotId={}", slotId);
+                return;
+            }
+            orderMapper.markLeftoverReported(previous.getId(), LocalDateTime.now());
+            Long workOrderId = workOrders.openIdOf(slotId, WorkOrderType.ITEM_LEFT);
+            if (workOrderId == null) {
+                return;
+            }
+            notices.emit(slot.getTenantId(), NoticeService.CHANNEL_MESSAGE, "LEFTOVER_OWNER",
+                    "WO" + workOrderId + ":OWNER_MSG",
+                    "你的暂存柜格口 " + slot.getSlotNo() + " 检测到遗留物品，请到柜取回。"
+                            + "取回路径：小程序-我的寄存单-该订单-取回物品",
+                    previous.getCustomerId(), workOrderId, previous.getOrderNo());
+        } catch (RuntimeException e) {
+            // 开单已成功，通知失败只记不抛：主链路（异常+工单）已闭环，触达下一轮再试
+            log.error("遗留物通知物主失败（不阻断主链路）slotId={}", slotId, e);
+        }
+    }
+
+    /** 物主取回复检后的证据采集（第 21 刀新增采集点，与四个既有采集点同表同规）。 */
+    public void recordRetrievalEvidence(BizCompartment slot, String note) {
+        recordEvidence(BizItemEvidence.Moment.RETRIEVED_CHECK, slot, note);
     }
 
     /**
