@@ -93,12 +93,15 @@ public class MimoSupportAgent implements SupportAgentPort {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout((int) timeoutMs);
         requestFactory.setReadTimeout((int) timeoutMs);
-        // MiMo 认的是 api-key 头（13C 实测）；Spring AI 默认另发 Bearer，两者并存不冲突
         RestClient.Builder restClient = RestClient.builder()
                 .requestFactory(requestFactory)
                 .defaultHeader("api-key", apiKey);
+        // MiMo 认的是 api-key 头（13C 实测）；Spring AI 默认另发 Bearer，两者并存不冲突。
+        // base-url 沿用 13C 的写法（带 /v1），而 Spring AI 的 completionsPath 默认自带 /v1 前缀——
+        // 直接拼会变成 /v1/v1/...（联调实测 404），这里统一把 baseUrl 收敛到域名根
+        String root = baseUrl.endsWith("/v1") ? baseUrl.substring(0, baseUrl.length() - 3) : baseUrl;
         OpenAiApi api = OpenAiApi.builder()
-                .baseUrl(baseUrl)
+                .baseUrl(root)
                 .apiKey(apiKey)
                 .restClientBuilder(restClient)
                 .build();
