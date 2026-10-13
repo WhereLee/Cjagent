@@ -25,7 +25,7 @@
           <collectionProp name="HeaderManager.headers">
             <elementProp name="" elementType="Header">
               <stringProp name="Header.name">Authorization</stringProp>
-              <stringProp name="Header.value">Bearer ${__P(token,)}</stringProp>
+              <stringProp name="Header.value">Bearer ${authToken}</stringProp>
             </elementProp>
             <elementProp name="" elementType="Header">
               <stringProp name="Header.name">Content-Type</stringProp>
@@ -40,7 +40,7 @@
             <collectionProp name="Arguments.arguments">
               <elementProp name="" elementType="HTTPArgument">
                 <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">{"requestId":"${__UUID}","cabinetNo":"${__P(cabinet,CAB-001-1)}","sizeType":"${__P(size,SMALL)}","estimateMinutes":60}</stringProp>
+                <stringProp name="Argument.value">{"requestId":"${__UUID}","cabinetNo":"${cabinetNo}","sizeType":"${__P(size,SMALL)}","estimateMinutes":60}</stringProp>
                 <stringProp name="Argument.metadata">=</stringProp>
               </elementProp>
             </collectionProp>
@@ -54,6 +54,60 @@
           <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
         </HTTPSamplerProxy>
         <hashTree>
+        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="pick-cabinet-user">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="script">
+// Per-thread identity: the create endpoint rate-limits 20/min PER USER, so a single shared
+// token would measure the limiter, not the allocator. run-matrix.ps1 pre-logs N stress users
+// (one per thread) into stress-users.txt; each thread uses its own token, rounded past the end.
+def tokens = props.get("stress.tokens")
+if (tokens == null) {
+  def f = new File(props.get("usersFile") ?: "results/stress-users.txt")
+  tokens = f.readLines().findAll { it.trim() }.join(",")
+  props.put("stress.tokens", tokens)
+}
+def arr = props.get("stress.tokens").split(",")
+vars.put("authToken", arr[ctx.getThreadNum() % arr.length])
+
+// cabinetMode=fixed (default): every thread hits props.cabinet - the contention round.
+// cabinetMode=rotate: spread threads across the seeded 180 cabinets so every cabinet gets
+// fewer requests than its free small slots - the latency round (load.properties cabinet is ignored).
+def mode = (props.get("cabinetMode") ?: "fixed")
+if (mode == "rotate") {
+  int n = ctx.getThreadNum()
+  int iter = vars.getIteration()
+  int pool = (props.get("cabinetPool") ?: "180") as int
+  int idx = (n + (iter - 1) * 333) % pool
+  int site = idx / 3 + 1
+  int cab = idx % 3 + 1
+  vars.put("cabinetNo", String.format("CAB-%03d-%d", site, cab))
+} else {
+  vars.put("cabinetNo", (props.get("cabinet") ?: "CAB-001-1"))
+}
+</stringProp>
+        </JSR223PreProcessor>
+        <hashTree/>
+        <JSR223PreProcessor guiclass="TestBeanGUI" testclass="JSR223PreProcessor" testname="pick-cabinet">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="script">
+// cabinetMode=fixed (default): every thread hits props.cabinet - the contention round.
+// cabinetMode=rotate: spread threads across the seeded 180 cabinets so every cabinet gets
+// fewer requests than its free small slots - the latency round (load.properties cabinet is ignored).
+def mode = (props.get("cabinetMode") ?: "fixed")
+if (mode == "rotate") {
+  int n = ctx.getThreadNum()
+  int iter = vars.getIteration()
+  int pool = (props.get("cabinetPool") ?: "180") as int
+  int idx = (n + (iter - 1) * 333) % pool
+  int site = idx / 3 + 1
+  int cab = idx % 3 + 1
+  vars.put("cabinetNo", String.format("CAB-%03d-%d", site, cab))
+} else {
+  vars.put("cabinetNo", (props.get("cabinet") ?: "CAB-001-1"))
+}
+</stringProp>
+        </JSR223PreProcessor>
+        <hashTree/>
           <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="extract-orderNo">
             <stringProp name="JSONPostProcessor.referenceNames">orderNo</stringProp>
             <stringProp name="JSONPostProcessor.jsonPathExprs">$.data.orderNo</stringProp>
@@ -85,20 +139,7 @@ if (m.find()) {
           <boolProp name="IfController.evaluateAll">false</boolProp>
           <boolProp name="IfController.useExpression">true</boolProp>
         </IfController>
-        <hashTree>
-          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="cancel-order">
-            <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
-            <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
-              <collectionProp name="Arguments.arguments"/>
-            </elementProp>
-            <stringProp name="HTTPSampler.path">/api/mini/storage/orders/${orderNo}/cancel</stringProp>
-            <stringProp name="HTTPSampler.protocol">http</stringProp>
-            <stringProp name="HTTPSampler.domain">${__P(host,127.0.0.1)}</stringProp>
-            <stringProp name="HTTPSampler.port">${__P(port,8080)}</stringProp>
-            <stringProp name="HTTPSampler.method">POST</stringProp>
-          </HTTPSamplerProxy>
-          <hashTree/>
-        </hashTree>
+        <hashTree/>
       </hashTree>
     </hashTree>
   </hashTree>
