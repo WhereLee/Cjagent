@@ -106,7 +106,8 @@ public class BizStorageOrder extends BaseEntity {
      */
     private Integer voucherWrongCount;
 
-    /** 取件码连续输错达阈值后的锁定时刻；不为空 = 该单开柜能力已锁，只能走客服/后台强制开柜。 */
+    /** 取件码连续输错达阈值后的锁定时刻；不为空 = 该单开柜能力已锁。
+     *  出路两条（第 25 刀）：本人登录态重置取件码自助解锁，或客服/后台强制开柜。 */
     private java.time.LocalDateTime voucherLockedAt;
 
     private Long depositPoints;

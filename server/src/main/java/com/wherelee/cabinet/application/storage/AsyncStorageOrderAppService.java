@@ -112,7 +112,7 @@ public class AsyncStorageOrderAppService {
 
         String pricingSnapshot = "{\"strategy\":\"placeholder\",\"estimateMinutes\":"
                 + command.estimateMinutes() + ",\"sizeType\":\"" + deducted.size() + "\"}";
-        String voucher = voucherCode();
+        String voucher = VoucherCodes.newVoucher();
         OrderPersistMessage message = new OrderPersistMessage(orderNo, orderId, cabinet.getTenantId(),
                 customerId, cabinet.getId(), deducted.slotId(), deducted.size().name(), voucher,
                 command.estimateMinutes(), pricingSnapshot, command.requestId(), MDC.get("traceId"));
@@ -263,9 +263,8 @@ public class AsyncStorageOrderAppService {
         }
     }
 
-    private String voucherCode() {
-        return String.format("V%06d", ThreadLocalRandom.current().nextInt(100000, 1000000));
-    }
+    // 取件码生成已收敛到 VoucherCodes（第 25 刀）：这里原先自造 6 位码，
+    // 与主路径的 8 位是两个口径、撞码率差一百倍，凭据形态不许有第二处定义。
 
     private String slotNoOf(Long slotId) {
         BizCompartment slot = slotMapper.selectById(slotId);

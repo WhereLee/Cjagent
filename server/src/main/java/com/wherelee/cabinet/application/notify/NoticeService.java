@@ -73,6 +73,20 @@ public class NoticeService {
         return true;
     }
 
+    /**
+     * 改写一条已发消息的内容（第 25 刀）：重置取件码后，凭证消息必须反映当前码。
+     *
+     * <p>改写而不是再发一条：{@code dedup_key} 的幂等会挡掉重发，而绕过幂等堆出第二跳
+     * 旧码消息更糟——用户照着废码去柜机屏输，换来一次锁定。消息不存在（历史单没有凭证）
+     * 就是 0 行，不必报错：这不是错误分支。
+     */
+    @Transactional
+    public void rewrite(String dedupKey, String content) {
+        notices.update(null, com.baomidou.mybatisplus.core.toolkit.Wrappers.<BizNotice>lambdaUpdate()
+                .eq(BizNotice::getDedupKey, dedupKey)
+                .set(BizNotice::getContent, truncate(content == null || content.isBlank() ? dedupKey : content)));
+    }
+
     /** 客户可见的消息（含已读的最近若干条：他只关心"有没有我没看到的异常"）。 */
     public List<View> forCustomer(Long customerId) {
         return notices.selectList(Wrappers.<BizNotice>lambdaQuery()

@@ -73,6 +73,18 @@ public class MiniStorageQueryController {
         return R.ok(queries.bill(current.subjectId(), orderNo));
     }
 
+    @Operation(summary = "取件凭据",
+            description = "第 25 刀：把码交给已登录的本人（只交活单，终态不回显）。"
+                    + "凭码取件是柜机屏那条无登录态路径，双因子与错次锁定不变")
+    @RateLimit(limit = 30, windowSeconds = 60)
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @GetMapping("/orders/{orderNo}/voucher")
+    public R<com.wherelee.cabinet.application.storage.dto.VoucherView> voucher(
+            @AuthenticationPrincipal VerifiedToken current,
+            @PathVariable @NotBlank @Size(max = 32) String orderNo) {
+        return R.ok(queries.voucher(current.subjectId(), orderNo));
+    }
+
     @Operation(summary = "我的钱包",
             description = "余额/冻结/押金栏 + 欠费合计与未支付笔数（欠费记在单上，这里读同一来源）")
     @RateLimit(limit = 60, windowSeconds = 60)

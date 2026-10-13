@@ -113,6 +113,26 @@ public class MiniStorageOrderController {
     }
 
     /**
+     * 重置取件码（第 25 刀，用户 2026-10-14 拍板）：凭据自救与锁定出路。
+     *
+     * <p>身份只来自登录态：锁定防的是猜码的路人，本人设备上的重置不伤害这件事。
+     * 限流比开柜更严：换码不应该被脚本拿着扫。
+     */
+    @Operation(summary = "重置取件码",
+            description = "换码后旧码立即失效、错次清零、连错锁定一并解除；"
+                    + "凭证消息改写为当前码（不再发第二条）")
+    @OperationLog(module = "storage", operation = "重置取件码")
+    @RateLimit(limit = 6, windowSeconds = 60, message = "重置太频繁，请稍后再试")
+    @Idempotent(message = "重置处理中，请勿重复提交")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @PostMapping("/{orderNo}/voucher/reset")
+    public R<com.wherelee.cabinet.application.storage.dto.VoucherView> resetVoucher(
+            @AuthenticationPrincipal VerifiedToken current,
+            @PathVariable @NotBlank @Size(max = 32) String orderNo) {
+        return R.ok(storageOrderFacade.resetVoucher(current.subjectId(), orderNo));
+    }
+
+    /**
      * 上报“这个格口里有别人的东西”（设计中的发现者路径）。
      *
      * <p>上报后本单不收费退回：要他为一个不是自己造成的现场付钱，得到的只会是下次直接走人不报。

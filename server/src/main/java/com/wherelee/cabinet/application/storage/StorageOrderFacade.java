@@ -147,6 +147,14 @@ public class StorageOrderFacade {
         return syncService.reportLeftover(customerId, orderNo);
     }
 
+    /**
+     * 重置取件码（第 25 刀）：换码 + 错次清零 + 解锁。不分流到异步：它要面对已落库的行，
+     * 与 pickup 同一个理由（异步窗口里这些全部未知）。
+     */
+    public com.wherelee.cabinet.application.storage.dto.VoucherView resetVoucher(Long customerId, String orderNo) {
+        return syncService.resetVoucher(customerId, orderNo);
+    }
+
     public String activeStrategy() {
         return strategy;
     }

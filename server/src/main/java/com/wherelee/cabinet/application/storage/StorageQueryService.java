@@ -70,6 +70,31 @@ public class StorageQueryService {
         this.pricing = pricing;
     }
 
+    /**
+     * 取件凭据（第 25 刀）：把码交给已登录的本人，只交活单。
+     *
+     * <p>终态单不回显：这与凭码路径 `pickAliveByVoucher` 只认活单是同一判据——结束后还给
+     * 用户一个用不了的码，只会引来“我照着输了为什么开不了”的报障。
+     */
+    public com.wherelee.cabinet.application.storage.dto.VoucherView voucher(Long customerId, String orderNo) {
+        BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
+                .eq(BizStorageOrder::getOrderNo, orderNo));
+        if (order == null || !order.getCustomerId().equals(customerId)) {
+            // 与写路径同一口径：不区分“不存在”与“不是你的”，避免用 404/403 差值枚举他人单号
+            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "寄存单不存在");
+        }
+        if (order.getStatus().isTerminal()) {
+            throw new BizException(ResultCode.BIZ_ERROR, "该单已结束，取件码已失效");
+        }
+        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
+        BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        return new com.wherelee.cabinet.application.storage.dto.VoucherView(order.getOrderNo(),
+                cabinet == null ? "-" : cabinet.getCabinetNo(),
+                slot == null ? "-" : slot.getSlotNo(),
+                order.getSizeType().name(), order.getStatus().name(),
+                order.getVoucherCode(), order.getVoucherLockedAt() != null);
+    }
+
     /** 点位：找地方需要的字段 + 各尺寸还剩多少正常格口（全异常就是 0）。 */
     public record SiteView(String siteCode, String name, String category, String address, long cabinetCount,
                            long freeSmall, long freeMedium, long freeLarge) {
