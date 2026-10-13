@@ -1,5 +1,6 @@
 package com.wherelee.cabinet;
 
+import com.wherelee.cabinet.application.ops.OpsDiagnosePort;
 import com.wherelee.cabinet.application.support.SupportAgentPort;
 import com.wherelee.cabinet.application.workorder.WorkOrderBriefPort;
 import com.wherelee.cabinet.common.context.TenantContext;
@@ -52,6 +53,8 @@ class RealAgentLiveTest {
     private SupportAgentPort support;
     @Autowired
     private WorkOrderBriefPort briefs;
+    @Autowired
+    private OpsDiagnosePort ops;
 
     private JdbcTemplate jdbc;
     private Long siteId;
@@ -160,5 +163,18 @@ class RealAgentLiveTest {
         String status = jdbc.queryForObject(
                 "select status from biz_work_order where id = ?", String.class, workOrderId);
         assertEquals("PENDING", status, "简报不得改工单状态");
+    }
+
+    @Test
+    @DisplayName("运维诊断：只读工具循环产出报告，健康/日志/残留四件齐且不碰任何状态")
+    void realModelProducesOpsDiagnosis() {
+        long start = System.currentTimeMillis();
+        OpsDiagnosePort.OpsReport report = TenantContext.callAs(TENANT, () -> ops.diagnose());
+
+        long costMs = System.currentTimeMillis() - start;
+        System.out.println("[真模型] 运维诊断（" + costMs + "ms）\n健康：" + report.healthSummary()
+                + "\n日志发现：" + report.logFindings() + "\n残留：" + report.crashArtifacts()
+                + "\n建议：" + report.advice());
+        assertFalse(report.healthSummary() == null || report.healthSummary().isBlank(), "真模型必须给出健康摘要");
     }
 }

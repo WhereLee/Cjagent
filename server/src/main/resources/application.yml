@@ -214,6 +214,12 @@ cabinet:
       timeout-ms: 20000
       # 每一轮工具循环都在花思考+正文 token（13C 实测结论：预算给小了正文会是空的）
       max-completion-tokens: 1500
+  ops:
+    # 运维诊断副驾（第 24 刀）读日志的目录：与 logback 的 ${LOG_DIR} 同源语义，
+    # 默认相对路径（工作目录下 logs/）；服务器上由部署路径/环境变量覆盖。
+    # 工具只读这个目录（error 日志/gc.log/hs_err/hprof），绝不写入或删除——
+    # 与 ops-check.ps1"绝不自动删文件"同一条哲学
+    log-dir: logs
   pay:
     # 支付通道：mock | none。**这里默认 mock 是因为 dev 需要能充值**；
     # application-prod.yml 显式改成 none（不靠运行时的判断拦，而是让通道 bean 根本不存在，
