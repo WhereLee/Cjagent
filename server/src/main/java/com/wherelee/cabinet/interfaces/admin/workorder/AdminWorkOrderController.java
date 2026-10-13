@@ -1,11 +1,13 @@
 package com.wherelee.cabinet.interfaces.admin.workorder;
 
+import com.wherelee.cabinet.application.workorder.WorkOrderBriefPort;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
+import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -45,11 +47,14 @@ public class AdminWorkOrderController {
 
     private final WorkOrderService workOrders;
     private final com.wherelee.cabinet.application.notify.NoticeService notices;
+    private final WorkOrderBriefPort briefs;
 
     public AdminWorkOrderController(WorkOrderService workOrders,
-                                    com.wherelee.cabinet.application.notify.NoticeService notices) {
+                                    com.wherelee.cabinet.application.notify.NoticeService notices,
+                                    WorkOrderBriefPort briefs) {
         this.workOrders = workOrders;
         this.notices = notices;
+        this.briefs = briefs;
     }
 
     /**
@@ -137,6 +142,24 @@ public class AdminWorkOrderController {
     @GetMapping("/{id}/evidence")
     public R<List<WorkOrderService.EvidenceView>> evidence(@PathVariable Long id) {
         return R.ok(workOrders.evidenceFor(id));
+    }
+
+    /**
+     * AI 工单简报（第 23 刀）：业务员的 copilot。一次生成三件——事件摘要、处理结论草稿、
+     * 相似已结单参考。<b>只给当前业务员看，不写回工单数据</b>（Jira/Zendesk 同款形态）：
+     * 草稿由人修改后走 resolve 提交，RESOLVED 仍只能由人判定。
+     *
+     * <p>与 timeline/evidence 同一权限口径（能看单的人才能要简报）；
+     * 无 Idempotent——可反复生成是业界形态，成本靠频控管（工具循环一轮生成三件，比对话贵）。
+     */
+    @Operation(summary = "AI 工单简报", description = "一次生成三件：事件摘要、处理结论文本草稿、相似已结单参考；仅供当前业务员参考，不写回工单")
+    @OperationLog(module = "workorder", operation = "AI工单简报")
+    @RateLimit(limit = 6, windowSeconds = 60, message = "简报生成太频繁，请稍后再试")
+    @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
+    @PostMapping("/{id}/ai-brief")
+    public R<WorkOrderBriefPort.Brief> brief(@AuthenticationPrincipal VerifiedToken current,
+                                             @PathVariable Long id) {
+        return R.ok(briefs.brief(id, current.subjectId()));
     }
 
     @Operation(summary = "记录电话联系", description = "业务员主动拨打后的结果留痕（系统不强制派电话任务，打不打由业务员判断）；结果必填")

@@ -276,6 +276,37 @@ public class WorkOrderService {
                 .orderByAsc(BizWorkOrder::getCreateTime)), this::toView);
     }
 
+    /**
+     * 单张工单视图（第 23 刀：AI 简报工具的数据源；详情类端点未来也可走它）。
+     * <p>注意 {@code customerPhone} 在这里只给打电话的人看：AI 简报的工具层负责把它滤掉，
+     * 不让电话进模型上下文。
+     */
+    public View one(Long workOrderId) {
+        return toView(require(workOrderId));
+    }
+
+    /**
+     * 同格口同类型、已人工处理完结的历史工单（第 23 刀：AI 简报“以前怎么处理的”唯一数据源）。
+     * <p>agent 不得杜撰相似案例——所有“以前怎么处理”都从这里来；没有就空着，
+     * 而不是拿别的格口/别的类型的单充数。结果按完结时刻倒序：最近的处理方式最值得参考。
+     */
+    public List<WorkOrderBriefPort.SimilarCase> similarResolved(Long workOrderId, int limit) {
+        BizWorkOrder order = require(workOrderId);
+        int size = Math.min(Math.max(limit, 1), 5);
+        return orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
+                        .eq(BizWorkOrder::getType, order.getType())
+                        .eq(BizWorkOrder::getSlotId, order.getSlotId())
+                        .eq(BizWorkOrder::getStatus, WorkOrderStatus.RESOLVED)
+                        .ne(BizWorkOrder::getId, workOrderId)
+                        .orderByDesc(BizWorkOrder::getClosedAt)
+                        .last("limit " + size))
+                .stream()
+                .map(o -> new WorkOrderBriefPort.SimilarCase(o.getTitle(),
+                        o.getResultNote() == null ? "" : o.getResultNote(),
+                        o.getClosedAt() == null ? null : o.getClosedAt().toLocalDate().toString()))
+                .toList();
+    }
+
     public List<EventView> timeline(Long workOrderId) {
         return events.selectList(Wrappers.<BizWorkOrderEvent>lambdaQuery()
                 .eq(BizWorkOrderEvent::getWorkOrderId, workOrderId)

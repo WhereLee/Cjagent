@@ -1,6 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.application.support.SupportAgentPort;
+import com.wherelee.cabinet.application.workorder.WorkOrderBriefPort;
 import com.wherelee.cabinet.common.context.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,7 @@ import javax.sql.DataSource;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -48,8 +50,11 @@ class RealAgentLiveTest {
     private DataSource dataSource;
     @Autowired
     private SupportAgentPort support;
+    @Autowired
+    private WorkOrderBriefPort briefs;
 
     private JdbcTemplate jdbc;
+    private Long siteId;
     private Long cabinetId;
     private Long slotId;
     private Long orderId;
@@ -59,7 +64,7 @@ class RealAgentLiveTest {
     void prepare() {
         jdbc = new JdbcTemplate(dataSource);
         String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        Long siteId = ThreadLocalRandom.current().nextLong(82_6100_0000L, 89_9999_9999L);
+        siteId = ThreadLocalRandom.current().nextLong(82_6100_0000L, 89_9999_9999L);
         cabinetId = siteId + 1;
         slotId = siteId + 2;
         orderId = siteId + 3;
@@ -82,6 +87,11 @@ class RealAgentLiveTest {
                 + "arrears_points, estimate_minutes, create_time, update_time, deleted, active_flag) "
                 + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', 'V81234567', 0, 0, 0, 0, 0, 240, NOW(3), NOW(3), 0, 1)",
                 orderId, TENANT, orderNo, siteId, cabinetId, slotId, CUSTOMER);
+        // B 端简报联调的目标工单：同格口的设备故障，PENDING 未关闭（无历史相似单，看模型怎么说“暂无”）
+        jdbc.update("insert into biz_work_order (id, tenant_id, type, urgent, status, queue_side, slot_id, slot_no, "
+                + "title, active_flag, version, create_time, update_time, deleted) "
+                + "values (?, ?, 'DEVICE_FAULT', 0, 'PENDING', 'ONLINE', ?, ?, '取件时柜门打不开，用户报障', 1, 0, NOW(3), NOW(3), 0)",
+                siteId + 4, TENANT, slotId, "W" + suffix.substring(0, 4));
     }
 
     @AfterEach
@@ -128,5 +138,22 @@ class RealAgentLiveTest {
         Integer tickets = jdbc.queryForObject(
                 "select count(*) from biz_work_order where tenant_id = ?", Integer.class, TENANT);
         assertTrue(tickets == null || tickets == 0, "问答不该留下工单");
+    }
+
+    @Test
+    @DisplayName("B 端工单简报：一次工具循环产出三件，摘要非空且不碰工单状态")
+    void realModelProducesWorkOrderBrief() {
+        Long workOrderId = siteId + 4;
+        long start = System.currentTimeMillis();
+        WorkOrderBriefPort.Brief brief = TenantContext.callAs(TENANT, () -> briefs.brief(workOrderId, 99001L));
+
+        long costMs = System.currentTimeMillis() - start;
+        System.out.println("[真模型] 工单简报（" + costMs + "ms）相似单=" + brief.similarCases().size()
+                + "\n摘要：" + brief.summary() + "\n草稿：" + brief.draftNote());
+        assertFalse(brief.summary() == null || brief.summary().isBlank(), "真模型必须给出摘要");
+        // 只读铁律：简报前后工单状态不得被 AI 改动（判定权在人）
+        String status = jdbc.queryForObject(
+                "select status from biz_work_order where id = ?", String.class, workOrderId);
+        assertEquals("PENDING", status, "简报不得改工单状态");
     }
 }
