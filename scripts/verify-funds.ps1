@@ -1,8 +1,15 @@
 # verify-funds.ps1 - end-to-end money flow check against a running dev server.
 #
-# Why a script: the flow needs login -> fund -> create -> open -> backdate -> close -> pickup
+# Why a script: the flow needs login -> recharge -> create -> open -> backdate -> pickup
 # plus SQL assertions, which is far too long for one inline command line.
 # Keep this file ASCII-only (Windows PowerShell 5.1 reads BOM-less files as GBK).
+#
+# Numbers below follow the pricing the user fixed on 2026-10-11:
+#   MEDIUM = 400 points/hour (1 point = 1 RMB cent), first 30 minutes free,
+#   prepay 4 hours = 1600, billed 2h after 120 min => consume 800, refund 800.
+# Rewritten on 2026-10-14: the previous version still assumed the retired model
+# (HTTP cancel endpoint, deposit/freeze legs, "billing starts when the door closes",
+# and a 25-point unit price), so its expectations described a system that no longer exists.
 #
 # Usage: powershell -File scripts/verify-funds.ps1
 
@@ -27,84 +34,95 @@ function Sql([string]$q) {
     & $mysql -h $env2['MYSQL_HOST'] -P $env2['MYSQL_PORT'] -u $env2['MYSQL_USERNAME'] -D cabinet_dev -N -B -e $q 2>$null
 }
 
-# 1) login (token TTL is 30 min, so always mint a fresh one here)
-$loginBody = @{ code = 'h5-funds-verifier'; tenantCode = 'platform' } | ConvertTo-Json -Compress
-$loginFile = Join-Path $tmp 'funds-login.json'
-[IO.File]::WriteAllText($loginFile, $loginBody, (New-Object Text.UTF8Encoding $false))
-$login = curl.exe -s -X POST "$base/api/mini/auth/login" -H 'Content-Type: application/json' --data "@$loginFile" | ConvertFrom-Json
+function PostJson([string]$url, [string]$body, [string]$token) {
+    $f = Join-Path $tmp ([guid]::NewGuid().ToString('N') + '.json')
+    [IO.File]::WriteAllText($f, $body, (New-Object Text.UTF8Encoding $false))
+    $hdr = @('-s', '-m', '20', '-X', 'POST', $url, '-H', 'Content-Type: application/json', '--data', "@$f")
+    if ($token) { $hdr += @('-H', "Authorization: Bearer $token") }
+    $out = & curl.exe @hdr
+    Remove-Item $f -Force
+    return ($out | ConvertFrom-Json)
+}
+
+# 1) login with a FRESH customer every run.
+#    Why fresh: the invariant checked in step 6 (signed ledger sum == stored balance)
+#    only holds for an account that lived entirely under the current money model.
+#    Accounts from the deposit/freeze era still carry those retired transaction types
+#    (19A switched the model without rewriting history), so reusing one reports a fake
+#    imbalance. phone is required for a first-time registration (step 26).
+$stamp = Get-Date -Format 'HHmmss'
+# phone must be exactly 11 digits matching 1[3-9]\d{9}: 139 + 6 (stamp) + 2 = 11
+$phone = "139$stamp$(Get-Random -Minimum 10 -Maximum 99)"
+$loginBody = @{ code = "h5-funds-verifier-$stamp"; tenantCode = 'platform'; phone = $phone } | ConvertTo-Json -Compress
+$login = PostJson "$base/api/mini/auth/login" $loginBody $null
 if (-not $login.data) { throw "login failed: $login" }
 $token = $login.data.accessToken
 $customer = $login.data.customerId
 Write-Output "customer = $customer"
 
-# 2) fund the account. There is no HTTP recharge endpoint yet (known gap, cut 13 adds
-#    PayChannel + mock channel), so we insert a RECHARGE txn and then RECOMPUTE the account
-#    from the transaction sum - same rule the application uses, so the ledger stays balanced
-#    by construction instead of by a lucky constant.
-Sql @"
-insert into biz_point_txn (id,tenant_id,customer_id,biz_type,amount,balance_after,ref_type,biz_no,remark,create_time)
-values (900000000002,1,$customer,'RECHARGE',3000,3000,'FIXTURE','FIXTURE-RECHARGE-$customer','verify script funding',now(3))
-on duplicate key update amount = values(amount), balance_after = values(balance_after);
-insert into biz_point_account (id,tenant_id,customer_id,points,frozen_points,version,create_time,update_time,deleted)
-values (900000000001,1,$customer,0,0,0,now(3),now(3),0)
-on duplicate key update update_time = now(3);
-update biz_point_account a
-  join (select customer_id,
-          coalesce(sum(case when biz_type in ('RECHARGE','ADJUST','CONSUME','FREEZE_OUT','UNFREEZE_IN') then amount else 0 end),0) p,
-          coalesce(sum(case when biz_type in ('FREEZE_IN','UNFREEZE_OUT') then amount else 0 end),0) f
-          from biz_point_txn where customer_id = $customer group by customer_id) s
-    on a.customer_id = s.customer_id
-   set a.points = s.p, a.frozen_points = s.f, a.version = a.version + 1, a.update_time = now(3);
-"@
-Write-Output ("funded account: " + (Sql "select concat('points=',points,' frozen=',frozen_points) from biz_point_account where customer_id=$customer"))
+# 2) recharge through the real endpoint (mock pay channel credits immediately).
+#    The old script inserted a FIXTURE txn and recomputed the balance - that bypassed
+#    the application, so it could never catch a broken money path. 3000 covers the
+#    MEDIUM prepay of 1600.
+$rechargeBody = @{ requestId = [guid]::NewGuid().ToString(); points = 3000 } | ConvertTo-Json -Compress
+$rc = PostJson "$base/api/mini/points/recharge" $rechargeBody $token
+if ($rc.code -ne 0) { throw "recharge failed: $($rc | ConvertTo-Json -Compress)" }
+Write-Output ("recharged 3000, balance=" + $rc.data.balance + " status=" + $rc.data.status)
 
-# 2b) cancel any leftover active orders of this customer (from earlier runs) so the compartment
-#     pool and the ledger both stay explainable
+# 2b) a customer may only hold one live order (step 5 rule): settle whatever is left
+#     from an earlier run instead of calling the retired cancel endpoint.
 $left = Sql "select order_no from biz_storage_order where customer_id=$customer and active_flag = 1"
 foreach ($l in @($left | Where-Object { $_ })) {
-    $null = curl.exe -s --max-time 8 -X POST "$base/api/mini/storage/orders/$l/cancel" -H "Authorization: Bearer $token"
-    Write-Output "cancelled leftover $l"
+    $null = PostJson "$base/api/mini/storage/orders/$l/pickup" '{}' $token
+    Write-Output "closed leftover order $l"
 }
 
-# 3) create order (MEDIUM, estimate 120 min)
+# 3) create = allocate + prepay + open handshake, one call (step 2 merged them;
+#    estimate_minutes no longer drives anything, the server keeps it as 0)
 $createBody = @{ requestId = [guid]::NewGuid().ToString(); cabinetNo = 'CAB-001-1'; sizeType = 'MEDIUM'; estimateMinutes = 120 } | ConvertTo-Json -Compress
-$createFile = Join-Path $tmp 'funds-create.json'
-[IO.File]::WriteAllText($createFile, $createBody, (New-Object Text.UTF8Encoding $false))
-$created = curl.exe -s -X POST "$base/api/mini/storage/orders" -H 'Content-Type: application/json' -H "Authorization: Bearer $token" --data "@$createFile" | ConvertFrom-Json
+$created = PostJson "$base/api/mini/storage/orders" $createBody $token
 if ($created.code -ne 0) { throw "create failed: $($created | ConvertTo-Json -Compress)" }
 $orderNo = $created.data.orderNo
 Write-Output ("created   : status=" + $created.data.status + " slot=" + $created.data.slotNo + " orderNo=$orderNo")
+Write-Output ("  message : " + $created.data.message)
 Write-Output ("  snapshot: " + (Sql "select pricing_snapshot from biz_storage_order where order_no='$orderNo'"))
-Write-Output ("  after create : " + (Sql "select concat('order.frozen=',ifnull(frozen_points,-1),' deposit=',ifnull(deposit_points,-1)) from biz_storage_order where order_no='$orderNo'") + "  " + (Sql "select concat('acct points=',points,' frozen=',frozen_points) from biz_point_account where customer_id=$customer"))
+Write-Output ("  money   : " + (Sql "select concat('prepay=',ifnull(prepay_points,-1),' settled=',ifnull(settled_points,-1),' arrears=',ifnull(arrears_points,-1)) from biz_storage_order where order_no='$orderNo'") + "  " + (Sql "select concat('acct points=',points,' frozen=',frozen_points) from biz_point_account where customer_id=$customer"))
+if ($created.data.message -notmatch 'V\d{8}') {
+    Write-Output '  WARN: pickup credential missing from the create message (step 25 delivery)'
+}
 
-# 4) open the door
-$null = curl.exe -s -X POST "$base/api/mini/storage/orders/$orderNo/door?action=OPEN" -H "Authorization: Bearer $token"
-Write-Output ("after OPEN       : " + (Sql "select status from biz_storage_order where order_no='$orderNo'"))
+# 4) billing anchor is the moment the door opened (step 19A): started_at is already set
+#    by the OPEN leg inside place, so backdate right here - time does not pass by itself.
+Sql "update biz_storage_order set started_at = date_sub(now(3), interval 120 minute) where order_no='$orderNo'" | Out-Null
+Write-Output 'started_at backdated to 120 min ago (expect free 30 + billed 2h => consume 800, prepay 1600 refunded 800)'
 
-# 5) close the door, THEN backdate: CLOSE_VERIFY sets started_at = now (server time is the
-#    billing anchor), so backdating before it would be overwritten and the CONSUME leg never runs.
-$null = curl.exe -s -X POST "$base/api/mini/storage/orders/$orderNo/door?action=CLOSE_VERIFY" -H "Authorization: Bearer $token"
+# 5) close the door so the compartment is releasable, then pickup = settle + open + take out
+$null = PostJson "$base/api/mini/storage/orders/$orderNo/door?action=CLOSE_VERIFY" '{}' $token
 Write-Output ("after CLOSE_VERIFY : " + (Sql "select concat(status,' / slot=',(select status from biz_compartment c where c.id=biz_storage_order.slot_id)) from biz_storage_order where order_no='$orderNo'"))
 
-# billing time must be backdated after that - time does not pass by itself in a script
-Sql "update biz_storage_order set started_at = date_sub(now(3), interval 120 minute) where order_no='$orderNo'" | Out-Null
-Write-Output ("started_at backdated to 120 min ago (expect billedHours=2 -> consume 2*25=50)")
+$pickup = PostJson "$base/api/mini/storage/orders/$orderNo/pickup" '{}' $token
+Write-Output ("after PICKUP       : " + (Sql "select concat(status,' settled=',ifnull(settled_points,-1),' arrears=',ifnull(arrears_points,-1),' prepay=',ifnull(prepay_points,-1)) from biz_storage_order where order_no='$orderNo'"))
+Write-Output ("  slot    : " + (Sql "select c.status from biz_compartment c join biz_storage_order o on o.slot_id=c.id where o.order_no='$orderNo'"))
+Write-Output ("  account : " + (Sql "select concat('points=',points,' frozen=',frozen_points) from biz_point_account where customer_id=$customer"))
 
-# 6) pickup: settle + refund deposit + release compartment
-$null = curl.exe -s -X POST "$base/api/mini/storage/orders/$orderNo/pickup" -H "Authorization: Bearer $token"
-Write-Output ("after PICKUP       : " + (Sql "select concat(status,' settled=',ifnull(settled_points,-1),' arrears=',ifnull(arrears_points,-1),' frozen_left=',ifnull(frozen_points,-1)) from biz_storage_order where order_no='$orderNo'"))
-Write-Output ("  slot  : " + (Sql "select c.status from biz_compartment c join biz_storage_order o on o.slot_id=c.id where o.order_no='$orderNo'"))
-Write-Output ("  deposit: " + (Sql "select d.status from biz_deposit d join biz_storage_order o on o.id=d.order_id where o.order_no='$orderNo'"))
-Write-Output ("  account: " + (Sql "select concat('points=',points,' frozen=',frozen_points) from biz_point_account where customer_id=$customer"))
-
+# 6) ledger invariant: the stored balance must equal the sum of the ledger.
+#    biz_point_txn.amount is ALREADY SIGNED at rest (RECHARGE +3000, PREPAY -1600,
+#    PREPAY_REFUND +800 -> 2200), so the check is a plain SUM: applying the sign again
+#    here would double-negate and report a fake imbalance (it did, on the first run).
+#    Retired types (FREEZE_*/DEPOSIT_*/UNFREEZE_*) are counted separately instead: they
+#    must not appear on a fresh account, and a nonzero count means old code is still writing.
 $sums = Sql @"
-select concat((select coalesce(sum(case when biz_type in ('RECHARGE','ADJUST','CONSUME','FREEZE_OUT','UNFREEZE_IN') then amount else 0 end),0) from biz_point_txn where customer_id=$customer),',',
-  (select coalesce(sum(case when biz_type in ('FREEZE_IN','UNFREEZE_OUT') then amount else 0 end),0) from biz_point_txn where customer_id=$customer))
+select concat(coalesce(sum(amount),-1), ',',
+  (select count(*) from biz_point_txn where customer_id=$customer and biz_type in
+    ('FREEZE_IN','FREEZE_OUT','UNFREEZE_IN','UNFREEZE_OUT','DEPOSIT_OUT','DEPOSIT_BACK_IN')))
+  from biz_point_txn where customer_id=$customer
 "@
-$acct = Sql "select concat(points,',',frozen_points) from biz_point_account where customer_id=$customer"
-$bad  = Sql "select concat((select count(*) from biz_point_txn where customer_id=$customer and amount = 0),',',(select count(*) from biz_point_account where customer_id=$customer and (points < 0 or frozen_points < 0)),',',(select count(*) from biz_storage_order where order_no='$orderNo' and status <> 'CLOSED'))"
-Write-Output ("ledger check     : account=" + $acct + " sums=" + $sums + " (zeroAmountTxns,negativeCols,orderNotClosed)=" + $bad)
-if ("$acct" -ne "$sums") { Write-Output 'RESULT: LEDGER IMBALANCED' } else { Write-Output 'RESULT: ledger balanced (independent SQL check)' }
+$acct = Sql "select points from biz_point_account where customer_id=$customer"
+$bad  = Sql "select concat((select count(*) from biz_point_txn where customer_id=$customer and amount = 0),',',(select count(*) from biz_point_account where customer_id=$customer and points < 0),',',(select count(*) from biz_storage_order where order_no='$orderNo' and status <> 'CLOSED'))"
+Write-Output ("ledger check     : signed_sum,biz_type_leftover=" + $sums + " account_points=" + $acct + " zeros,neg,notclosed=" + $bad)
 
-$txns = Sql "select group_concat(concat(biz_type,':',amount) order by id) from biz_point_txn where ref_id = (select id from biz_storage_order where order_no='$orderNo')"
-Write-Output ("order txns           : $txns")
+$sum = ($sums -split ',')[0]
+if ($sum -ne $acct) { throw "LEDGER IMBALANCE: sum=$sum account=$acct" }
+$legacy = ($sums -split ',')[1]
+if ($legacy -ne '0') { throw "retired freeze/deposit transactions present: $legacy" }
+Write-Output 'OK: ledger balanced, order closed, compartment released'

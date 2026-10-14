@@ -99,7 +99,11 @@ ON DUPLICATE KEY UPDATE size_type = VALUES(size_type), cabinet_id = VALUES(cabin
 if (ORDERS > 0) {
   push('')
   push(`-- 历史单：${ORDERS} 条已关闭订单（active_flag=NULL），时间分散在过去 30 天，供冷热与统计场景使用`)
+  push('-- 金额按用户 2026-10-11 定稿的现行价生成（小 200 / 中 400 / 大 600 点每小时，头 30 分钟免费，')
+  push('-- 预收 4 小时）：快照与 settled_points 必须自洽，否则统计表会读出“账对不上”的历史单。')
   const firstCabinetSlot = 93001
+  const UNITS = { SMALL: 200, MEDIUM: 400, LARGE: 600 }
+  const NAMES = ['SMALL', 'MEDIUM', 'LARGE']
   for (let i = 1; i <= ORDERS; i++) {
     const id = 950000 + i
     const orderNo = `SO-SEED-${String(i).padStart(7, '0')}`
@@ -108,13 +112,22 @@ if (ORDERS > 0) {
     const slot = firstCabinetSlot + ((i - 1) % 20)
     const cabinet = 92001 + Math.floor(((i - 1) % 20) / 24)
     const site = 91001 + Math.floor(((i - 1) % 20) / 24 / 3)
-    push(`INSERT INTO biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, customer_id, status, active_flag, voucher_code, estimate_minutes, started_at, finished_at, expected_finish_at, temp_open_count, deposit_points, frozen_points, settled_points, arrears_points, version, create_time, update_time, deleted)
-SELECT ${id}, ${TENANT}, ${q(orderNo)}, ${site}, ${cabinet}, ${slot}, 'MEDIUM', ${900000 + (i % 500)}, 'CLOSED', NULL, ${q('VSEED' + String(i).padStart(7, '0'))}, 180,
-       DATE_SUB(${BASE_TS}, INTERVAL ${i % 43200} MINUTE), DATE_SUB(${BASE_TS}, INTERVAL ${i % 43200} MINUTE), DATE_SUB(${BASE_TS}, INTERVAL ${i % 43200} MINUTE),
-       0, 500, 0, ${3 + (i % 9) * 2}, 0, 0, DATE_SUB(${BASE_TS}, INTERVAL ${i % 43200} MINUTE), ${BASE_TS}, 0
+    const size = NAMES[i % 3]
+    const unit = UNITS[size]
+    const hours = 2 + (i % 6)               // 2..7 个计费小时：够分散又不触发单日封顶
+    const totalMinutes = 30 + hours * 60    // 头 30 分钟免费，计费正好 hours 小时
+    const ago = i % 43200                   // 结束时刻距 NOW(3) 的分钟数
+    const snapshot = JSON.stringify({
+      strategy: 'per-hour-daily-cap', sizeType: size, unitPointsPerHour: unit,
+      freeMinutes: 30, dailyCapHours: 10, capDays: 2, prepayHours: 4, prepayPoints: unit * 4,
+    })
+    push(`INSERT INTO biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, customer_id, status, active_flag, voucher_code, estimate_minutes, started_at, finished_at, expected_finish_at, temp_open_count, prepay_points, deposit_points, frozen_points, settled_points, arrears_points, pricing_snapshot, version, create_time, update_time, deleted)
+SELECT ${id}, ${TENANT}, ${q(orderNo)}, ${site}, ${cabinet}, ${slot}, ${q(size)}, ${900000 + (i % 500)}, 'CLOSED', NULL, ${q('V' + String(10000000 + i))}, 0,
+       DATE_SUB(${BASE_TS}, INTERVAL ${ago + totalMinutes} MINUTE), DATE_SUB(${BASE_TS}, INTERVAL ${ago} MINUTE), DATE_SUB(${BASE_TS}, INTERVAL ${ago} MINUTE),
+       0, ${unit * 4}, 0, 0, ${unit * hours}, 0, ${q(snapshot)}, 0, DATE_SUB(${BASE_TS}, INTERVAL ${ago + totalMinutes} MINUTE), ${BASE_TS}, 0
 FROM DUAL
 WHERE EXISTS (SELECT 1 FROM biz_compartment WHERE id = ${slot})
-ON DUPLICATE KEY UPDATE status = VALUES(status), slot_id = VALUES(slot_id), cabinet_id = VALUES(cabinet_id), site_id = VALUES(site_id), create_time = VALUES(create_time);
+ON DUPLICATE KEY UPDATE status = VALUES(status), slot_id = VALUES(slot_id), cabinet_id = VALUES(cabinet_id), site_id = VALUES(site_id), size_type = VALUES(size_type), started_at = VALUES(started_at), finished_at = VALUES(finished_at), prepay_points = VALUES(prepay_points), settled_points = VALUES(settled_points), pricing_snapshot = VALUES(pricing_snapshot), create_time = VALUES(create_time);
 `)
   }
 }

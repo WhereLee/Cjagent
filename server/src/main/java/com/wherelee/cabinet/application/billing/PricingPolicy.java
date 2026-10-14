@@ -51,41 +51,44 @@ public class PricingPolicy {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /**
-     * 【已作废】账户级押金门槛（定-1 的 50 元 = 5000 点）：定-14 已改为“下单预收 4 小时”，
-     * 新单不再有任何押金门槛。这个字段只为读旧单快照而留，新逻辑不得再依据它做判断。
+     * 预收时长（定-14）：下单先收 4 小时费用（小 8 / 中 16 / 大 24 元），真实扣款、多退少补。
      *
-     * <p>它不再是“每单押金”，所以**不进计费公式**，也不进新单的快照；
-     * 旧单快照里的 depositPoints 仍由 {@code fromSnapshot} 原样读出来退，不追溯。
+     * <p>它取代了“账户级押金 50 元（5000 点）”与“预估金额冻结”两套旧担保（整套作废，
+     * 新单不再有任何押金门槛）；旧单快照里的 depositPoints 仍由 {@code fromSnapshot} 原样读出不追溯。
+     *
+     * <p><b>下面六个默认值必须与 application.yml 同源</b>：它们只是“漏配时的兜底”，
+     * 而上一版默认值停在作废旧价 15/25/40（集成测试走配置生效路径，恰好测不到默认值，
+     * 所以这个隐患活了很久）。现在按用户 2026-10-11 定稿：小 200 / 中 400 / 大 600 点、
+     * 头 30 分钟免费、单日 10 小时、总计 2 天。改 yml 不改这里 = 埋一个新的静默旧价。
      */
     @Value("${cabinet.pricing.prepay-hours:4}")
     private int prepayHours;
 
-    @Value("${cabinet.pricing.free-minutes:10}")
+    @Value("${cabinet.pricing.free-minutes:30}")
     private int freeMinutes;
 
-    @Value("${cabinet.pricing.unit-points-per-hour.LARGE:40}")
+    @Value("${cabinet.pricing.unit-points-per-hour.LARGE:600}")
     private long largeUnit;
 
-    @Value("${cabinet.pricing.unit-points-per-hour.MEDIUM:25}")
+    @Value("${cabinet.pricing.unit-points-per-hour.MEDIUM:400}")
     private long mediumUnit;
 
-    @Value("${cabinet.pricing.unit-points-per-hour.SMALL:15}")
+    @Value("${cabinet.pricing.unit-points-per-hour.SMALL:200}")
     private long smallUnit;
 
     /** 单日封顶的小时数（0 = 不按日封顶，回到线性）。 */
-    @Value("${cabinet.pricing.daily-cap-hours:12}")
+    @Value("${cabinet.pricing.daily-cap-hours:10}")
     private int dailyCapHours;
 
     /** 总计费天数封顶（0 = 不限天数）。 */
-    @Value("${cabinet.pricing.cap-days:3}")
+    @Value("${cabinet.pricing.cap-days:2}")
     private int capDays;
 
     /**
-     * 远程结束/超窗重开的加收小时数（docs/门态与物品争议设计.md §3）。
-     *
-     * <p>为什么用“几小时单价”而不是单独一张罚款价目表：它就是计时计费的一个延伸，
-     * 随尺寸与策略自动变（小 30 / 中 50 / 大 80 点），账单上一句话能说清；
-     * 而单独维护一张价目表就会与计时价漂移（改了小时价忘了改罚款）。
+     * 【已作废】远程结束加收小时数（定-15/定-13 随 19A 一起作废：结束本来就是在手机上点的，
+     * “远程”不再是一种需要加收的情形）。字段与列保留只为旧单快照/账单能原样读出，
+     * 新单不得再依据它算钱。原注释里“小 30 / 中 50 / 大 80 点”是旧价 15/25/40×2h 的换算，
+     * 随旧价一起作废，不再适用。
      */
     @Value("${cabinet.pricing.remote-close-hours:2}")
     private int remoteCloseHours;
@@ -172,7 +175,7 @@ public class PricingPolicy {
     /** 快照里“算得出价”的那几个输入，对外只读一份（账单明细用）。 */
     public record PricingParams(long unitPointsPerHour, int freeMinutes, int dailyCapHours, int capDays) {
     }
-    
+
     /**
      * 这张单当时按什么参数算的。
      *
@@ -184,7 +187,7 @@ public class PricingPolicy {
         Snap snap = readSnapshot(snapshotJson);
         return new PricingParams(snap.unit(), snap.freeMinutes(), snap.dailyCapHours(), snap.capDays());
     }
-    
+
     /** 从快照里取“总额封顶天数”，给超时看管算截止用（没预估时长后，这就是“多久算呆滞”的唯一依据）。 */
     public int capDaysOf(String snapshotJson) {
         return (int) readSnapshot(snapshotJson).capDays();
