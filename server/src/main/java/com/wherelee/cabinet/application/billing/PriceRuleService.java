@@ -101,7 +101,10 @@ public class PriceRuleService {
      * 调用方必须显式处理"退回默认价"这条分支，不许把 null 当 0 价——那是白送。
      */
     public BizPriceRule effective(Long siteId) {
-        return siteId == null ? null : ruleMapper.selectEffective(siteId);
+        // siteId 为空表示查租户默认范围，不是“没有生效策略”：mapper 的
+        // `site_id = #{siteId} or site_id is null` 在 null 时只命中全局行。
+        // 这里曾短路成返回 null，后台“当前生效策略”因此看不到已发布的全局规则。
+        return ruleMapper.selectEffective(siteId);
     }
 
     /** 给后台接口看的同一件事（视图形式，实体不外泄）。 */

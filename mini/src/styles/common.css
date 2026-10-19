@@ -1,0 +1,265 @@
+/**
+ * 全局样式与设计基线（跨 H5 / 微信小程序）。
+ * 页面只写自己的布局，卡片、按钮、标签、行文本一律复用这里，避免每页复制一套。
+ */
+page {
+  background: #f4f6f9;
+  color: #1f2733;
+  font-size: 28rpx;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 24rpx 24rpx 56rpx;
+  box-sizing: border-box;
+}
+
+/* ── 卡片 ─────────────────────────────────────────── */
+.card {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 4rpx 16rpx rgba(31, 39, 51, 0.04);
+}
+
+.card-flat {
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 24rpx 28rpx;
+  margin-bottom: 16rpx;
+}
+
+.card-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1f2733;
+}
+
+.section-title {
+  margin: 28rpx 4rpx 16rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #6b7684;
+}
+
+/* ── 文本 ─────────────────────────────────────────── */
+.title-lg {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #1f2733;
+}
+
+.title {
+  font-size: 34rpx;
+  font-weight: 600;
+}
+
+.text {
+  font-size: 28rpx;
+  color: #1f2733;
+}
+
+.muted {
+  color: #6b7684;
+  font-size: 24rpx;
+}
+
+.faint {
+  color: #98a2b3;
+  font-size: 22rpx;
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.danger {
+  color: #c4562c;
+}
+
+.success {
+  color: #3d8b2f;
+}
+
+.primary {
+  color: #2b6de5;
+}
+
+/* ── 布局 ─────────────────────────────────────────── */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.row-start {
+  display: flex;
+  align-items: center;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.gap-8 {
+  gap: 8rpx;
+}
+
+.gap-16 {
+  gap: 16rpx;
+}
+
+.divider {
+  height: 1px;
+  background: #eef1f5;
+  margin: 20rpx 0;
+}
+
+.line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 10rpx 0;
+  font-size: 26rpx;
+  color: #4a5562;
+}
+
+.line-value {
+  color: #1f2733;
+  text-align: right;
+  margin-left: 24rpx;
+}
+
+/* ── 按钮 ─────────────────────────────────────────── */
+.btn {
+  border: none;
+  border-radius: 14rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  line-height: 2.9;
+  padding: 0 32rpx;
+}
+
+.btn::after {
+  border: none;
+}
+
+.btn-primary {
+  background: #2b6de5;
+  color: #ffffff;
+}
+
+.btn-primary[disabled] {
+  background: #c7d5ee;
+  color: #ffffff;
+}
+
+.btn-ghost {
+  background: #eef4ff;
+  color: #2b6de5;
+}
+
+.btn-plain {
+  background: transparent;
+  color: #2b6de5;
+}
+
+.btn-danger {
+  background: #fdeeea;
+  color: #b4471f;
+}
+
+.btn-sm {
+  font-size: 24rpx;
+  line-height: 2.4;
+  padding: 0 20rpx;
+  border-radius: 10rpx;
+}
+
+.btn-block {
+  display: block;
+  width: 100%;
+}
+
+/* ── 标签 ─────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4rpx 14rpx;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+}
+
+.chip-info {
+  background: #f0f2f5;
+  color: #6b7684;
+}
+
+.chip-primary {
+  background: #eaf1ff;
+  color: #2b6de5;
+}
+
+.chip-success {
+  background: #ecf6e8;
+  color: #3d8b2f;
+}
+
+.chip-warning {
+  background: #fdf3e7;
+  color: #a86413;
+}
+
+.chip-danger {
+  background: #fdeeea;
+  color: #b4471f;
+}
+
+/* ── 输入 ─────────────────────────────────────────── */
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 88rpx;
+  padding: 0 24rpx;
+  background: #f7f8fa;
+  border: 1px solid #e6e9ee;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  color: #1f2733;
+}
+
+.input-placeholder {
+  color: #98a2b3;
+}
+
+.field-label {
+  display: block;
+  margin-bottom: 12rpx;
+  font-size: 25rpx;
+  color: #6b7684;
+}
+
+.field {
+  margin-bottom: 24rpx;
+}
+
+/* ── 底部固定操作区 ───────────────────────────────── */
+.footer-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16rpx 24rpx calc(16rpx + env(safe-area-inset-bottom));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid #eef1f5;
+  z-index: 20;
+}
+
+.footer-holder {
+  height: 140rpx;
+}

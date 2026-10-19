@@ -42,10 +42,65 @@ jobs:
           path: server/target/surefire-reports/
           retention-days: 3
 
-  # ── 2. 前端门禁已移除 ─────────────────────────────────────────
-  # 2026-10-12 用户决定把 mini/ 与 admin/ 两个前端工程整体删除（只保留后端）：
-  # 它们还停在阶段 0 的登录骨架，而后端已推进到预收、预备开握手、工单队列、双因子取件。
-  # 留着门禁只会守着一堆没人调的接口。下面的编号保持原样，不重排历史 job 名。
+  # ── 2. 前端门禁（2026-10-19 前端重建后恢复）──────────────────────
+  # admin 与 mini 是消费后端契约的两个前端工程；类型生成物（src/api/schema-*.ts）入库，
+  # 这里的门禁守 lint + 类型检查 + 生产构建，保证前端不被后端契约演进静默甩开。
+  frontend-admin:
+    name: 前端门禁（admin）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: 类型检查与生产构建（vue-tsc + vite build）
+        run: npm run build
+
+  frontend-mini:
+    name: 前端门禁（mini）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mini
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mini/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: H5 生产构建（uni build）
+        run: npm run build:h5
 
   # ── 4. 密钥与入库范围扫描 ────────────────────────────────────────
   secret-scan:

@@ -1,0 +1,21 @@
+{
+  "name": "智慧寄存柜",
+  "appid": "",
+  "description": "储物柜 SaaS 用户端（H5 演示 + 微信小程序）",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "vueVersion": "3",
+  "h5": {
+    "title": "智慧寄存柜",
+    "router": {
+      "mode": "hash"
+    }
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false
+    },
+    "usingComponents": true
+  }
+}

@@ -6,7 +6,7 @@ git与CI操作手册.md
 .env
 .env.*
 !.env.example
-# 前端工程已于 2026-10-12 删除，原先为它们的环境文件白名单一并作废
+# 前端工程（admin/ 与 mini/）于 2026-10-19 重建；前端环境文件如需入库，仿照下面 .env.example 加白名单
 *.pem
 id_rsa*
 

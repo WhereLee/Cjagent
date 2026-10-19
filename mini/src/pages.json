@@ -1,0 +1,66 @@
+{
+  "pages": [
+    {
+      "path": "pages/home/index",
+      "style": { "navigationBarTitleText": "智慧寄存柜", "enablePullDownRefresh": true }
+    },
+    {
+      "path": "pages/login/index",
+      "style": { "navigationBarTitleText": "登录", "navigationStyle": "custom" }
+    },
+    {
+      "path": "pages/site/index",
+      "style": { "navigationBarTitleText": "点位详情", "enablePullDownRefresh": true }
+    },
+    {
+      "path": "pages/order-create/index",
+      "style": { "navigationBarTitleText": "存件下单" }
+    },
+    {
+      "path": "pages/order-result/index",
+      "style": { "navigationBarTitleText": "下单结果" }
+    },
+    {
+      "path": "pages/orders/index",
+      "style": { "navigationBarTitleText": "我的订单", "enablePullDownRefresh": true }
+    },
+    {
+      "path": "pages/order-detail/index",
+      "style": { "navigationBarTitleText": "订单详情" }
+    },
+    {
+      "path": "pages/wallet/index",
+      "style": { "navigationBarTitleText": "我的钱包" }
+    },
+    {
+      "path": "pages/notices/index",
+      "style": { "navigationBarTitleText": "消息", "enablePullDownRefresh": true }
+    },
+    {
+      "path": "pages/support/index",
+      "style": { "navigationBarTitleText": "AI 客服" }
+    },
+    {
+      "path": "pages/pickup/index",
+      "style": { "navigationBarTitleText": "凭码取件" }
+    }
+  ],
+  "tabBar": {
+    "color": "#6b7684",
+    "selectedColor": "#2b6de5",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/home/index", "text": "首页" },
+      { "pagePath": "pages/orders/index", "text": "订单" },
+      { "pagePath": "pages/wallet/index", "text": "钱包" },
+      { "pagePath": "pages/notices/index", "text": "消息" }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "智慧寄存柜",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f5f6f8"
+  }
+}

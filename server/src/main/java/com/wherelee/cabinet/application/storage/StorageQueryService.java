@@ -227,6 +227,8 @@ public class StorageQueryService {
      * 所以这里读的是**同一个来源**：下单被拦不拦，看的是这些单有没有欠费，不是另一个计数器。
      */
     public WalletView wallet(Long customerId) {
+        // 新注册客户在首次入账前没有点账户：钱包是只读视图，如实返回 0，
+        // 不能在这里抛 NPE（实测：新用户第一次打开钱包会得到 500）。
         var account = accounts.accountOf(customerId);
         List<BizStorageOrder> unpaid = orderMapper.selectList(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getCustomerId, customerId)
@@ -236,8 +238,10 @@ public class StorageQueryService {
         long activeOrders = orderMapper.selectCount(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getCustomerId, customerId)
                 .in(BizStorageOrder::getStatus, ACTIVE_STATES));
-        return new WalletView(nvl(account.getPoints()), nvl(account.getFrozenPoints()),
-                nvl(account.getDepositPoints()), arrears, unpaid.size(), activeOrders);
+        return new WalletView(account == null ? 0L : nvl(account.getPoints()),
+                account == null ? 0L : nvl(account.getFrozenPoints()),
+                account == null ? 0L : nvl(account.getDepositPoints()),
+                arrears, unpaid.size(), activeOrders);
     }
 
     private static long nvl(Long value) {
