@@ -72,6 +72,8 @@ class WorkOrderFlowTest {
     private com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
     @Autowired
     private BizStorageOrderMapper orderMapper;
+    @Autowired
+    private com.wherelee.cabinet.application.workorder.WorkOrderTriageService triage;
 
     private JdbcTemplate jdbc;
     private Long cabinetId;
@@ -350,6 +352,27 @@ class WorkOrderFlowTest {
         assertNotNull(v.detection());
         assertTrue(v.detection().contains("门=开着"), "检测值要能还原现场：" + v.detection());
         assertEquals("13800001234", v.customerPhone());
+    }
+
+    @Test
+    @DisplayName("同一现象：设备巡检与 AI 转报落到同一 category/queue")
+    void deviceInspectionAndAiIntakeAgreeOnCategoryAndQueue() {
+        markDoorOpen();
+
+        Map<String, Object> device = rows(
+                "select intent, category, queue_side from biz_work_order "
+                        + "where tenant_id = ? and slot_id = ? and kind = 'INCIDENT'", TENANT, slotId).get(0);
+        assertEquals(WorkOrderIntent.DOOR_NOT_CLOSE.name(), device.get("intent"),
+                "巡检把“门开着”记成门未关，和用户在客服里说的是同一个现象");
+
+        com.wherelee.cabinet.application.workorder.WorkOrderTriageService.Result ai =
+                TenantContext.callAs(TENANT, () -> triage.triage(
+                        WorkOrderIntent.DOOR_NOT_CLOSE,
+                        com.wherelee.cabinet.application.workorder.WorkOrderTriageService.Facts.none()));
+
+        assertEquals(device.get("category"), ai.category().name(),
+                "同一现象不能因为来源不同（设备/客服）落到不同处置分类");
+        assertEquals(device.get("queue_side"), ai.queueSide(), "责任队列也必须一致");
     }
 
     @Test
