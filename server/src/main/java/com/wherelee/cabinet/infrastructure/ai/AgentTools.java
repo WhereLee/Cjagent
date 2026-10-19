@@ -9,11 +9,9 @@ import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.entity.BizWorkOrder;
 import com.wherelee.cabinet.domain.enums.CommandAction;
-import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
 import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
 import com.wherelee.cabinet.domain.enums.WorkOrderKind;
 import com.wherelee.cabinet.domain.enums.WorkOrderSource;
-import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
 import org.springframework.ai.tool.annotation.Tool;
@@ -152,31 +150,20 @@ public class AgentTools {
      * 建单走 WorkOrderIntake 统一入口：快照补齐、幂等合并都是既有规则，本工具只递话。
      * 建出的单进线上队列，派线下仍是业务员的决策——agent 不越权。
      */
-    /** 兼容旧调用：设备故障类如果没有先调用 retryMyDoor，会被下面的硬校验拒绝。 */
+    /** 兼容旧调用：把旧类型翻译成 intent，真正的分诊由系统规则做。 */
     public String raiseTicket(String issueKind, String issueSummary) {
-        return raiseTicket(issueKind, issueSummary, null, null);
+        return raiseTicket(intentOfKind(issueKind).name(), issueSummary, null);
     }
 
-    @Tool(description = "解决不了时转报工单给人工。类型只支持两种："
-            + "DEVICE_FAULT（门打不开/关不上/设备疑似故障）或 DOOR_LEFT_OPEN（用户自述门没关好）。"
-            + "设备故障类必须先调用 retryMyDoor；没有尝试记录会被拒绝。"
-            + "备注要写清：用户反映什么、现场状态、已尝试过什么、结果如何。")
+    @Tool(description = "解决不了时转报工单给人工。你只描述用户现象（intent），不要选工单类型；"
+            + "系统会按现象和事实分诊。门打不开（DOOR_NOT_OPEN）必须先调用 retryMyDoor；"
+            + "其他现象可附上已尝试动作。备注要写清：用户反映什么、现场状态、已尝试过什么、结果如何。")
     public String raiseTicket(
-            @ToolParam(description = "工单类型：DEVICE_FAULT 或 DOOR_LEFT_OPEN") String issueKind,
+            @ToolParam(description = "用户现象：DOOR_NOT_OPEN/DOOR_NOT_CLOSE/ITEM_MISSING/ITEM_LEFT/DEVICE_OFFLINE/BILLING_DISPUTE/PICKUP_CODE/OTHER") String issueIntent,
             @ToolParam(description = "给业务员的备注（不超过200字）：用户反映+现场状态+已试过什么+结果") String issueSummary,
-            @ToolParam(description = "用户现象：DOOR_NOT_OPEN/DOOR_NOT_CLOSE/ITEM_MISSING/ITEM_LEFT/DEVICE_OFFLINE/BILLING_DISPUTE/PICKUP_CODE/OTHER", required = false) String issueIntent,
             @ToolParam(description = "已尝试动作与结果，例如：OPEN_TEMP 已下发无回执/设备离线", required = false) String attemptSummary) {
         if (noOrder()) {
             return "本次对话没有关联订单，无法转报：请让用户从订单详情页进入客服后再报。";
-        }
-        String kind = issueKind == null ? "" : issueKind.trim().toUpperCase(Locale.ROOT);
-        WorkOrderType type = switch (kind) {
-            case "DEVICE_FAULT" -> WorkOrderType.DEVICE_FAULT;
-            case "DOOR_LEFT_OPEN" -> WorkOrderType.DOOR_NOT_CLOSED;
-            default -> null;
-        };
-        if (type == null) {
-            return "工单类型只支持 DEVICE_FAULT 或 DOOR_LEFT_OPEN，请修正后再转报。";
         }
         String summary = issueSummary == null ? "" : issueSummary.trim();
         if (summary.isEmpty()) {
@@ -189,22 +176,20 @@ public class AgentTools {
         if (order == null || !customerId.equals(order.getCustomerId())) {
             return "未找到这张订单，无法转报（归属校验未通过）。";
         }
-        // 硬约束：设备故障类必须先由工具真正尝试过一次；模型自己写“已尝试”不算记录。
-        if (type == WorkOrderType.DEVICE_FAULT && !doorRetryAttempted) {
-            return "设备故障类转报前必须先调用 retryMyDoor 尝试一次，并把结果写进 attemptSummary。";
+        WorkOrderIntent intent = parseIntent(issueIntent);
+        // 只有“门打不开”有对应的自助动作；其他现象没有可重试的远程动作，不强制试。
+        if (intent == WorkOrderIntent.DOOR_NOT_OPEN && !doorRetryAttempted) {
+            return "门打不开属于可自助尝试的问题：请先调用 retryMyDoor 尝试一次，并把结果写进 attemptSummary。";
         }
         String attempt = firstNonBlank(attemptSummary, lastAttemptSummary);
-        WorkOrderIntent intent = parseIntent(issueIntent, type);
-        WorkOrderCategory category = type == WorkOrderType.DEVICE_FAULT
-                ? WorkOrderCategory.DOOR_FAULT : WorkOrderCategory.DOOR_NOT_CLOSED;
         try {
             // “用户自述”必须标明：这段文字不是设备检测结论，不能让业务员当成现场事实。
-            Long workOrderId = intake.onOrderEvent(order, type, false,
+            Long workOrderId = intake.onOrderEvent(order, null, false,
                     truncate("AI 客服转报（用户自述，未经设备核实）：" + summary
                             + "；已尝试：" + (attempt == null ? "未记录" : attempt), DETECTION_MAX),
                     truncate("AI 客服转报（订单 " + orderNo + "）", TITLE_MAX),
                     LocalDateTime.now().plusMinutes(120),
-                    WorkOrderKind.REQUEST, WorkOrderSource.AI, intent, category, null,
+                    WorkOrderKind.REQUEST, WorkOrderSource.AI, intent, null, null,
                     handoffJson(summary, attempt), traceId);
             escalated = true;
             ticketNo = String.valueOf(workOrderId);
@@ -247,16 +232,24 @@ public class AgentTools {
         }
     }
 
-    private WorkOrderIntent parseIntent(String raw, WorkOrderType type) {
+    private WorkOrderIntent parseIntent(String raw) {
         if (raw != null && !raw.isBlank()) {
             try {
                 return WorkOrderIntent.of(raw);
             } catch (IllegalArgumentException ignored) {
-                // 模型给了未知现象：按类型回退，不因此拒绝整张单
+                // 模型给了未知现象：落 OTHER，由规则进人工分拣，不硬派。
             }
         }
-        return type == WorkOrderType.DEVICE_FAULT
-                ? WorkOrderIntent.DOOR_NOT_OPEN : WorkOrderIntent.DOOR_NOT_CLOSE;
+        return WorkOrderIntent.OTHER;
+    }
+
+    private WorkOrderIntent intentOfKind(String issueKind) {
+        String kind = issueKind == null ? "" : issueKind.trim().toUpperCase(Locale.ROOT);
+        return switch (kind) {
+            case "DEVICE_FAULT" -> WorkOrderIntent.DOOR_NOT_OPEN;
+            case "DOOR_LEFT_OPEN" -> WorkOrderIntent.DOOR_NOT_CLOSE;
+            default -> WorkOrderIntent.OTHER;
+        };
     }
 
     private String handoffJson(String summary, String attempt) {

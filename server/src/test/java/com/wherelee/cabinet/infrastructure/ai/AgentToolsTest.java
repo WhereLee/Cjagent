@@ -168,23 +168,27 @@ class AgentToolsTest {
         when(doors.openDoor(eq(CUSTOMER), eq(ORDER_NO), eq(CommandAction.OPEN_TEMP)))
                 .thenReturn(new StorageOrderView(ORDER_NO, "CAB-1", "A-01", "SMALL", "ACTIVE",
                         240, 0, "cas", "指令已下发，但未收到柜机明确回执"));
-        when(intake.onOrderEvent(same(own), eq(WorkOrderType.DEVICE_FAULT), eq(false),
-                contains("AI 客服转报"), anyString(), any(), eq(WorkOrderKind.REQUEST),
-                eq(WorkOrderSource.AI), eq(WorkOrderIntent.DOOR_NOT_OPEN),
-                eq(WorkOrderCategory.DOOR_FAULT), isNull(), contains("OPEN_TEMP"), anyString()))
-                .thenReturn(555L);
+        when(intake.onOrderEvent(same(own), isNull(), eq(false), contains("AI 客服转报"),
+                anyString(), any(), eq(WorkOrderKind.REQUEST), eq(WorkOrderSource.AI),
+                eq(WorkOrderIntent.DOOR_NOT_OPEN), isNull(), isNull(), contains("OPEN_TEMP"),
+                anyString())).thenReturn(555L);
+        when(intake.onOrderEvent(same(own), isNull(), eq(false), contains("AI 客服转报"),
+                anyString(), any(), eq(WorkOrderKind.REQUEST), eq(WorkOrderSource.AI),
+                eq(WorkOrderIntent.OTHER), isNull(), isNull(), anyString(), anyString()))
+                .thenReturn(556L);
 
         AgentTools agent = tools(ORDER_NO);
         agent.retryMyDoor();
-        String out = agent.raiseTicket("DEVICE_FAULT", "用户报取件时门打不开",
-                "DOOR_NOT_OPEN", "OPEN_TEMP 已下发无回执");
+        String out = agent.raiseTicket("DOOR_NOT_OPEN", "用户报取件时门打不开",
+                "OPEN_TEMP 已下发无回执");
 
         assertTrue(out.contains("555"), out);
         assertTrue(agent.escalated() && "555".equals(agent.ticketNo()));
 
-        String illegal = tools(ORDER_NO).raiseTicket("ITEM_LEFT", "不该由客服建的类型");
-        assertTrue(illegal.contains("只支持"), illegal);
-        verify(intake, times(1)).onOrderEvent(any(), any(), anyBoolean(), anyString(), anyString(),
+        // 现象说不清：落 OTHER，交给规则进人工分拣，不在工具层硬拒。
+        String unknown = tools(ORDER_NO).raiseTicket("NOT_A_REAL_INTENT", "用户说不清什么问题");
+        assertTrue(unknown.contains("556"), unknown);
+        verify(intake, times(2)).onOrderEvent(any(), any(), anyBoolean(), anyString(), anyString(),
                 any(), any(), any(), any(), any(), any(), any(), any());
     }
 

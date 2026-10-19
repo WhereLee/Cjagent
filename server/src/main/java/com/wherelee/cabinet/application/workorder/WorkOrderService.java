@@ -61,14 +61,21 @@ public class WorkOrderService {
     private final com.wherelee.cabinet.application.notify.NoticeService notices;
     /** 19C：证据记录（四个采集点）随工单一起看，不然采集了也等于没人看到。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
+    /** 分诊事实之一：柜机在线快照（离线时门故障改按设备故障处置）。 */
+    private final com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper;
+    private final WorkOrderTriageService triage;
 
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                             com.wherelee.cabinet.application.notify.NoticeService notices,
-                            com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper) {
+                            com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
+                            com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper,
+                            WorkOrderTriageService triage) {
         this.orders = orders;
         this.events = events;
         this.notices = notices;
         this.evidenceMapper = evidenceMapper;
+        this.cabinetMapper = cabinetMapper;
+        this.triage = triage;
     }
 
     /** 一条证据的可读视图（采集点 + 三值结论 + 置信度 + AI 标签 + 照片引用）。 */
@@ -115,7 +122,7 @@ public class WorkOrderService {
     public record NewOrderV2(Long tenantId, WorkOrderKind kind, WorkOrderType type, WorkOrderSource source,
                              WorkOrderIntent intent, WorkOrderCategory category, boolean urgent,
                              WorkOrderPriority priority, WorkOrderImpact impact, WorkOrderUrgency urgency,
-                             String assigneeGroup,
+                             String assigneeGroup, String queueSide,
                              Long siteId, Long cabinetId, Long slotId, String slotNo,
                              String orderNo, Long storageId, Long customerId, String customerPhone,
                              String siteAddress, String cabinetNo, String title, String detection,
@@ -152,7 +159,8 @@ public class WorkOrderService {
         return open(new NewOrderV2(
                 cmd.tenantId(), WorkOrderKind.INCIDENT, cmd.type(), WorkOrderSource.SYSTEM,
                 null, null, cmd.urgent(), priorityOf(cmd.urgent()), WorkOrderImpact.SINGLE,
-                cmd.urgent() ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL, null,
+                cmd.urgent() ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL,
+                SIDE_ONLINE, SIDE_ONLINE,
                 cmd.siteId(), cmd.cabinetId(), cmd.slotId(), cmd.slotNo(),
                 cmd.orderNo(), cmd.storageId(), cmd.customerId(), cmd.customerPhone(),
                 cmd.siteAddress(), cmd.cabinetNo(), cmd.title(), cmd.detection(),
@@ -181,7 +189,7 @@ public class WorkOrderService {
         order.setImpact(cmd.impact());
         order.setUrgency(cmd.urgency());
         order.setStatus(WorkOrderStatus.PENDING);
-        order.setQueueSide(SIDE_ONLINE);
+        order.setQueueSide(cmd.queueSide() == null ? SIDE_ONLINE : cmd.queueSide());
         order.setAssigneeGroup(cmd.assigneeGroup());
         order.setActiveFlag(1);
         order.setSiteId(cmd.siteId());
@@ -218,6 +226,45 @@ public class WorkOrderService {
                 order.getId(), order.getKind(), order.getSource(), order.getType(),
                 order.getPriority(), cmd.slotNo(), cmd.orderNo());
         return order.getId();
+    }
+
+    /** 重新分诊：规则调整后对一张已有单重算分类/队列/优先级/SLA，并留 TRIAGED 痕。 */
+    @Transactional
+    public void triage(Long workOrderId) {
+        BizWorkOrder order = require(workOrderId);
+        if (order.getIntent() == null) {
+            throw new BizException(ResultCode.BIZ_ERROR, "这张工单没有用户现象，无法分诊");
+        }
+        WorkOrderTriageService.Result result = triage.triage(order.getIntent(),
+                new WorkOrderTriageService.Facts(
+                        isCabinetOffline(order),
+                        order.getImpact() == WorkOrderImpact.CABINET,
+                        order.getImpact() == WorkOrderImpact.ACCOUNT,
+                        Boolean.TRUE.equals(order.getUrgent())));
+        LocalDateTime now = LocalDateTime.now();
+        orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
+                .eq(BizWorkOrder::getId, workOrderId)
+                .set(BizWorkOrder::getCategory, result.category())
+                .set(BizWorkOrder::getPriority, result.priority())
+                .set(BizWorkOrder::getImpact, result.impact())
+                .set(BizWorkOrder::getUrgency, result.urgency())
+                .set(BizWorkOrder::getQueueSide, result.queueSide())
+                .set(BizWorkOrder::getAssigneeGroup, result.assigneeGroup())
+                .set(BizWorkOrder::getResponseDueAt, now.plusMinutes(result.responseMinutes()))
+                .set(BizWorkOrder::getResolveDueAt, now.plusMinutes(result.resolveMinutes())));
+        note(order, "TRIAGED", null,
+                "命中规则 " + result.ruleCode() + " v" + result.ruleVersion()
+                        + " → " + result.category() + "/" + result.priority(),
+                ActorType.SYSTEM.name(), null);
+    }
+
+    private boolean isCabinetOffline(BizWorkOrder order) {
+        if (order.getCabinetId() == null) {
+            return false;
+        }
+        com.wherelee.cabinet.domain.entity.BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
+        return cabinet != null
+                && cabinet.getOnlineState() == com.wherelee.cabinet.domain.enums.OnlineState.OFFLINE;
     }
 
     /** 认领：抢不到就是别人已经接了，给业务异常而不静默成功。 */

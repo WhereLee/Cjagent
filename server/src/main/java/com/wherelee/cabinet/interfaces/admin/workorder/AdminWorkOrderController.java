@@ -2,6 +2,7 @@ package com.wherelee.cabinet.interfaces.admin.workorder;
 
 import com.wherelee.cabinet.application.workorder.WorkOrderBriefPort;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.application.workorder.WorkOrderTriageService;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.R;
@@ -48,13 +49,25 @@ public class AdminWorkOrderController {
     private final WorkOrderService workOrders;
     private final com.wherelee.cabinet.application.notify.NoticeService notices;
     private final WorkOrderBriefPort briefs;
+    private final WorkOrderTriageService triage;
 
     public AdminWorkOrderController(WorkOrderService workOrders,
                                     com.wherelee.cabinet.application.notify.NoticeService notices,
-                                    WorkOrderBriefPort briefs) {
+                                    WorkOrderBriefPort briefs,
+                                    WorkOrderTriageService triage) {
         this.workOrders = workOrders;
         this.notices = notices;
         this.briefs = briefs;
+        this.triage = triage;
+    }
+
+    @Operation(summary = "刷新分诊规则缓存", description = "规则表改完后调用；不清缓存时下一次请求仍用旧规则")
+    @OperationLog(module = "workorder", operation = "刷新分诊规则")
+    @PreAuthorize("hasAuthority('workorder:resolve')")
+    @PostMapping("/triage/reload")
+    public R<Void> reloadTriage() {
+        triage.reload();
+        return R.ok();
     }
 
     /**

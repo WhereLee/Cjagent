@@ -39,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -172,6 +173,41 @@ class WorkOrderFlowTest {
                 "select actor_type from biz_work_order_event where work_order_id = ? and event_type = 'CREATED'",
                 String.class, requestId);
         assertEquals("AI", actor, "AI 动作必须和人工/系统动作分开记");
+    }
+
+    @Test
+    @DisplayName("AI 转报只给现象：系统分诊与设备巡检落到同一 category/queue；说不清进人工分拣")
+    void aiReportIsTriagedBySystem() {
+        markDoorOpen();
+        BizStorageOrder order = TenantContext.callAs(TENANT, () -> orderMapper.selectById(orderId));
+        Long aiId = TenantContext.callAs(TENANT, () -> intake.onOrderEvent(
+                order, null, false, "AI 客服转报（用户自述）：门关不上",
+                "AI 客服转报：门关不上", LocalDateTime.now().plusMinutes(120),
+                WorkOrderKind.REQUEST, WorkOrderSource.AI, WorkOrderIntent.DOOR_NOT_CLOSE,
+                null, null, null, null));
+        Long unsortedId = TenantContext.callAs(TENANT, () -> intake.onOrderEvent(
+                order, null, false, "AI 客服转报（用户自述）：说不清什么问题",
+                "AI 客服转报：其他问题", LocalDateTime.now().plusMinutes(120),
+                WorkOrderKind.REQUEST, WorkOrderSource.AI, WorkOrderIntent.OTHER,
+                null, null, null, null));
+
+        Map<String, Object> incident = jdbc.queryForMap(
+                "select category, queue_side from biz_work_order where tenant_id = ? and kind = 'INCIDENT' and slot_id = ?",
+                TENANT, slotId);
+        Map<String, Object> ai = jdbc.queryForMap(
+                "select type, category, queue_side from biz_work_order where id = ?", aiId);
+        assertEquals(incident.get("category"), ai.get("category"),
+                "AI 转报与设备巡检同一现象必须落到同一处置分类");
+        assertEquals(incident.get("queue_side"), ai.get("queue_side"), "队列也必须是同一条");
+        assertEquals("DOOR_NOT_CLOSED", ai.get("type"), "兼容 type 由系统按分类映射，AI 不再自己选");
+
+        Map<String, Object> unsorted = jdbc.queryForMap(
+                "select type, category, queue_side, assignee_group, priority from biz_work_order where id = ?",
+                unsortedId);
+        assertEquals("UNSORTED", unsorted.get("category"), "说不清的现象不硬派");
+        assertEquals("CUSTOMER_SERVICE", unsorted.get("queue_side"));
+        assertEquals("CUSTOMER_SERVICE", unsorted.get("assignee_group"));
+        assertNull(unsorted.get("type"), "UNSORTED 没有兼容类型，同格口可并存多张待分拣请求");
     }
 
     @Test
@@ -347,8 +383,8 @@ class WorkOrderFlowTest {
                 assertTrue(pre.value().contains("workorder:"), m.getName() + " 的权限点必须属于 workorder 族：" + pre.value());
             }
         }
-        assertEquals(10, guarded,
-                "十个端点都要独立权限点（两列队列/时间线/证据/AI 简报/认领/处理/派单/电话清单与回填/电话记录）；"
+        assertEquals(11, guarded,
+                "十一个端点都要独立权限点（两列队列/时间线/证据/AI 简报/认领/处理/派单/电话清单与回填/电话记录/刷新分诊）；"
                         + "不能靠一个管理员点完，否则留痕里分不出责任");
         // 线下运维有 claim/resolve 却看不了单内容是自相矛盾：timeline/evidence/ai-brief 必须
         // 让两个队列的查看权都能过（field_ops 只有 field:list，缺了它认领后寸步难行；

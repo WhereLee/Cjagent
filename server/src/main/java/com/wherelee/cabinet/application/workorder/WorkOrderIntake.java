@@ -7,6 +7,7 @@ import com.wherelee.cabinet.domain.entity.BizCustomer;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
+import com.wherelee.cabinet.domain.enums.OnlineState;
 import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
 import com.wherelee.cabinet.domain.enums.WorkOrderImpact;
@@ -48,16 +49,19 @@ public class WorkOrderIntake {
     private final BizSiteMapper siteMapper;
     private final BizCustomerMapper customerMapper;
     private final BizStorageOrderMapper orderMapper;
+    private final WorkOrderTriageService triage;
 
     public WorkOrderIntake(WorkOrderService workOrders, BizCompartmentMapper slotMapper,
                            BizCabinetMapper cabinetMapper, BizSiteMapper siteMapper,
-                           BizCustomerMapper customerMapper, BizStorageOrderMapper orderMapper) {
+                           BizCustomerMapper customerMapper, BizStorageOrderMapper orderMapper,
+                           WorkOrderTriageService triage) {
         this.workOrders = workOrders;
         this.slotMapper = slotMapper;
         this.cabinetMapper = cabinetMapper;
         this.siteMapper = siteMapper;
         this.customerMapper = customerMapper;
         this.orderMapper = orderMapper;
+        this.triage = triage;
     }
 
     /**
@@ -123,7 +127,7 @@ public class WorkOrderIntake {
                 urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3,
                 WorkOrderImpact.SINGLE,
                 urgent ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL,
-                WorkOrderService.SIDE_ONLINE,
+                WorkOrderService.SIDE_ONLINE, WorkOrderService.SIDE_ONLINE,
                 site == null ? null : site.getId(), cabinet == null ? null : cabinet.getId(),
                 slot.getId(), slot.getSlotNo(),
                 order == null ? null : order.getOrderNo(), order == null ? null : order.getId(),
@@ -177,19 +181,37 @@ public class WorkOrderIntake {
         BizSite site = cabinet == null ? null : siteMapper.selectById(cabinet.getSiteId());
         BizCustomer customer = order.getCustomerId() == null
                 ? null : customerMapper.selectById(order.getCustomerId());
+        WorkOrderKind actualKind = kind == null ? WorkOrderKind.INCIDENT : kind;
+        // 柜机离线是快照事实：它只把“本来要连柜机才能自助”的现象改判为设备故障，
+        // 不参与在线判定（在线与否以 Redis 心跳为准，见 OnlineState）。
+        boolean deviceOffline = cabinet != null && cabinet.getOnlineState() == OnlineState.OFFLINE;
+        WorkOrderTriageService.Result triaged = actualKind == WorkOrderKind.REQUEST && intent != null
+                ? triage.triage(intent, new WorkOrderTriageService.Facts(deviceOffline, false, false, urgent))
+                : null;
+        WorkOrderType resolvedType = triaged == null ? type : triaged.type();
+        WorkOrderCategory resolvedCategory = triaged == null ? category : triaged.category();
+        WorkOrderPriority resolvedPriority = triaged == null
+                ? (priority == null ? (urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3) : priority)
+                : triaged.priority();
+        WorkOrderImpact resolvedImpact = triaged == null ? WorkOrderImpact.SINGLE : triaged.impact();
+        WorkOrderUrgency resolvedUrgency = triaged == null
+                ? (urgent ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL) : triaged.urgency();
+        String resolvedGroup = triaged == null ? WorkOrderService.SIDE_ONLINE : triaged.assigneeGroup();
+        String resolvedQueue = triaged == null ? WorkOrderService.SIDE_ONLINE : triaged.queueSide();
+        LocalDateTime responseDue = triaged == null ? dueAt
+                : LocalDateTime.now().plusMinutes(triaged.responseMinutes());
+        LocalDateTime resolveDue = triaged == null ? dueAt
+                : LocalDateTime.now().plusMinutes(triaged.resolveMinutes());
         return workOrders.open(new WorkOrderService.NewOrderV2(
-                order.getTenantId(), kind, type, source, intent, category, urgent,
-                priority == null ? (urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3) : priority,
-                WorkOrderImpact.SINGLE,
-                urgent ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL,
-                WorkOrderService.SIDE_ONLINE,
+                order.getTenantId(), actualKind, resolvedType, source, intent, resolvedCategory, urgent,
+                resolvedPriority, resolvedImpact, resolvedUrgency, resolvedGroup, resolvedQueue,
                 site == null ? null : site.getId(), cabinet == null ? null : cabinet.getId(),
                 order.getSlotId(), slot == null ? null : slot.getSlotNo(),
                 order.getOrderNo(), order.getId(), order.getCustomerId(),
                 customer == null ? null : customer.getPhone(),
                 site == null ? "未知点位" : site.getName(),
                 cabinet == null ? "-" : cabinet.getCabinetNo(),
-                title, detection, dueAt, dueAt, dueAt, handoffJson, traceId));
+                title, detection, resolveDue, responseDue, resolveDue, handoffJson, traceId));
     }
 
     private WorkOrderIntent intentOf(CompartmentAnomaly anomaly) {
