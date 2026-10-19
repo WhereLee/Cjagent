@@ -35,15 +35,21 @@ public interface SupportAgentPort {
      * @param reply     给用户看的话术
      * @param escalated 本次对话是否已转报工单（前端据此把入口切到"已建单"状态）
      * @param ticketNo  转报的工单 ID（escalated 时非空）
+     * @param degraded  本次没有真正的 AI 参与（不可用/未开启/空响应）——不计入自助解决率
      */
-    record AgentReply(String reply, boolean escalated, String ticketNo) {
+    record AgentReply(String reply, boolean escalated, String ticketNo, boolean degraded) {
+
+        /** 兼容旧调用：普通应答默认不是兜底。 */
+        public AgentReply(String reply, boolean escalated, String ticketNo) {
+            this(reply, escalated, ticketNo, false);
+        }
 
         /** AI 不可用（超时/异常/空响应）时的兜底话术：引导走真实存在的入口，绝不 5xx。 */
         public static AgentReply fallback() {
             return new AgentReply(
                     "AI 客服暂时无法应答。你可以在「我的寄存单 - 订单详情」里使用开柜、上报遗留物，"
                             + "或直接联系现场工作人员；也可以稍后再来找我。",
-                    false, null);
+                    false, null, true);
         }
 
         /** 桩实现的话术：AI 客服未开启时的固定引导（CI 与集成测试跑的就是它）。 */
@@ -51,7 +57,7 @@ public interface SupportAgentPort {
             return new AgentReply(
                     "AI 客服当前未开启。你可以在「我的寄存单 - 订单详情」里使用开柜、上报遗留物，"
                             + "或直接联系现场工作人员。",
-                    false, null);
+                    false, null, true);
         }
     }
 }

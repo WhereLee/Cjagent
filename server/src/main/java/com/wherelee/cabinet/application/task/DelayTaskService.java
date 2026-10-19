@@ -21,10 +21,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -58,6 +60,13 @@ public class DelayTaskService {
 
     /** 进程内唯一，重启会变——租约判断靠"是否本人持有"而不是"是不是同一进程"。 */
     private final String instanceId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
+
+    /**
+     * 本轮从哪个租户开始取：只按 tenant_id 升序取前 N 个时，
+     * 超出批量的租户会永远排在队尾——这正是“前 20 个租户把后面饿死”的形态。
+     * 每轮把起点推后“本轮实际能覆盖的租户数”，所有租户轮流排到队首。
+     */
+    private final AtomicLong tenantCursor = new AtomicLong();
 
     @Value("${cabinet.scheduler.batch-size:20}")
     private int batchSize;
@@ -154,10 +163,14 @@ public class DelayTaskService {
      * 的“跳过已被别人锁定的行”依旧生效，多实例并发不会重复领同一行。
      */
     private List<Long> claimFairly(int limit) {
-        List<Long> tenants = taskMapper.findDueTenants();
-        if (tenants == null || tenants.isEmpty()) {
+        List<Long> tenants = new ArrayList<>(taskMapper.findDueTenants());
+        if (tenants.isEmpty()) {
             return List.of();
         }
+        // 起点轮转：否则 tenant_id 靠后的租户在“租户数 > 批量”时永远轮不到
+        int served = Math.min(limit, tenants.size());
+        int start = (int) Math.floorMod(tenantCursor.getAndAdd(served), tenants.size());
+        Collections.rotate(tenants, -start);
         int perTenant = Math.max(1, limit / tenants.size());
         List<Long> ids = new ArrayList<>(limit);
         for (Long tenantId : tenants) {
@@ -166,6 +179,14 @@ public class DelayTaskService {
             }
             ids.addAll(taskMapper.findDueIdsForUpdateSkip(tenantId,
                     Math.min(perTenant, limit - ids.size())));
+        }
+        // 均分除不尽的余量再补一轮：例如 3 个租户、批量 20，均分只用掉 18 个名额。
+        // 已经被锁住的行会被 skip locked 跳过，不会重复取到。
+        for (Long tenantId : tenants) {
+            if (ids.size() >= limit) {
+                break;
+            }
+            ids.addAll(taskMapper.findDueIdsForUpdateSkip(tenantId, limit - ids.size()));
         }
         return ids;
     }

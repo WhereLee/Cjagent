@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.interfaces.mini.support;
 
 import com.wherelee.cabinet.application.support.SupportAgentPort;
+import com.wherelee.cabinet.application.workorder.WorkOrderMetrics;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
@@ -36,9 +37,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class MiniSupportController {
 
     private final SupportAgentPort support;
+    private final WorkOrderMetrics metrics;
 
-    public MiniSupportController(SupportAgentPort support) {
+    public MiniSupportController(SupportAgentPort support, WorkOrderMetrics metrics) {
         this.support = support;
+        this.metrics = metrics;
     }
 
     @Operation(summary = "客服对话",
@@ -49,8 +52,10 @@ public class MiniSupportController {
     @PostMapping("/chat")
     public R<SupportAgentPort.AgentReply> chat(@AuthenticationPrincipal VerifiedToken current,
                                                @Valid @RequestBody ChatRequest request) {
-        return R.ok(support.chat(new SupportAgentPort.SupportSession(
-                current.subjectId(), request.orderNo(), request.message())));
+        SupportAgentPort.AgentReply reply = support.chat(new SupportAgentPort.SupportSession(
+                current.subjectId(), request.orderNo(), request.message()));
+        metrics.chat(reply.escalated(), reply.degraded());
+        return R.ok(reply);
     }
 
     /** 对话请求体。没有 customerId 字段：身份永远来自登录态。 */
