@@ -3,6 +3,10 @@
 ## 口径
 
 - 本机单实例，MySQL 8 + Redis + RocketMQ 本机；服务端 dev profile。
+- 计划里的“SLA 扫描”没有 HTTP 入口：它是 `DelayTaskService` 的定时任务。
+  不为压测另造一个会改数据的触发接口，它的成本由两处覆盖：
+  `idx_wo_response_due` / `idx_wo_resolve_due` 的 `EXPLAIN`（< 1ms）
+  与 `DelayTaskFairnessTest`（25 个租户轮转不被前 20 个饿死）。
 - **关闭限流**（`--cabinet.ratelimit.enabled=false`）：否则测到的是限流器，不是工单路径。
 - 这是**冒烟/回归基线**，不是容量结论：并发只有 10（队列）/ 5（AI），用于证明
   改造后接口仍能稳定响应、指标可采集；容量结论需要单独加并发与监控。
@@ -29,7 +33,9 @@ powershell -File stress/run-work-order.ps1 `
 
 - 队列 SQL 的 `EXPLAIN ANALYZE` 记录见
   [work-order-explain-2026-10.md](../docs/performance/work-order-explain-2026-10.md)：
-  10,000 行夹具下队列第一页 47.2ms，SLA/父子/余位查询均走索引且 < 1ms。
+  10,000 行夹具（其中 100 行未关闭）下队列第一页 **0.076ms 且无 filesort**
+  （V33 改造前同一夹具为 0.283ms + Sort，更早的全量未关闭夹具为 47.2ms）；
+  SLA/父子/余位查询均走索引且 < 1ms。
 - 本次 JMeter 的 74ms P95 是 10 并发短时冒烟，不等于 10,000 行夹具下的单次耗时；
   两者一起看：单页查询在阈值内，并发下没有出现错误或长尾爆炸。
 
@@ -46,4 +52,5 @@ powershell -File stress/run-work-order.ps1 `
 - `stress-users.txt` 是一次性凭证，不要提交；脚本只读取本地文件。
 - AI 真实模型时延、供应商限流与 token 成本不在本记录范围内；接真实模型后需要重跑并
   单独记录模型耗时。
-- 队列查询在“未关闭工单极多”的租户上仍会 filesort；阈值与后续方案见 EXPLAIN 记录。
+- 队列查询现在命中 `idx_wo_queue(tenant_id, queue_side, active_flag, priority, create_time)`，
+  取满 20 行即停；单租户未关闭工单超过 10 万时再改 keyset 分页。

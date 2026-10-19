@@ -681,7 +681,11 @@ public class WorkOrderService {
         return PageSupport.toResult(orders.selectPage(page, Wrappers.<BizWorkOrder>lambdaQuery()
                 .eq(BizWorkOrder::getQueueSide, queueSide)
                 .eq(BizWorkOrder::getDeleted, 0)
-                .in(openOnly, BizWorkOrder::getStatus, WorkOrderStatus.PENDING, WorkOrderStatus.CLAIMED)
+                // 未关闭用 active_flag 而不是 status 列表：它就是这个口径的结构化定义
+                // （开单写 1、关闭置 NULL），并作为等值前缀命中
+                // idx_wo_queue(tenant_id, queue_side, active_flag, priority, create_time)，
+                // 让过滤与排序走同一棵索引，不再 filesort。
+                .eq(openOnly, BizWorkOrder::getActiveFlag, 1)
                 .orderByAsc(BizWorkOrder::getPriority)
                 .orderByAsc(BizWorkOrder::getCreateTime)), this::toView);
     }
