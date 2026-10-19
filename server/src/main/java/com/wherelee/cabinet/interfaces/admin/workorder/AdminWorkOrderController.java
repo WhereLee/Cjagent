@@ -117,7 +117,8 @@ public class AdminWorkOrderController {
     @Operation(summary = "处理并反馈", description = "结论必填；needOffline=true 时派发线下工单")
     @OperationLog(module = "workorder", operation = "处理工单")
     @Idempotent(key = "#cmd.requestId", requireKey = true, message = "该处理请求已在提交")
-    @PreAuthorize("hasAuthority('workorder:resolve')")
+    // 派线下是独立权限点：能关线上单不等于能派人跑现场。needOffline=false 时不需要它。
+    @PreAuthorize("hasAuthority('workorder:resolve') and (!#cmd.needOffline() or hasAuthority('workorder:dispatch-field'))")
     @PostMapping("/{id}/resolve")
     public R<Long> resolve(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
                            @Valid @RequestBody ResolveCommand cmd) {

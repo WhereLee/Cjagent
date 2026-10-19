@@ -44,7 +44,8 @@ public class OrderFundService {
 
     private static final Logger log = LoggerFactory.getLogger(OrderFundService.class);
 
-    private static final String REF_ORDER = "STORAGE_ORDER";
+    /** 账单流水关联的单据类型；查询侧（StorageQueryService.bill）也用它，避免两处字符串漂移。 */
+    public static final String REF_ORDER = "STORAGE_ORDER";
 
     private final PointAccountService points;
     private final PricingPolicy pricing;

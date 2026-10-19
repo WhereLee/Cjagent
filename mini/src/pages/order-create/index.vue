@@ -31,8 +31,9 @@ const customMinutes = ref('')
 const useCustomMinutes = ref(false)
 const submitting = ref(false)
 
-/** 同一“下单意图”重试复用同一个 requestId；失败或成功后换新 */
+/** 同一“下单意图”重试复用同一个 requestId；只有后端明确拒绝（确定没建单）才换新 */
 let requestId = newRequestId()
+const DEFINITE_REJECT_CODES = new Set([10000, 10404, 10409, 10410, 10412, 40000])
 
 const durationOptions = [
   { label: '1 小时', value: 60 },
@@ -122,7 +123,11 @@ async function onSubmit(): Promise<void> {
     requestId = newRequestId()
     uni.redirectTo({ url: `/pages/order-result/index?orderNo=${view.orderNo ?? ''}` })
   } catch (e) {
-    requestId = newRequestId()
+    // 网络错误/超时/409 不能换 requestId：服务端可能已经建单，换新等于把幂等保护扔掉。
+    // 只有后端明确拒绝（余额不足/无格口/参数错等）才能确认没建单，此时换新意图。
+    if (e instanceof ApiError && DEFINITE_REJECT_CODES.has(e.code)) {
+      requestId = newRequestId()
+    }
     handleFailure(e)
   } finally {
     submitting.value = false
@@ -132,6 +137,18 @@ async function onSubmit(): Promise<void> {
 function handleFailure(e: unknown): void {
   if (!(e instanceof ApiError)) {
     toastError(e)
+    return
+  }
+  if (e.code === 40900) {
+    uni.showModal({
+      title: '请勿重复提交',
+      content: '这次下单请求已经提交，请到“我的寄存单”查看结果，不要重复点击。',
+      confirmText: '去查看',
+      cancelText: '知道了',
+      success: (res) => {
+        if (res.confirm) uni.switchTab({ url: '/pages/orders/index' })
+      },
+    })
     return
   }
   if (e.code === 10409 || e.code === 10410) {

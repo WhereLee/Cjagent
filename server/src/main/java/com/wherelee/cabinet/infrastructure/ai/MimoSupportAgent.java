@@ -73,8 +73,15 @@ public class MimoSupportAgent implements SupportAgentPort {
                     .call()
                     .content();
             if (content == null || content.isBlank()) {
-                log.warn("AI 客服返回空正文（疑似思考 token 占满预算），走兜底话术 customerId={}",
-                        session.customerId());
+                log.warn("AI 客服返回空正文（疑似思考 token 占满预算），escalated={} customerId={}",
+                        tools.escalated(), session.customerId());
+                // 空正文不能把已建的单一起丢掉：用户需要知道工单号，否则会重复报障。
+                if (tools.escalated()) {
+                    return new AgentReply(
+                            "已经为你转报人工，工单号 " + tools.ticketNo()
+                                    + "。工作人员会联系你，请保持手机畅通。",
+                            true, tools.ticketNo());
+                }
                 return AgentReply.fallback();
             }
             return new AgentReply(content, tools.escalated(), tools.ticketNo());

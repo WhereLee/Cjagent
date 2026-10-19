@@ -604,6 +604,33 @@ class DoorAndContentFlowTest {
     }
 
     @Test
+    @DisplayName("钱包欠费汇总不截断：超过 50 张也要与下单拦截同口径")
+    void walletArrearsAggregatesAllUnpaidOrders() {
+        Long customerId = newCustomer();
+        Long siteId = jdbc.queryForObject(
+                "select site_id from biz_cabinet where id = ?", Long.class, cabinetId);
+        Long anySlot = jdbc.queryForObject(
+                "select id from biz_compartment where cabinet_id = ? limit 1", Long.class, cabinetId);
+        // 直接用 SQL 造 51 张已结束的欠费单：走下单接口会被“一人只能一张活动单”挡住，
+        // 这里要验的是只读汇总口径，不是下单规则。
+        for (int i = 0; i < 51; i++) {
+            jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
+                            + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, "
+                            + "settled_points, arrears_points, estimate_minutes, create_time, update_time, deleted, active_flag) "
+                            + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'CLOSED', ?, 0, 0, 0, 0, 1, 60, NOW(3), NOW(3), 0, NULL)",
+                    81_7000_0000L + i, TENANT,
+                    String.format("W%03d%s", i, UUID.randomUUID().toString().replace("-", "").substring(0, 16)),
+                    siteId, cabinetId, anySlot, customerId,
+                    UUID.randomUUID().toString().replace("-", "").substring(0, 16));
+        }
+
+        var wallet = TenantContext.callAs(TENANT, () -> queries.wallet(customerId));
+        assertEquals(51L, wallet.arrearsPoints(),
+                "钱包欠费必须汇总全部欠费单：少算一张就会出现“钱包说没欠、下单却被拒”");
+        assertEquals(51L, wallet.unpaidOrders(), "未支付笔数也要如实给出，不能只算前 50 张");
+    }
+
+    @Test
     @DisplayName("谎报开门（回执说开了而物理没动）：当场结束不产生任何费用（定-13 + 头 30 分钟免费）")
     void openReceiptCannotBillTheUser() {
         Long customerId = newCustomer();

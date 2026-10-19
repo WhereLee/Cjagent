@@ -230,10 +230,12 @@ public class StorageQueryService {
         // 新注册客户在首次入账前没有点账户：钱包是只读视图，如实返回 0，
         // 不能在这里抛 NPE（实测：新用户第一次打开钱包会得到 500）。
         var account = accounts.accountOf(customerId);
+        // 不能 limit 50：下单拦截用的是全量 sum（BizLockerConsoleMapper.sumCustomerArrears），
+        // 这里少算一张就会出现“钱包说没欠、下单却被拒”。只取欠费列，笔数由结果条数给出。
         List<BizStorageOrder> unpaid = orderMapper.selectList(Wrappers.<BizStorageOrder>lambdaQuery()
+                .select(BizStorageOrder::getArrearsPoints)
                 .eq(BizStorageOrder::getCustomerId, customerId)
-                .gt(BizStorageOrder::getArrearsPoints, 0L)
-                .last("limit 50"));
+                .gt(BizStorageOrder::getArrearsPoints, 0L));
         long arrears = unpaid.stream().mapToLong(o -> nvl(o.getArrearsPoints())).sum();
         long activeOrders = orderMapper.selectCount(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getCustomerId, customerId)
@@ -273,7 +275,10 @@ public class StorageQueryService {
                 : Math.max(0L, Duration.between(order.getStartedAt(), end).toMinutes());
         var params = pricing.snapshotParams(order.getPricingSnapshot());
         var quote = pricing.fromSnapshot(order.getPricingSnapshot(), minutes);
+        // ref_type 不能省：idx_txn_ref 是 (ref_type, ref_id)，只给 ref_id 用不上索引，
+        // 还会把其他单据类型下恰好同 id 的流水混进来。
         java.util.List<BillLine> lines = txnMapper.selectList(Wrappers.<BizPointTxn>lambdaQuery()
+                        .eq(BizPointTxn::getRefType, com.wherelee.cabinet.application.point.OrderFundService.REF_ORDER)
                         .eq(BizPointTxn::getRefId, order.getId())
                         .orderByAsc(BizPointTxn::getCreateTime)
                         .last("limit 60"))

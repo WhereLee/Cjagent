@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -117,7 +118,10 @@ public class WorkOrderService {
      * 开单（幂等）。已存在同格口同类型的未关闭工单时，返回那张的 ID 而不新建，
      * 并把它“又被观察到一次”记进流水——这样队列长度始终是“有几件事要办”。
      */
-    @Transactional
+    // 开单靠唯一索引兜并发，冲突后要回读“赢了的那张”。MySQL 默认 REPEATABLE READ 下，
+    // 第一次查询建立的快照看不到冲突后刚提交的行，回读会误判“索引冲突却找不到”。
+    // READ COMMITTED 让回读看到最新提交，业务结果不变。
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long open(NewOrder cmd) {
         BizWorkOrder existing = findOpen(cmd.type(), cmd.slotId());
         if (existing != null) {
@@ -181,7 +185,8 @@ public class WorkOrderService {
      *
      * @param needOffline 线上业务员的判断：“需不需要跑一趟”。用户口径里这是唯一派线下工单的依据
      */
-    @Transactional
+    // 与自动派单并发时，子单冲突后的回读同样需要看到对方刚提交的行。
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long resolve(Long workOrderId, Long operatorId, String resultNote, boolean needOffline) {
         if (resultNote == null || resultNote.isBlank()) {
             throw new BizException(ResultCode.BIZ_ERROR, "处理结论必填：工单的价值就在“谁说了什么”");
@@ -193,6 +198,14 @@ public class WorkOrderService {
         note(order, "RESOLVED", operatorId, resultNote);
         if (!needOffline) {
             return null;
+        }
+        // 同一格口同类型在 FIELD 队列只能有一张未关闭单（唯一索引）。
+        // 超 72 小时系统可能已经自动派过一张线下单，此时再点“需线下”必须复用它，
+        // 否则会撞 uk_work_order_open 把父单的处理结论一起回滚。
+        BizWorkOrder existingChild = findOpenInQueue(order.getType(), order.getSlotId(), SIDE_FIELD);
+        if (existingChild != null) {
+            note(existingChild, "DISPATCHED", operatorId, "复用已有线下工单，父单 id=" + order.getId());
+            return existingChild.getId();
         }
         BizWorkOrder child = new BizWorkOrder();
         child.setTenantId(order.getTenantId());
@@ -213,7 +226,17 @@ public class WorkOrderService {
         child.setTitle("线下到场：" + order.getTitle());
         child.setSnapshotJson(order.getSnapshotJson());
         child.setDueAt(LocalDateTime.now().plusHours(order.getUrgent() != null && order.getUrgent() ? 2 : 24));
-        orders.insert(child);
+        try {
+            orders.insert(child);
+        } catch (DuplicateKeyException raced) {
+            // 与自动派单并发：别人先插成功，回读那张即可，父单已经 RESOLVED，不能因子单冲突回滚
+            BizWorkOrder won = findOpenInQueue(order.getType(), order.getSlotId(), SIDE_FIELD);
+            if (won == null) {
+                throw new BizException(ResultCode.SYSTEM_ERROR,
+                        "线下工单唯一索引冲突但找不到未关闭的那张，slotId=" + order.getSlotId());
+            }
+            return won.getId();
+        }
         note(child, "DISPATCHED", operatorId, "线上判断需线下运维，父单 id=" + order.getId());
         log.warn("已派发线下工单 parent={} child={} urgent={}", order.getId(), child.getId(), child.getUrgent());
         return child.getId();
@@ -403,9 +426,13 @@ public class WorkOrderService {
      * <p>幂等：同一格口同类型在线下队列里只能有一张未关闭的单（唯一索引），
      * 巡检每小时都会跑到这里，不靠索引就会堆一串一样的派单。
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long openFieldTwin(Long parentWorkOrderId, String reason) {
         BizWorkOrder parent = require(parentWorkOrderId);
+        // 父单自己就是 FIELD 单时不能再派一张“线下子单给自己”：同队列唯一索引会挡住
+        if (SIDE_FIELD.equals(parent.getQueueSide())) {
+            return parent.getId();
+        }
         BizWorkOrder existing = findOpenInQueue(parent.getType(), parent.getSlotId(), SIDE_FIELD);
         if (existing != null) {
             return existing.getId();
@@ -461,11 +488,15 @@ public class WorkOrderService {
                 .eq(BizWorkOrder::getActiveFlag, 1));
     }
 
+    /**
+     * 当前未关闭的<b>线上</b>工单。
+     *
+     * <p>必须带 queue_side：V18 允许同一格口同类型同时存在 ONLINE 父单与 FIELD 子单，
+     * 只按 slot+type 查会 selectOne 到两条并抛异常，把提醒、升级、阶梯全部打断。
+     * 这七处调用说的都是“线上那件事”，线下子单由 {@link #findOpenInQueue} 单独处理。
+     */
     private BizWorkOrder findOpen(WorkOrderType type, Long slotId) {
-        return orders.selectOne(Wrappers.<BizWorkOrder>lambdaQuery()
-                .eq(BizWorkOrder::getType, type)
-                .eq(BizWorkOrder::getSlotId, slotId)
-                .eq(BizWorkOrder::getActiveFlag, 1));
+        return findOpenInQueue(type, slotId, SIDE_ONLINE);
     }
 
     private BizWorkOrder require(Long id) {

@@ -315,6 +315,12 @@ class WorkOrderFlowTest {
                             && pre.value().contains("workorder:field:list"),
                     name + " 必须同时放行线上与线下队列查看权：" + pre.value());
         }
+        // 派线下是既有独立权限点（V17 已建），不能只校验 resolve 就放行
+        var resolve = java.util.Arrays.stream(methods)
+                .filter(m -> m.getName().equals("resolve")).findFirst().orElseThrow()
+                .getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
+        assertTrue(resolve.value().contains("workorder:dispatch-field"),
+                "needOffline=true 必须额外要求派线下权限：" + resolve.value());
         // 接口层不得回传实体：拿泛型字符串直读，比反射拆 ParameterizedType 清楚得多
         String onlineReturn = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("online")).findFirst().orElseThrow()
@@ -430,6 +436,64 @@ class WorkOrderFlowTest {
                 "select count(*) from biz_work_order where parent_id = ?", Integer.class, parent).intValue(),
                 "子单不得因重进而翻倍");
         assertNotNull(doorWo);
+    }
+
+    @Test
+    @DisplayName("线上父单与线下子单共存：提醒/升级/阶梯查询不得因 selectOne 多条而中断")
+    void remindAndEscalateTolerateParentAndChildCoexistence() {
+        markDoorOpen();
+        Long parent = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and slot_id = ? and queue_side = 'ONLINE'",
+                Long.class, TENANT, slotId);
+        Long child = TenantContext.callAs(TENANT, () -> workOrders.openFieldTwin(parent, "用例：父子共存"));
+        assertEquals("FIELD", rows("select queue_side from biz_work_order where id = ?", child).get(0).get("queue_side"));
+
+        // V18 允许父子单同格口同类型共存。findOpen 若不区分 queue_side，selectOne 会命中两条直接抛异常，
+        // 症状是门未关阶梯每轮巡检都在“提醒”这一步断掉。
+        // markDoorOpen 本身已走过一轮阶梯提醒，这里验的是“父子共存后还能继续催”，不是绝对次数
+        int remindersBefore = TenantContext.callAs(TENANT,
+                () -> workOrders.remindedTimes(slotId, WorkOrderType.DOOR_NOT_CLOSED));
+        assertTrue(TenantContext.callAs(TENANT, () -> workOrders.remind(
+                slotId, WorkOrderType.DOOR_NOT_CLOSED, "再催一次")));
+        assertEquals(remindersBefore + 1, TenantContext.callAs(TENANT,
+                () -> workOrders.remindedTimes(slotId, WorkOrderType.DOOR_NOT_CLOSED)));
+        assertEquals(parent, TenantContext.callAs(TENANT,
+                () -> workOrders.openIdOf(slotId, WorkOrderType.DOOR_NOT_CLOSED)),
+                "阶梯必须指向线上父单，不能被线下子单顶替");
+        assertNotNull(TenantContext.callAs(TENANT, () -> workOrders.boundOrderId(slotId)),
+                "绑定单查询也不能因父子共存而断");
+
+        assertTrue(TenantContext.callAs(TENANT,
+                () -> workOrders.escalate(slotId, WorkOrderType.DOOR_NOT_CLOSED, "到点")));
+        List<WorkOrderService.EventView> parentTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(parent));
+        assertTrue(parentTimeline.stream().anyMatch(e -> "ESCALATED".equals(e.eventType())),
+                "升级事件记在线上父单上");
+        List<WorkOrderService.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(child));
+        assertTrue(childTimeline.stream().noneMatch(e -> "ESCALATED".equals(e.eventType())),
+                "线下子单不该被重复记一次升级事件");
+    }
+
+    @Test
+    @DisplayName("自动派过线下单后再点“需线下”：复用子单，不撞唯一索引、不回滚父单结论")
+    void resolveAfterAutoDispatchReusesExistingFieldChild() {
+        markDoorOpen();
+        Long parent = jdbc.queryForObject(
+                "select id from biz_work_order where tenant_id = ? and slot_id = ? and queue_side = 'ONLINE'",
+                Long.class, TENANT, slotId);
+        Long autoChild = TenantContext.callAs(TENANT, () -> workOrders.openFieldTwin(parent, "用例：超时自动派单"));
+
+        Long resolvedChild = TenantContext.callAs(TENANT,
+                () -> workOrders.resolve(parent, 777L, "确认需到场处理", true));
+        assertEquals(autoChild, resolvedChild, "已存在线下子单时必须复用，不能另插一张撞唯一索引");
+        assertEquals(WorkOrderStatus.RESOLVED.name(),
+                rows("select status from biz_work_order where id = ?", parent).get(0).get("status"),
+                "父单结论必须落库：子单冲突不得把整笔处理回滚");
+        assertEquals(1, jdbc.queryForObject(
+                "select count(*) from biz_work_order where parent_id = ?", Integer.class, parent).intValue(),
+                "同一父单只能有一张线下子单");
+        List<WorkOrderService.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(autoChild));
+        assertTrue(childTimeline.stream().anyMatch(e -> "DISPATCHED".equals(e.eventType())),
+                "复用也要留痕：让后来的人知道这张子单不是这次点击新开的");
     }
 
     @Test

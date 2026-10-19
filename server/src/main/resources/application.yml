@@ -297,6 +297,11 @@ cabinet:
       maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 5000
+      # 连接寿命必须显式小于 MySQL wait_timeout，否则会被服务端先断开、池里留下坏连接；
+      # 60 秒未归还就告警：设备 RPC 慢时能第一时间看到“谁占着连接”。
+      max-lifetime: 1800000
+      keepalive-time: 120000
+      leak-detection-threshold: 60000
     pg:
       jdbc-url: "jdbc:postgresql://${PG_HOST:127.0.0.1}:${PG_PORT:5432}/${PG_DATABASE:cabinet_agent}"
       driver-class-name: org.postgresql.Driver
@@ -306,3 +311,6 @@ cabinet:
       maximum-pool-size: 5
       minimum-idle: 1
       connection-timeout: 5000
+      max-lifetime: 1800000
+      keepalive-time: 120000
+      leak-detection-threshold: 60000

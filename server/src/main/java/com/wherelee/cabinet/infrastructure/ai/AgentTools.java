@@ -113,7 +113,14 @@ public class AgentTools {
         }
         doorRetryAttempted = true;
         try {
-            doors.openDoor(customerId, orderNo, CommandAction.OPEN_TEMP);
+            com.wherelee.cabinet.application.storage.dto.StorageOrderView result =
+                    doors.openDoor(customerId, orderNo, CommandAction.OPEN_TEMP);
+            // 设备无回执时 openDoor 返回的是“已下发、请确认”，不是“门已打开”。
+            // 原话必须转述：把“已下发”说成“已打开”，用户站在柜前看到门没动就会认为客服在骗人。
+            if (result != null && result.message() != null && !result.message().isBlank()) {
+                return "开门指令已下发：" + result.message()
+                        + "。请按这句话告知用户，并提醒用户确认柜门是否真的弹开。";
+            }
             return "开门指令执行成功：柜门已重新打开。请提醒用户尽快完成取放，并关好柜门。";
         } catch (BizException e) {
             // 业务异常的 message 本来就是面向用户的话术（离线/锁定/状态不符），直接给模型转述
@@ -158,8 +165,9 @@ public class AgentTools {
             return "未找到这张订单，无法转报（归属校验未通过）。";
         }
         try {
+            // “用户自述”必须标明：这段文字不是设备检测结论，不能让业务员当成现场事实。
             Long workOrderId = intake.onOrderEvent(order, type, false,
-                    truncate("AI 客服转报：" + summary, DETECTION_MAX),
+                    truncate("AI 客服转报（用户自述，未经设备核实）：" + summary, DETECTION_MAX),
                     truncate("AI 客服转报（订单 " + orderNo + "）", TITLE_MAX),
                     LocalDateTime.now().plusMinutes(120));
             escalated = true;

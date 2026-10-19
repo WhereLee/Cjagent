@@ -38,18 +38,19 @@ public interface SupportAgentPort {
      */
     record AgentReply(String reply, boolean escalated, String ticketNo) {
 
-        /** AI 不可用（超时/异常/空响应）时的兜底话术：引导走原报障路径，绝不 5xx。 */
+        /** AI 不可用（超时/异常/空响应）时的兜底话术：引导走真实存在的入口，绝不 5xx。 */
         public static AgentReply fallback() {
             return new AgentReply(
-                    "AI 客服暂时无法应答。你可以在「我的寄存单 - 订单详情」里直接使用开柜与报障功能，"
-                            + "或稍后再来找我。",
+                    "AI 客服暂时无法应答。你可以在「我的寄存单 - 订单详情」里使用开柜、上报遗留物，"
+                            + "或直接联系现场工作人员；也可以稍后再来找我。",
                     false, null);
         }
 
         /** 桩实现的话术：AI 客服未开启时的固定引导（CI 与集成测试跑的就是它）。 */
         public static AgentReply stub() {
             return new AgentReply(
-                    "AI 客服当前未开启。你可以在「我的寄存单 - 订单详情」里使用开柜与报障功能。",
+                    "AI 客服当前未开启。你可以在「我的寄存单 - 订单详情」里使用开柜、上报遗留物，"
+                            + "或直接联系现场工作人员。",
                     false, null);
         }
     }
