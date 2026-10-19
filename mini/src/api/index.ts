@@ -21,7 +21,7 @@ import type {
   VoucherView,
   View,
 } from './schema-mini'
-import type { PublicPickupRequest } from './contracts'
+import type { PublicPickupRequest, WorkOrderConfirmRequest, WorkOrderCustomerView } from './contracts'
 
 // ── 认证 /api/mini/auth ───────────────────────────────────────────
 // dev 下 mock 登录接受任意 code；首次注册必须带 tenantCode 与 phone（11 位、1 开头）
@@ -131,3 +131,14 @@ export const fetchNotices = () => request<View[]>({ url: '/api/mini/notices' })
 
 export const readNotice = (id: string) =>
   request<void>({ url: `/api/mini/notices/${id}/read`, method: 'POST' })
+
+// ── 我的工单 / 确认闭环 ───────────────────────────────────────────
+export const fetchMyWorkOrders = (limit = 20) =>
+  request<WorkOrderCustomerView[]>({ url: '/api/mini/work-orders', params: { limit } })
+
+export const fetchWorkOrder = (id: string) =>
+  request<WorkOrderCustomerView>({ url: `/api/mini/work-orders/${id}` })
+
+/** solved=true 确认已解决；false 反馈还没解决（重开本人已关闭的单） */
+export const confirmWorkOrder = (id: string, body: WorkOrderConfirmRequest) =>
+  request<string>({ url: `/api/mini/work-orders/${id}/confirm`, method: 'POST', data: body })

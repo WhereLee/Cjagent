@@ -58,6 +58,7 @@ const NOTICE_KIND_TEXT: Record<string, string> = {
   LONG_RUNNING: '超时未取',
   LEFTOVER_OWNER: '遗留物待取回',
   PICKUP_VOUCHER: '取件码',
+  WORK_ORDER_AUTO_CLOSED: '工单自动关闭',
 }
 
 const NOTICE_CHANNEL_TEXT: Record<string, string> = {
@@ -91,6 +92,50 @@ const ONLINE_STATE_TEXT: Record<string, string> = {
   ONLINE: '在线',
   OFFLINE: '离线',
   UNKNOWN: '在线状态未上报',
+}
+
+/** 工单状态（后端 WorkOrderStatus）：用户只看“在处理 / 办完了”。 */
+const WORK_ORDER_STATUS_TEXT: Record<string, string> = {
+  PENDING: '待处理',
+  CLAIMED: '处理中',
+  RESOLVED: '已解决',
+  AUTO_CLOSED: '已自动关闭',
+  CANCELLED: '已取消',
+}
+
+const WORK_ORDER_STATUS_TONE: Record<string, Tone> = {
+  PENDING: 'warning',
+  CLAIMED: 'primary',
+  RESOLVED: 'success',
+  AUTO_CLOSED: 'info',
+  CANCELLED: 'info',
+}
+
+/** 处置分类（后端 WorkOrderCategory） */
+const WORK_ORDER_CATEGORY_TEXT: Record<string, string> = {
+  DOOR_FAULT: '开关门故障',
+  DOOR_NOT_CLOSED: '门未关',
+  ITEM_DISPUTE: '物品争议',
+  ITEM_LEFT: '遗留物',
+  DEVICE_OFFLINE: '设备离线',
+  BILLING_DISPUTE: '费用争议',
+  PICKUP_CODE: '取件码问题',
+  UNSORTED: '待人工分拣',
+}
+
+const WORK_ORDER_PRIORITY_TEXT: Record<string, string> = {
+  P1: 'P1 立即',
+  P2: 'P2 紧急',
+  P3: 'P3 普通',
+  P4: 'P4 可等',
+}
+
+const CLOSE_REASON_TEXT: Record<string, string> = {
+  MANUAL: '人工处理完成',
+  FACT_RECOVERED: '异常已解除',
+  USER_CONFIRMED: '你已确认解决',
+  MERGED: '已合并到处理中的工单',
+  CANCELLED: '已作废',
 }
 
 export function orderStatusText(value?: string | null): string {
@@ -128,6 +173,36 @@ export function cabinetStatusText(value?: string | null): string {
 
 export function onlineStateText(value?: string | null): string {
   return value ? (ONLINE_STATE_TEXT[value] ?? value) : '—'
+}
+
+export function workOrderStatusText(value?: string | null): string {
+  return value ? (WORK_ORDER_STATUS_TEXT[value] ?? value) : '—'
+}
+
+export function workOrderStatusTone(value?: string | null): Tone {
+  return (value && WORK_ORDER_STATUS_TONE[value]) || 'info'
+}
+
+/** 还没结束：用户可以确认“已解决” */
+export function isWorkOrderOpen(value?: string | null): boolean {
+  return value === 'PENDING' || value === 'CLAIMED'
+}
+
+/** 已结束：用户可以反馈“还没解决”重开 */
+export function canReopenWorkOrder(value?: string | null): boolean {
+  return value === 'RESOLVED' || value === 'AUTO_CLOSED'
+}
+
+export function workOrderCategoryText(value?: string | null): string {
+  return value ? (WORK_ORDER_CATEGORY_TEXT[value] ?? value) : '—'
+}
+
+export function workOrderPriorityText(value?: string | null): string {
+  return value ? (WORK_ORDER_PRIORITY_TEXT[value] ?? value) : '—'
+}
+
+export function closeReasonText(value?: string | null): string {
+  return value ? (CLOSE_REASON_TEXT[value] ?? value) : '—'
 }
 
 /**

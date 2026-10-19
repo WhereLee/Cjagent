@@ -9,6 +9,7 @@ import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
+import com.wherelee.cabinet.domain.enums.CloseReason;
 import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -135,7 +136,8 @@ public class AdminWorkOrderController {
     @PostMapping("/{id}/resolve")
     public R<Long> resolve(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
                            @Valid @RequestBody ResolveCommand cmd) {
-        return R.ok(workOrders.resolve(id, current.subjectId(), cmd.resultNote(), cmd.needOffline()));
+        return R.ok(workOrders.resolve(id, current.subjectId(), cmd.resultNote(), cmd.needOffline(),
+                cmd.closeReason()));
     }
 
     /** 暂停/恢复：只停 SLA 两个时限的前进，不改工单状态（等配件、等用户到场）。 */
@@ -217,9 +219,13 @@ public class AdminWorkOrderController {
     public record PhoneNoteCommand(@NotBlank @Size(max = 300) String resultNote) {
     }
 
-    /** requestId 由前端生成：处理反馈会派生子单，重放不能派出第二张。 */
+    /**
+     * requestId 由前端生成：处理反馈会派生子单，重放不能派出第二张。
+     * closeReason 可选：不传按 MANUAL；用户确认只能由小程序写，事实恢复要现场事实已解除。
+     */
     public record ResolveCommand(@NotBlank @Size(max = 200) String requestId,
                                  @NotBlank @Size(max = 400) String resultNote,
-                                 boolean needOffline) {
+                                 boolean needOffline,
+                                 CloseReason closeReason) {
     }
 }

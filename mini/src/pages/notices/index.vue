@@ -54,6 +54,13 @@ function goOrder(notice: View): void {
     uni.navigateTo({ url: `/pages/order-detail/index?orderNo=${notice.orderNo}` })
   }
 }
+
+/** 工单通知优先落工单详情：用户能直接看到处理结论并确认/反馈没解决。 */
+function goWorkOrder(notice: View): void {
+  if (notice.workOrderId) {
+    uni.navigateTo({ url: `/pages/work-order/index?id=${notice.workOrderId}` })
+  }
+}
 </script>
 
 <template>
@@ -88,7 +95,10 @@ function goOrder(notice: View): void {
         <text class="content">{{ notice.content }}</text>
 
         <view class="row bottom">
-          <text v-if="notice.orderNo" class="link" @click.stop="goOrder(notice)">
+          <text v-if="notice.workOrderId" class="link" @click.stop="goWorkOrder(notice)">
+            查看工单 #{{ notice.workOrderId }} ›
+          </text>
+          <text v-else-if="notice.orderNo" class="link" @click.stop="goOrder(notice)">
             关联订单 {{ notice.orderNo }} ›
           </text>
           <text v-else class="faint" />

@@ -101,6 +101,16 @@ const WORK_ORDER_EVENT: Record<string, string> = {
   SLA_PAUSED: '暂停SLA',
   SLA_RESUMED: '恢复SLA',
   HELPER_CLOSED: '他人代关',
+  USER_CONFIRMED: '用户确认解决',
+  REOPENED: '用户重开',
+}
+
+const CLOSE_REASON: Record<string, string> = {
+  MANUAL: '人工结论',
+  FACT_RECOVERED: '事实恢复',
+  USER_CONFIRMED: '用户确认',
+  MERGED: '重复合并',
+  CANCELLED: '作废',
 }
 
 // ── 格口与证据 ────────────────────────────────────────
@@ -221,6 +231,7 @@ export const workOrderPriorityTag = (v?: string | null): TagType =>
   (v && WORK_ORDER_PRIORITY_TAG[v]) || 'info'
 export const assigneeGroupText = (v?: string | null) => pick(ASSIGNEE_GROUP, v)
 export const workOrderEventText = (v?: string | null) => pick(WORK_ORDER_EVENT, v)
+export const closeReasonText = (v?: string | null) => pick(CLOSE_REASON, v)
 
 export const anomalyText = (v?: string | null) => pick(COMPARTMENT_ANOMALY, v)
 export const anomalyTag = (v?: string | null): TagType => (v && COMPARTMENT_ANOMALY_TAG[v]) || 'info'

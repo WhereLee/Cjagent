@@ -41,6 +41,10 @@
       "style": { "navigationBarTitleText": "AI 客服" }
     },
     {
+      "path": "pages/work-order/index",
+      "style": { "navigationBarTitleText": "我的工单", "enablePullDownRefresh": true }
+    },
+    {
       "path": "pages/pickup/index",
       "style": { "navigationBarTitleText": "凭码取件" }
     }

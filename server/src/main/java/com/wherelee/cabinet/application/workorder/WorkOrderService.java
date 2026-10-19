@@ -10,6 +10,7 @@ import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizWorkOrder;
 import com.wherelee.cabinet.domain.entity.BizWorkOrderEvent;
 import com.wherelee.cabinet.domain.enums.ActorType;
+import com.wherelee.cabinet.domain.enums.CloseReason;
 import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
 import com.wherelee.cabinet.domain.enums.WorkOrderImpact;
 import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
@@ -66,6 +67,8 @@ public class WorkOrderService {
     private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
     /** 分诊事实之一：柜机在线快照（离线时门故障改按设备故障处置）。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper;
+    /** 关闭依据核验：事实恢复要看格口异常是否已解除。 */
+    private final com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper slotMapper;
     private final WorkOrderTriageService triage;
     /**
      * 延迟任务用 ObjectProvider 取：TaskHandler 反过来依赖本服务（超时转工单），
@@ -81,6 +84,7 @@ public class WorkOrderService {
                             com.wherelee.cabinet.application.notify.NoticeService notices,
                             com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
                             com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper,
+                            com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper slotMapper,
                             WorkOrderTriageService triage,
                             ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider,
                             WorkOrderHandoffService handoffs, WorkOrderRoutingService routing) {
@@ -89,6 +93,7 @@ public class WorkOrderService {
         this.notices = notices;
         this.evidenceMapper = evidenceMapper;
         this.cabinetMapper = cabinetMapper;
+        this.slotMapper = slotMapper;
         this.triage = triage;
         this.schedulerProvider = schedulerProvider;
         this.handoffs = handoffs;
@@ -162,6 +167,17 @@ public class WorkOrderService {
     /** 留痕视图。 */
     public record EventView(String eventType, String actorType, Long operatorId, String traceId,
                             String detail, LocalDateTime at) {
+    }
+
+    /**
+     * 用户侧工单视图：只给用户自己关心的字段。
+     * 交接 JSON、快照电话、内部指派这些是给业务员看的，不能顺手塞进小程序。
+     */
+    public record CustomerView(Long id, String orderNo, String title, String status, String category,
+                               String priority, String closeReason, String resultNote, String slotNo,
+                               String cabinetNo, String siteAddress, LocalDateTime responseDueAt,
+                               LocalDateTime resolveDueAt, LocalDateTime closedAt, LocalDateTime createTime,
+                               Long mergedIntoId, int reopenedCount) {
     }
 
     /**
@@ -397,15 +413,26 @@ public class WorkOrderService {
     // 与自动派单并发时，子单冲突后的回读同样需要看到对方刚提交的行。
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long resolve(Long workOrderId, Long operatorId, String resultNote, boolean needOffline) {
+        return resolve(workOrderId, operatorId, resultNote, needOffline, CloseReason.MANUAL);
+    }
+
+    /**
+     * 处理反馈 + 关闭依据。现场类工单不能由业务员代写“用户确认”；
+     * 按事实恢复关闭时必须现场事实真的已恢复（异常已解除），否则只能写人工结论。
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Long resolve(Long workOrderId, Long operatorId, String resultNote, boolean needOffline,
+                        CloseReason requestedCloseReason) {
         if (resultNote == null || resultNote.isBlank()) {
             throw new BizException(ResultCode.BIZ_ERROR, "处理结论必填：工单的价值就在“谁说了什么”");
         }
         BizWorkOrder order = require(workOrderId);
-        if (orders.resolve(workOrderId, resultNote) == 0) {
+        CloseReason closeReason = allowedCloseReason(order, requestedCloseReason);
+        if (orders.resolve(workOrderId, resultNote, closeReason.name()) == 0) {
             throw new BizException(ResultCode.BIZ_ERROR, "这张工单已关闭，不能重复处理");
         }
         cancelSla(order);
-        note(order, "RESOLVED", operatorId, resultNote);
+        note(order, "RESOLVED", operatorId, resultNote + "（关闭依据：" + closeReason + "）");
         if (!needOffline) {
             return null;
         }
@@ -486,10 +513,142 @@ public class WorkOrderService {
             for (BizWorkOrder o : list) {
                 cancelSla(o);
                 note(o, "AUTO_CLOSED", null, "异常事实已消失，工单自动转化留底（非人工结论）");
+                // 自动关闭不是“有人处理了”，但用户和队列都必须知道这件事已经结束：
+                // 用户不知道就会重复报，队列不知道就会继续把它当待办。
+                String where = (o.getSlotNo() == null ? "格口" : "格口 " + o.getSlotNo())
+                        + "（" + o.getTitle() + "）";
+                notices.emit(o.getTenantId(),
+                        com.wherelee.cabinet.application.notify.NoticeService.CHANNEL_MESSAGE,
+                        "WORK_ORDER_AUTO_CLOSED", "WO" + o.getId() + ":AUTO_CLOSE:MSG",
+                        "你的工单" + where + " 已因异常解除自动关闭。如果问题仍存在，"
+                                + "可在工单详情里点“还没解决”。",
+                        o.getCustomerId(), o.getId(), o.getOrderNo());
+                notices.emit(o.getTenantId(),
+                        com.wherelee.cabinet.application.notify.NoticeService.CHANNEL_QUEUE,
+                        "WORK_ORDER_AUTO_CLOSED", "WO" + o.getId() + ":AUTO_CLOSE:QUEUE",
+                        "工单 WO" + o.getId() + " 因事实恢复自动关闭：" + where,
+                        null, o.getId(), o.getOrderNo());
             }
             log.info("工单自动转化留底 slotId={} type={} 条数={}", slotId, type, closed);
         }
         return closed;
+    }
+
+    /**
+     * 关闭依据必须能被这张单自己的事实支撑，不能由操作者挑一个“好看的理由”：
+     * <ul>
+     *   <li>USER_CONFIRMED 只能由用户在小程序点，业务员代写就是伪造用户结论；</li>
+     *   <li>FACT_RECOVERED 必须有格口异常已解除的现场事实，否则只是业务员自己的判断；</li>
+     *   <li>MERGED / CANCELLED 不在“处理反馈”这条路上发生。</li>
+     * </ul>
+     * 不满足时统一退回 MANUAL：有结论、有处理人，但那是人的判断，不冒充用户或设备。
+     */
+    private CloseReason allowedCloseReason(BizWorkOrder order, CloseReason requested) {
+        if (requested == null) {
+            return CloseReason.MANUAL;
+        }
+        return switch (requested) {
+            case MANUAL -> CloseReason.MANUAL;
+            case FACT_RECOVERED -> {
+                if (!factRecovered(order)) {
+                    throw new BizException(ResultCode.BIZ_ERROR,
+                            "格口异常尚未解除，不能按“事实已恢复”关闭；请按人工结论关闭");
+                }
+                yield CloseReason.FACT_RECOVERED;
+            }
+            case USER_CONFIRMED -> throw new BizException(ResultCode.BIZ_ERROR,
+                    "“用户确认已解决”只能由用户在小程序确认，业务员不能代写");
+            case MERGED, CANCELLED -> throw new BizException(ResultCode.BIZ_ERROR,
+                    "合并/作废不是处理反馈的关闭依据");
+        };
+    }
+
+    private boolean factRecovered(BizWorkOrder order) {
+        if (order.getSlotId() == null) {
+            return false;
+        }
+        com.wherelee.cabinet.domain.entity.BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        return slot != null && slot.getAnomaly() == null;
+    }
+
+    /**
+     * 用户在小程序确认“问题已解决”：关闭依据写 USER_CONFIRMED。
+     * 只对本人、还没关闭的单生效；重复点不重复写（幂等），也不给别人的单开旁路。
+     */
+    @Transactional
+    public void confirmResolved(Long workOrderId, Long customerId, String note) {
+        BizWorkOrder order = require(workOrderId);
+        if (customerId == null || !customerId.equals(order.getCustomerId())) {
+            throw new BizException(ResultCode.FORBIDDEN, "这张工单不属于当前账号");
+        }
+        String detail = note == null || note.isBlank() ? "" : "；用户备注：" + truncate(note.trim());
+        if (orders.confirmResolved(workOrderId, customerId, detail) == 0) {
+            throw new BizException(ResultCode.BIZ_ERROR, "这张工单已关闭，或不属于当前账号");
+        }
+        cancelSla(order);
+        note(order, "USER_CONFIRMED", customerId, "用户确认问题已解决" + detail,
+                ActorType.USER.name(), null);
+    }
+
+    /**
+     * 用户反馈“还没解决”：重开本人已关闭的单，reopened_count + 1。
+     *
+     * <p>同格口同队列只允许一张未关闭单：重开撞上唯一索引时并入那张，记 MERGED——
+     * 不因为索引冲突就把用户的反馈丢掉，也不制造第二张重复待办。
+     *
+     * @return 重开后的单号；合并时返回并入的那张
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Long reopen(Long workOrderId, Long customerId, String reason) {
+        BizWorkOrder order = require(workOrderId);
+        if (customerId == null || !customerId.equals(order.getCustomerId())) {
+            throw new BizException(ResultCode.FORBIDDEN, "这张工单不属于当前账号");
+        }
+        String detail = reason == null || reason.isBlank() ? "用户反馈问题还没解决" : truncate(reason.trim());
+        try {
+            if (orders.reopen(workOrderId, customerId, "；用户反馈：" + detail) == 0) {
+                throw new BizException(ResultCode.BIZ_ERROR, "只能重开本人已关闭的工单");
+            }
+        } catch (DuplicateKeyException conflict) {
+            BizWorkOrder target = findOpenInQueue(order.getKind(), order.getType(),
+                    order.getSlotId(), order.getQueueSide());
+            if (target == null) {
+                throw new BizException(ResultCode.SYSTEM_ERROR,
+                        "重开撞上未关闭工单唯一索引，但找不到那张单，id=" + workOrderId);
+            }
+            orders.markMerged(workOrderId, target.getId(),
+                    "；重开时已有同类未关闭工单，合并到 #" + target.getId());
+            note(target, "REOPENED", customerId,
+                    "用户反馈问题还没解决，原单 #" + workOrderId + " 已并入本单",
+                    ActorType.USER.name(), null);
+            return target.getId();
+        }
+        BizWorkOrder reopened = require(workOrderId);
+        note(reopened, "REOPENED", customerId, detail, ActorType.USER.name(), null);
+        scheduleSla(reopened);
+        log.warn("用户重开工单 id={} customer={} reopenedCount={}",
+                workOrderId, customerId, reopened.getReopenedCount());
+        return workOrderId;
+    }
+
+    /** 用户侧“我的工单”：最近若干张，不返回内部交接与指派细节。 */
+    public List<CustomerView> myOrders(Long customerId, int limit) {
+        int size = Math.min(Math.max(limit, 1), 50);
+        return orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
+                        .eq(BizWorkOrder::getCustomerId, customerId)
+                        .eq(BizWorkOrder::getDeleted, 0)
+                        .orderByDesc(BizWorkOrder::getCreateTime)
+                        .last("limit " + size))
+                .stream().map(this::toCustomerView).toList();
+    }
+
+    /** 用户侧单张工单：只能看自己的，避免拿 id 猜别人的单。 */
+    public CustomerView myOrder(Long workOrderId, Long customerId) {
+        BizWorkOrder order = require(workOrderId);
+        if (customerId == null || !customerId.equals(order.getCustomerId())) {
+            throw new BizException(ResultCode.FORBIDDEN, "这张工单不属于当前账号");
+        }
+        return toCustomerView(order);
     }
 
     /** 允许前端自定义排序的字段（PageSupport 白名单）：开单时间与要求处理时刻。 */
@@ -859,6 +1018,17 @@ public class WorkOrderService {
 
     private View toView(BizWorkOrder o) {
         return toView(o, null);
+    }
+
+    private CustomerView toCustomerView(BizWorkOrder o) {
+        return new CustomerView(o.getId(), o.getOrderNo(), o.getTitle(), o.getStatus().name(),
+                o.getCategory() == null ? null : o.getCategory().name(),
+                o.getPriority() == null ? null : o.getPriority().name(),
+                o.getCloseReason() == null ? null : o.getCloseReason().name(),
+                o.getResultNote(), o.getSlotNo(), readSnapshotString(o, "cabinetNo"),
+                readSnapshotString(o, "siteAddress"), o.getResponseDueAt(), o.getResolveDueAt(),
+                o.getClosedAt(), o.getCreateTime(), o.getMergedIntoId(),
+                o.getReopenedCount() == null ? 0 : o.getReopenedCount());
     }
 
     private View toView(BizWorkOrder o, String parentResultNote) {

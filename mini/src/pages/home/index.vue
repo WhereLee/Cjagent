@@ -80,6 +80,10 @@ function goPickup(): void {
 function goSupport(): void {
   uni.navigateTo({ url: '/pages/support/index' })
 }
+
+function goWorkOrders(): void {
+  uni.navigateTo({ url: '/pages/work-order/index' })
+}
 </script>
 
 <template>
@@ -118,6 +122,11 @@ function goSupport(): void {
         <text class="quick-icon ask">问</text>
         <text class="quick-text">AI 客服</text>
         <text class="faint">账单、取件问题</text>
+      </view>
+      <view class="quick" @click="goWorkOrders">
+        <text class="quick-icon wo">单</text>
+        <text class="quick-text">我的工单</text>
+        <text class="faint">进度与处理结果</text>
       </view>
     </view>
 
@@ -239,6 +248,11 @@ function goSupport(): void {
 .quick-icon.ask {
   background: #ecf6e8;
   color: #3d8b2f;
+}
+
+.quick-icon.wo {
+  background: #fff4e8;
+  color: #a86413;
 }
 
 .quick-text {

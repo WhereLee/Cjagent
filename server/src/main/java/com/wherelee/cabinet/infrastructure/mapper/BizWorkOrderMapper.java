@@ -35,10 +35,53 @@ public interface BizWorkOrderMapper extends BaseMapper<BizWorkOrder> {
     @Update("""
             update biz_work_order
                set status = 'RESOLVED', active_flag = null, result_note = #{note},
-                   closed_at = NOW(3), version = version + 1, update_time = NOW(3)
+                   close_reason = #{closeReason}, closed_at = NOW(3),
+                   version = version + 1, update_time = NOW(3)
              where id = #{id} and deleted = 0 and active_flag = 1
             """)
-    int resolve(@Param("id") Long id, @Param("note") String note);
+    int resolve(@Param("id") Long id, @Param("note") String note,
+                @Param("closeReason") String closeReason);
+
+    /**
+     * 用户在小程序确认“问题已解决”：
+     * 关闭依据是用户本人的确认，不是业务员的结论，所以 close_reason 必须是 USER_CONFIRMED。
+     */
+    @Update("""
+            update biz_work_order
+               set status = 'RESOLVED', active_flag = null, close_reason = 'USER_CONFIRMED',
+                   result_note = concat(coalesce(result_note, ''), #{note}),
+                   closed_at = NOW(3), version = version + 1, update_time = NOW(3)
+             where id = #{id} and customer_id = #{customerId} and deleted = 0 and active_flag = 1
+            """)
+    int confirmResolved(@Param("id") Long id, @Param("customerId") Long customerId,
+                        @Param("note") String note);
+
+    /**
+     * 用户反馈“还没解决”：把已关闭的本人单重新打开，reopened_count +1。
+     * 只允许 RESOLVED/AUTO_CLOSED，且必须还是同一客户——不给他人的历史单开旁路。
+     */
+    @Update("""
+            update biz_work_order
+               set status = 'PENDING', active_flag = 1, close_reason = null, closed_at = null,
+                   result_note = concat(coalesce(result_note, ''), #{note}),
+                   reopened_count = reopened_count + 1, version = version + 1, update_time = NOW(3)
+             where id = #{id} and customer_id = #{customerId} and deleted = 0
+               and active_flag is null and status in ('RESOLVED','AUTO_CLOSED')
+            """)
+    int reopen(@Param("id") Long id, @Param("customerId") Long customerId,
+               @Param("note") String note);
+
+    /** 重开时同格口已有同类未关闭单：把当前单并入那张，记 MERGED，不再占唯一索引。 */
+    @Update("""
+            update biz_work_order
+               set status = 'RESOLVED', close_reason = 'MERGED', merged_into_id = #{targetId},
+                   active_flag = null, closed_at = NOW(3),
+                   result_note = concat(coalesce(result_note, ''), #{note}),
+                   version = version + 1, update_time = NOW(3)
+             where id = #{id} and deleted = 0 and active_flag is null
+            """)
+    int markMerged(@Param("id") Long id, @Param("targetId") Long targetId,
+                   @Param("note") String note);
 
     /** 事实自行消失（门关上了）：自动转化留底，绝不删除，也不写成人做的结论。 */
     @Update("""

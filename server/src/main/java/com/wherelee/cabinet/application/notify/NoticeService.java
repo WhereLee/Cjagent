@@ -31,6 +31,8 @@ public class NoticeService {
 
     public static final String CHANNEL_MESSAGE = "SYSTEM_MESSAGE";
     public static final String CHANNEL_PHONE = "PHONE_CALL";
+    /** 队列侧通知：给业务员看的“这件事已经收口”，不是一个待办。 */
+    public static final String CHANNEL_QUEUE = "QUEUE";
 
     private final BizNoticeMapper notices;
 

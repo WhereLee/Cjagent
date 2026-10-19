@@ -18,6 +18,7 @@ import type { WorkOrderFamily, WorkOrderRow } from '@/api/contracts'
 import { ApiError } from '@/api/http'
 import {
   assigneeGroupText,
+  closeReasonText,
   evidenceMomentText,
   evidenceSourceText,
   presenceText,
@@ -166,7 +167,7 @@ async function onClaim(row: WorkOrderRow): Promise<void> {
 }
 
 const resolveDialog = ref(false)
-const resolveForm = reactive({ resultNote: '', needOffline: false })
+const resolveForm = reactive({ resultNote: '', needOffline: false, closeReason: 'MANUAL' })
 // 同一"处理意图"重试复用同一个 requestId：处理会派生子单，重放不能派出第二张
 let resolveRequestId = ''
 
@@ -174,6 +175,7 @@ function openResolve(row: WorkOrderRow, draft = ''): void {
   current.value = row
   resolveForm.resultNote = draft
   resolveForm.needOffline = false
+  resolveForm.closeReason = 'MANUAL'
   resolveRequestId = newRequestId()
   resolveDialog.value = true
 }
@@ -195,6 +197,7 @@ async function onResolve(): Promise<void> {
       requestId: resolveRequestId,
       resultNote: resolveForm.resultNote,
       needOffline: resolveForm.needOffline,
+      closeReason: resolveForm.closeReason,
     })
     ElMessage.success('已处理')
     resolveDialog.value = false
@@ -379,6 +382,7 @@ onMounted(() => {
         <el-descriptions-item label="检测描述" :span="2">
           {{ current?.detection ?? '—' }}
         </el-descriptions-item>
+        <el-descriptions-item label="关闭依据">{{ closeReasonText(current?.closeReason) }}</el-descriptions-item>
         <el-descriptions-item label="处理结论" :span="2">
           {{ current?.resultNote ?? '—' }}
         </el-descriptions-item>
@@ -496,6 +500,15 @@ onMounted(() => {
           placeholder="写清现场事实与处置结果；AI 草稿可用，但必须自己核对"
         />
       </el-form-item>
+      <el-form-item label="关闭依据">
+        <el-select v-model="resolveForm.closeReason" style="width: 100%">
+          <el-option label="人工结论（业务员判断）" value="MANUAL" />
+          <el-option label="事实已恢复（格口异常已解除）" value="FACT_RECOVERED" />
+        </el-select>
+        <div class="muted close-hint">
+          “用户确认已解决”只能由用户在小程序确认，后台不能代写。
+        </div>
+      </el-form-item>
       <el-form-item label="派线下单">
         <el-switch v-model="resolveForm.needOffline" active-text="需要跑一趟时另发一张线下工单" />
       </el-form-item>
@@ -586,5 +599,11 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+.close-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

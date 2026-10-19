@@ -9,6 +9,8 @@ export interface ResolveCommand {
   requestId: string
   resultNote: string
   needOffline?: boolean
+  /** MANUAL / FACT_RECOVERED；不传按 MANUAL。USER_CONFIRMED 只能由用户小程序写 */
+  closeReason?: string
 }
 
 export interface RLong {

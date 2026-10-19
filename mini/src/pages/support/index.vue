@@ -74,6 +74,13 @@ function onSend(): void {
 function onQuick(text: string): void {
   send(text)
 }
+
+/** 工单号就是工单 ID：点进去看处理进度、确认已解决或反馈没解决。 */
+function goTicket(item: ChatItem): void {
+  if (item.ticketNo) {
+    uni.navigateTo({ url: `/pages/work-order/index?id=${item.ticketNo}` })
+  }
+}
 </script>
 
 <template>
@@ -86,8 +93,8 @@ function onQuick(text: string): void {
       <view v-for="(item, index) in chats" :id="`msg-${index}`" :key="index" class="bubble-row" :class="item.role">
         <view class="bubble" :class="item.role">
           <text class="bubble-text">{{ item.text }}</text>
-          <view v-if="item.escalated" class="ticket">
-            已为你创建工单 {{ item.ticketNo ?? '' }}，工作人员会跟进处理
+          <view v-if="item.escalated" class="ticket" @click="goTicket(item)">
+            已为你创建工单 {{ item.ticketNo ?? '' }}，点此查看进度 ›
           </view>
         </view>
       </view>
