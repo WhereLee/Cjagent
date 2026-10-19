@@ -232,6 +232,23 @@ cabinet:
   ratelimit:
     # 默认开。只允许本地压测时临时置 false（第 9 刀压测口径会标注），真实环境不得关闭
     enabled: true
+  work-order:
+    # 工单 SLA 双时限（批次 4）：按优先级分档，改档位只改这里，不发版。
+    # 响应 = 多久必须有人开始处理（认领即响应）；解决 = 多久必须有结论。
+    # P1 门未关且有物等“用户定的 10 分钟”场景；P4 可以等但不能被忘掉。
+    sla:
+      P1:
+        response-minutes: 10
+        resolve-minutes: 120
+      P2:
+        response-minutes: 30
+        resolve-minutes: 480
+      P3:
+        response-minutes: 120
+        resolve-minutes: 1440
+      P4:
+        response-minutes: 480
+        resolve-minutes: 4320
   scheduler:
     # 触发方式：poll（纯 DB 轮询，默认）| zset（Redis 索引加速）| mq（RocketMQ 延迟消息）。
     # 三者都只起“提醒”作用，能不能执行由 biz_delay_task 上的租约条件更新决定（跳存储无事务）

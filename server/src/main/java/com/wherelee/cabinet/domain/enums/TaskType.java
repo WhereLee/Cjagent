@@ -14,7 +14,9 @@ import java.util.Locale;
  *   <li>{@link #FREE_SET_SYNC}：Redis 空闲集合校准 —— 预扣的"少卖漂移"靠它收敛（第 10 刀承诺的账）；</li>
  *   <li>{@link #COMMAND_RESCAN}：设备指令无回执的回扫 —— 拆事务（等回执不持事务）留下的现场靠它收；</li>
  *   <li>{@link #COMMAND_SWEEP}：指令扫街保底 —— 下发与收敛之间进程被杀，逐条提醒盖不住；</li>
- *   <li>{@link #LEDGER_RECONCILE}：账平与状态一致性对账（只报告不自动改钱，改钱必须留人工痕迹）。</li>
+ *   <li>{@link #LEDGER_RECONCILE}：账平与状态一致性对账（只报告不自动改钱，改钱必须留人工痕迹）；</li>
+ *   <li>{@link #WORK_ORDER_RESPONSE_SLA}：工单响应时限到点——没人认领就必须被指出来；</li>
+ *   <li>{@link #WORK_ORDER_RESOLVE_SLA}：工单解决时限到点——到点没结论就是待办，不能靠人惦记。</li>
  * </ul>
  *
  * <p><b>一切任务都是租户内的</b>：周期型任务（校准、对账）也按租户各登记一条（{@code bizKey = 租户号}）。
@@ -30,7 +32,9 @@ public enum TaskType {
     COMMAND_RESCAN,
     COMMAND_SWEEP,
     FREE_SET_SYNC,
-    LEDGER_RECONCILE;
+    LEDGER_RECONCILE,
+    WORK_ORDER_RESPONSE_SLA,
+    WORK_ORDER_RESOLVE_SLA;
 
     /**
      * 失败重试上限。给太大会把坏数据反复打爆日志，给太小会把瞬时故障判死；不同链路语义不同。

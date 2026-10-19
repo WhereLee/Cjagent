@@ -134,6 +134,16 @@ public class DelayTaskService {
     }
 
     /**
+     * 取消一条还没开始的任务（工单关闭、SLA 暂停）。
+     *
+     * <p>只收 PENDING/FAILED；RUNNING 的留给它自己跑完（handler 必须对终态幂等）。
+     * 取消后的行是 DONE，下一次 {@link #schedule} 会把它当作新一轮重新排上。
+     */
+    public void cancel(TaskType type, String bizKey, Long tenantId) {
+        taskMapper.cancel(tenantId, type.name(), bizKey);
+    }
+
+    /**
      * 按租户公平地取一批到期任务（A-4）。
      *
      * <p>额度这样分：本轮有到期任务的租户均分批量上限，但<b>每个租户至少留 1 个名额</b>——

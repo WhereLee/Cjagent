@@ -50,11 +50,12 @@ public class WorkOrderIntake {
     private final BizCustomerMapper customerMapper;
     private final BizStorageOrderMapper orderMapper;
     private final WorkOrderTriageService triage;
+    private final WorkOrderSlaPolicy slaPolicy;
 
     public WorkOrderIntake(WorkOrderService workOrders, BizCompartmentMapper slotMapper,
                            BizCabinetMapper cabinetMapper, BizSiteMapper siteMapper,
                            BizCustomerMapper customerMapper, BizStorageOrderMapper orderMapper,
-                           WorkOrderTriageService triage) {
+                           WorkOrderTriageService triage, WorkOrderSlaPolicy slaPolicy) {
         this.workOrders = workOrders;
         this.slotMapper = slotMapper;
         this.cabinetMapper = cabinetMapper;
@@ -62,6 +63,7 @@ public class WorkOrderIntake {
         this.customerMapper = customerMapper;
         this.orderMapper = orderMapper;
         this.triage = triage;
+        this.slaPolicy = slaPolicy;
     }
 
     /**
@@ -120,11 +122,15 @@ public class WorkOrderIntake {
         Long customerId = order != null ? order.getCustomerId() : slot.getDoorOpenedBy();
         BizCustomer customer = customerId == null ? null : customerMapper.selectById(customerId);
 
-        LocalDateTime dueAt = LocalDateTime.now().plusMinutes(urgent ? 10 : 120);
+        LocalDateTime now = LocalDateTime.now();
+        // 设备异常不经过用户现象分诊，优先级按“紧急即 P1”钉死（门未关且有物 = 用户定的 10 分钟），
+        // 两个时限仍从 SLA 策略取，数值不再散落在开单代码里。
+        WorkOrderPriority priority = urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3;
+        LocalDateTime responseDue = now.plusMinutes(slaPolicy.responseMinutes(priority));
+        LocalDateTime resolveDue = now.plusMinutes(slaPolicy.resolveMinutes(priority));
         workOrders.open(new WorkOrderService.NewOrderV2(
                 slot.getTenantId(), WorkOrderKind.INCIDENT, type, WorkOrderSource.DEVICE,
-                intentOf(anomaly), categoryOf(type), urgent,
-                urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3,
+                intentOf(anomaly), categoryOf(type), urgent, priority,
                 WorkOrderImpact.SINGLE,
                 urgent ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL,
                 WorkOrderService.SIDE_ONLINE, WorkOrderService.SIDE_ONLINE,
@@ -136,7 +142,7 @@ public class WorkOrderIntake {
                 cabinet == null ? "-" : cabinet.getCabinetNo(),
                 titleOf(anomaly, slot.getSlotNo(), reason),
                 detection(slot),
-                dueAt, dueAt, dueAt, null, null));
+                resolveDue, responseDue, resolveDue, null, null));
     }
 
     /**

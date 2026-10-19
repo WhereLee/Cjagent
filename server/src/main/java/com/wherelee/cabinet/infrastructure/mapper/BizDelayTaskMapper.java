@@ -178,6 +178,24 @@ public interface BizDelayTaskMapper extends BaseMapper<BizDelayTask> {
                  @Param("bizKey") String bizKey,
                  @Param("fireAt") LocalDateTime fireAt);
 
+    /**
+     * 取消一条还没开始执行的任务（关闭工单、暂停 SLA）。
+     *
+     * <p>只动 PENDING/FAILED：RUNNING 的那条可能正在写业务，抢它的状态会让“执行了但没落完成”
+     * 变成重复执行。DONE 是已了结，保留原样——下一次登记会把它当作新一轮（见 register）。
+     * 用 DONE 而不是新造 CANCELLED 状态：现有状态机、归档与索引都只认这五个值。
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    @Update("""
+            update biz_delay_task
+               set status = 'DONE', last_error = 'CANCELLED', update_time = now(3)
+             where tenant_id = #{tenantId} and task_type = #{taskType} and biz_key = #{bizKey}
+               and status in ('PENDING','FAILED') and deleted = 0
+            """)
+    int cancel(@Param("tenantId") Long tenantId,
+               @Param("taskType") String taskType,
+               @Param("bizKey") String bizKey);
+
     /** 对账与指标用：某类型还有多少待办（不受租户过滤影响）。 */
     @InterceptorIgnore(tenantLine = "true")
     @Select("""

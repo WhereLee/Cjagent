@@ -19,15 +19,18 @@ import com.wherelee.cabinet.domain.enums.WorkOrderSource;
 import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.domain.enums.WorkOrderUrgency;
+import com.wherelee.cabinet.domain.enums.TaskType;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
@@ -64,18 +67,25 @@ public class WorkOrderService {
     /** 分诊事实之一：柜机在线快照（离线时门故障改按设备故障处置）。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper;
     private final WorkOrderTriageService triage;
+    /**
+     * 延迟任务用 ObjectProvider 取：TaskHandler 反过来依赖本服务（超时转工单），
+     * 直接注入会形成构造环（DelayTaskService → handlers → WorkOrderService）。
+     */
+    private final ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider;
 
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                             com.wherelee.cabinet.application.notify.NoticeService notices,
                             com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
                             com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper,
-                            WorkOrderTriageService triage) {
+                            WorkOrderTriageService triage,
+                            ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider) {
         this.orders = orders;
         this.events = events;
         this.notices = notices;
         this.evidenceMapper = evidenceMapper;
         this.cabinetMapper = cabinetMapper;
         this.triage = triage;
+        this.schedulerProvider = schedulerProvider;
     }
 
     /** 一条证据的可读视图（采集点 + 三值结论 + 置信度 + AI 标签 + 照片引用）。 */
@@ -222,6 +232,8 @@ public class WorkOrderService {
         }
         note(order, "CREATED", null, cmd.title() + "｜检测：" + nullSafe(cmd.detection()),
                 actorTypeOf(cmd.source()), cmd.traceId());
+        // 开单即登记两个 SLA 任务：到点没人响应/没结论必须自己冒出来，不靠人惦记。
+        scheduleSla(order);
         log.warn("工单已开 id={} kind={} source={} type={} priority={} slotNo={} orderNo={}",
                 order.getId(), order.getKind(), order.getSource(), order.getType(),
                 order.getPriority(), cmd.slotNo(), cmd.orderNo());
@@ -267,6 +279,86 @@ public class WorkOrderService {
                 && cabinet.getOnlineState() == com.wherelee.cabinet.domain.enums.OnlineState.OFFLINE;
     }
 
+    /**
+     * 暂停 SLA：只停两个时限的前进，不改工单状态。暂停中取消两个到点任务，
+     * 恢复时按实际暂停时长把时限补回来——否则“等配件”停的一周会把 SLA 达成率吃掉。
+     */
+    @Transactional
+    public void pauseSla(Long workOrderId, Long operatorId) {
+        BizWorkOrder order = require(workOrderId);
+        if (!isOpen(order)) {
+            throw new BizException(ResultCode.BIZ_ERROR, "工单已关闭，不能暂停 SLA");
+        }
+        if (order.getSlaPausedAt() != null) {
+            return; // 重放友好：已暂停就不重复写
+        }
+        orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
+                .eq(BizWorkOrder::getId, workOrderId)
+                .isNull(BizWorkOrder::getSlaPausedAt)
+                .set(BizWorkOrder::getSlaPausedAt, LocalDateTime.now()));
+        cancelSla(order);
+        note(order, "SLA_PAUSED", operatorId, "SLA 已暂停（暂停时长不计入时限）");
+    }
+
+    /** 恢复 SLA：把暂停时长补回响应/解决时限，并重新登记到点任务。 */
+    @Transactional
+    public void resumeSla(Long workOrderId, Long operatorId) {
+        BizWorkOrder order = require(workOrderId);
+        if (order.getSlaPausedAt() == null) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        long pausedMinutes = Math.max(0, Duration.between(order.getSlaPausedAt(), now).toMinutes());
+        LocalDateTime responseDue = order.getResponseDueAt() == null
+                ? null : order.getResponseDueAt().plusMinutes(pausedMinutes);
+        LocalDateTime resolveDue = order.getResolveDueAt() == null
+                ? null : order.getResolveDueAt().plusMinutes(pausedMinutes);
+        int accumulated = (order.getSlaPausedMinutes() == null ? 0 : order.getSlaPausedMinutes())
+                + (int) pausedMinutes;
+        orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
+                .eq(BizWorkOrder::getId, workOrderId)
+                .set(BizWorkOrder::getSlaPausedAt, null)
+                .set(BizWorkOrder::getSlaPausedMinutes, accumulated)
+                .set(BizWorkOrder::getResponseDueAt, responseDue)
+                .set(BizWorkOrder::getResolveDueAt, resolveDue)
+                .set(BizWorkOrder::getDueAt, resolveDue));
+        // 取消时任务落成 DONE，register 会把它当作新一轮重新排上。
+        order.setSlaPausedAt(null);
+        order.setResponseDueAt(responseDue);
+        order.setResolveDueAt(resolveDue);
+        scheduleSla(order);
+        note(order, "SLA_RESUMED", operatorId, "SLA 已恢复：暂停 " + pausedMinutes + " 分钟已补回时限");
+    }
+
+    private void scheduleSla(BizWorkOrder order) {
+        if (order == null || order.getId() == null || order.getTenantId() == null || !isOpen(order)) {
+            return;
+        }
+        String bizKey = String.valueOf(order.getId());
+        if (order.getFirstResponseAt() == null && order.getResponseDueAt() != null) {
+            scheduler().schedule(TaskType.WORK_ORDER_RESPONSE_SLA, bizKey,
+                    order.getTenantId(), order.getResponseDueAt());
+        }
+        if (order.getResolveDueAt() != null) {
+            scheduler().schedule(TaskType.WORK_ORDER_RESOLVE_SLA, bizKey,
+                    order.getTenantId(), order.getResolveDueAt());
+        }
+    }
+
+    private void cancelSla(BizWorkOrder order) {
+        String bizKey = String.valueOf(order.getId());
+        scheduler().cancel(TaskType.WORK_ORDER_RESPONSE_SLA, bizKey, order.getTenantId());
+        scheduler().cancel(TaskType.WORK_ORDER_RESOLVE_SLA, bizKey, order.getTenantId());
+    }
+
+    private com.wherelee.cabinet.application.task.DelayTaskService scheduler() {
+        return schedulerProvider.getObject();
+    }
+
+    private boolean isOpen(BizWorkOrder order) {
+        return order.getStatus() == WorkOrderStatus.PENDING || order.getStatus() == WorkOrderStatus.CLAIMED;
+    }
+
     /** 认领：抢不到就是别人已经接了，给业务异常而不静默成功。 */
     @Transactional
     public void claim(Long workOrderId, Long operatorId) {
@@ -278,7 +370,15 @@ public class WorkOrderService {
             throw new BizException(ResultCode.BIZ_ERROR,
                     "这张工单已被他人认领或已关闭，当前状态：" + now.getStatus());
         }
-        note(require(workOrderId), "CLAIMED", operatorId, "已认领");
+        BizWorkOrder claimed = require(workOrderId);
+        // 认领 = 响应：记录首次响应时刻，响应 SLA 任务同时取消（它已经完成使命）。
+        orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
+                .eq(BizWorkOrder::getId, workOrderId)
+                .isNull(BizWorkOrder::getFirstResponseAt)
+                .set(BizWorkOrder::getFirstResponseAt, LocalDateTime.now()));
+        scheduler().cancel(TaskType.WORK_ORDER_RESPONSE_SLA, String.valueOf(workOrderId),
+                claimed.getTenantId());
+        note(claimed, "CLAIMED", operatorId, "已认领");
     }
 
     /**
@@ -297,6 +397,7 @@ public class WorkOrderService {
         if (orders.resolve(workOrderId, resultNote) == 0) {
             throw new BizException(ResultCode.BIZ_ERROR, "这张工单已关闭，不能重复处理");
         }
+        cancelSla(order);
         note(order, "RESOLVED", operatorId, resultNote);
         if (!needOffline) {
             return null;
@@ -352,6 +453,7 @@ public class WorkOrderService {
             return won.getId();
         }
         note(child, "DISPATCHED", operatorId, "线上判断需线下运维，父单 id=" + order.getId());
+        scheduleSla(child);
         log.warn("已派发线下工单 parent={} child={} urgent={}", order.getId(), child.getId(), child.getUrgent());
         return child.getId();
     }
@@ -372,6 +474,7 @@ public class WorkOrderService {
                     .orderByDesc(BizWorkOrder::getClosedAt)
                     .last("limit " + closed));
             for (BizWorkOrder o : list) {
+                cancelSla(o);
                 note(o, "AUTO_CLOSED", null, "异常事实已消失，工单自动转化留底（非人工结论）");
             }
             log.info("工单自动转化留底 slotId={} type={} 条数={}", slotId, type, closed);
@@ -410,7 +513,7 @@ public class WorkOrderService {
                 .eq(BizWorkOrder::getQueueSide, queueSide)
                 .eq(BizWorkOrder::getDeleted, 0)
                 .in(openOnly, BizWorkOrder::getStatus, WorkOrderStatus.PENDING, WorkOrderStatus.CLAIMED)
-                .orderByDesc(BizWorkOrder::getUrgent)
+                .orderByAsc(BizWorkOrder::getPriority)
                 .orderByAsc(BizWorkOrder::getCreateTime)), this::toView);
     }
 
@@ -596,6 +699,7 @@ public class WorkOrderService {
             return won == null ? child.getId() : won.getId();
         }
         note(child, "DISPATCHED", null, reason + "（系统按时间阈值自动派发）");
+        scheduleSla(child);
         log.warn("自动派发线下工单 parent={} child={} {}", parent.getId(), child.getId(), reason);
         return child.getId();
     }

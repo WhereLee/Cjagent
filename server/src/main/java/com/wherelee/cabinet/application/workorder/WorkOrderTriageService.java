@@ -32,10 +32,15 @@ public class WorkOrderTriageService {
     private static final Logger log = LoggerFactory.getLogger(WorkOrderTriageService.class);
 
     private final BizTriageRuleMapper rules;
+    private final WorkOrderPriorityPolicy priorityPolicy;
+    private final WorkOrderSlaPolicy slaPolicy;
     private final Map<Long, CachedRules> cache = new ConcurrentHashMap<>();
 
-    public WorkOrderTriageService(BizTriageRuleMapper rules) {
+    public WorkOrderTriageService(BizTriageRuleMapper rules, WorkOrderPriorityPolicy priorityPolicy,
+                                  WorkOrderSlaPolicy slaPolicy) {
         this.rules = rules;
+        this.priorityPolicy = priorityPolicy;
+        this.slaPolicy = slaPolicy;
     }
 
     public record Facts(boolean deviceOffline, boolean cabinetImpact, boolean accountImpact, boolean urgent) {
@@ -59,21 +64,33 @@ public class WorkOrderTriageService {
             rule = loaded.getOrDefault(WorkOrderIntent.DEVICE_OFFLINE,
                     defaultRules().get(WorkOrderIntent.DEVICE_OFFLINE));
         }
-        WorkOrderPriority priority = rule.priority();
         WorkOrderImpact impact = rule.impact();
-        // 整柜/账户级问题直接拉到 P1；紧急单至少 P2。
+        WorkOrderUrgency urgency = rule.urgency();
         if (facts != null && (facts.deviceOffline() || facts.cabinetImpact())) {
             impact = WorkOrderImpact.CABINET;
-            priority = WorkOrderPriority.P1;
+            urgency = WorkOrderUrgency.HIGH;
         } else if (facts != null && facts.accountImpact()) {
             impact = WorkOrderImpact.ACCOUNT;
+            urgency = WorkOrderUrgency.HIGH;
+        } else if (facts != null && facts.urgent()) {
+            urgency = WorkOrderUrgency.HIGH;
+        }
+        // 优先级：规则可以按现象钉死（门未关且有物必须 10 分钟内处理），否则走影响×紧急度矩阵。
+        WorkOrderPriority priority = rule.priority() == null
+                ? priorityPolicy.of(impact, urgency) : rule.priority();
+        if (facts != null && (facts.deviceOffline() || facts.cabinetImpact() || facts.accountImpact())) {
             priority = WorkOrderPriority.P1;
         } else if (facts != null && facts.urgent()
                 && (priority == WorkOrderPriority.P3 || priority == WorkOrderPriority.P4)) {
             priority = WorkOrderPriority.P2;
         }
+        // SLA：规则里的分钟数可覆盖（按现象定制），为空按优先级档位取配置。
+        int responseMinutes = rule.responseMinutes() == null
+                ? slaPolicy.responseMinutes(priority) : rule.responseMinutes();
+        int resolveMinutes = rule.resolveMinutes() == null
+                ? slaPolicy.resolveMinutes(priority) : rule.resolveMinutes();
         return new Result(rule.category(), rule.type(), rule.queueSide(), rule.assigneeGroup(),
-                priority, impact, rule.urgency(), rule.responseMinutes(), rule.resolveMinutes(),
+                priority, impact, urgency, responseMinutes, resolveMinutes,
                 rule.ruleCode(), rule.ruleVersion());
     }
 
@@ -109,11 +126,10 @@ public class WorkOrderTriageService {
             loaded.putIfAbsent(row.getIntent(), new Rule(
                     row.getRuleCode(), row.getIntent(), row.getCategory(), typeOf(row.getCategory()),
                     row.getQueueSide() == null ? "ONLINE" : row.getQueueSide(),
-                    row.getAssigneeGroup(), row.getPriority() == null ? WorkOrderPriority.P3 : row.getPriority(),
+                    row.getAssigneeGroup(), row.getPriority(),
                     row.getImpact() == null ? WorkOrderImpact.SINGLE : row.getImpact(),
                     row.getUrgency() == null ? WorkOrderUrgency.NORMAL : row.getUrgency(),
-                    row.getResponseMinutes() == null ? 120 : row.getResponseMinutes(),
-                    row.getResolveMinutes() == null ? 1440 : row.getResolveMinutes(),
+                    row.getResponseMinutes(), row.getResolveMinutes(),
                     row.getVersion() == null ? 0 : row.getVersion()));
             maxVersion = Math.max(maxVersion, row.getVersion() == null ? 0 : row.getVersion());
         }
@@ -127,45 +143,45 @@ public class WorkOrderTriageService {
 
     private static Rule unsorted(WorkOrderIntent intent) {
         return new Rule("DEFAULT-UNSORTED", intent, WorkOrderCategory.UNSORTED, null,
-                "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", WorkOrderPriority.P3,
-                WorkOrderImpact.SINGLE, WorkOrderUrgency.NORMAL, 120, 1440, 0);
+                "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", null,
+                WorkOrderImpact.SINGLE, WorkOrderUrgency.NORMAL, null, null, 0);
     }
 
     private static Map<WorkOrderIntent, Rule> defaultRules() {
         Map<WorkOrderIntent, Rule> map = new EnumMap<>(WorkOrderIntent.class);
         put(map, WorkOrderIntent.DOOR_NOT_OPEN, WorkOrderCategory.DOOR_FAULT,
                 "ONLINE", "ONLINE", WorkOrderPriority.P2, WorkOrderImpact.SINGLE,
-                WorkOrderUrgency.HIGH, 30, 120);
+                WorkOrderUrgency.HIGH);
         put(map, WorkOrderIntent.DOOR_NOT_CLOSE, WorkOrderCategory.DOOR_NOT_CLOSED,
                 "ONLINE", "ONLINE", WorkOrderPriority.P1, WorkOrderImpact.SINGLE,
-                WorkOrderUrgency.HIGH, 10, 120);
+                WorkOrderUrgency.HIGH);
         put(map, WorkOrderIntent.ITEM_MISSING, WorkOrderCategory.ITEM_DISPUTE,
                 "ONLINE", "ONLINE", WorkOrderPriority.P1, WorkOrderImpact.SINGLE,
-                WorkOrderUrgency.HIGH, 10, 120);
+                WorkOrderUrgency.HIGH);
         put(map, WorkOrderIntent.ITEM_LEFT, WorkOrderCategory.ITEM_LEFT,
                 "ONLINE", "ONLINE", WorkOrderPriority.P2, WorkOrderImpact.SINGLE,
-                WorkOrderUrgency.NORMAL, 30, 240);
+                WorkOrderUrgency.NORMAL);
         put(map, WorkOrderIntent.DEVICE_OFFLINE, WorkOrderCategory.DEVICE_OFFLINE,
                 "ONLINE", "ONLINE", WorkOrderPriority.P1, WorkOrderImpact.CABINET,
-                WorkOrderUrgency.HIGH, 10, 120);
+                WorkOrderUrgency.HIGH);
         put(map, WorkOrderIntent.BILLING_DISPUTE, WorkOrderCategory.BILLING_DISPUTE,
                 "ONLINE", "ONLINE", WorkOrderPriority.P2, WorkOrderImpact.ACCOUNT,
-                WorkOrderUrgency.HIGH, 30, 240);
+                WorkOrderUrgency.HIGH);
         put(map, WorkOrderIntent.PICKUP_CODE, WorkOrderCategory.PICKUP_CODE,
                 "ONLINE", "ONLINE", WorkOrderPriority.P2, WorkOrderImpact.SINGLE,
-                WorkOrderUrgency.NORMAL, 30, 240);
+                WorkOrderUrgency.NORMAL);
         put(map, WorkOrderIntent.OTHER, WorkOrderCategory.UNSORTED,
                 "CUSTOMER_SERVICE", "CUSTOMER_SERVICE", WorkOrderPriority.P3,
-                WorkOrderImpact.SINGLE, WorkOrderUrgency.NORMAL, 120, 1440);
+                WorkOrderImpact.SINGLE, WorkOrderUrgency.NORMAL);
         return map;
     }
 
     private static void put(Map<WorkOrderIntent, Rule> map, WorkOrderIntent intent,
                             WorkOrderCategory category, String queueSide, String group,
                             WorkOrderPriority priority, WorkOrderImpact impact,
-                            WorkOrderUrgency urgency, int responseMinutes, int resolveMinutes) {
+                            WorkOrderUrgency urgency) {
         map.put(intent, new Rule("DEFAULT-" + intent.name(), intent, category, typeOf(category),
-                queueSide, group, priority, impact, urgency, responseMinutes, resolveMinutes, 0));
+                queueSide, group, priority, impact, urgency, null, null, 0));
     }
 
     /**
@@ -184,7 +200,7 @@ public class WorkOrderTriageService {
     private record Rule(String ruleCode, WorkOrderIntent intent, WorkOrderCategory category,
                         WorkOrderType type, String queueSide, String assigneeGroup,
                         WorkOrderPriority priority, WorkOrderImpact impact,
-                        WorkOrderUrgency urgency, int responseMinutes, int resolveMinutes,
+                        WorkOrderUrgency urgency, Integer responseMinutes, Integer resolveMinutes,
                         int ruleVersion) {
     }
 

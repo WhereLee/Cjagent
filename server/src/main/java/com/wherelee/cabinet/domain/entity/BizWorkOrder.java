@@ -85,6 +85,10 @@ public class BizWorkOrder extends BaseEntity {
     private java.time.LocalDateTime resolveDueAt;
     private java.time.LocalDateTime claimedAt;
     private java.time.LocalDateTime firstResponseAt;
+    /** SLA 暂停开始时刻；非空 = 暂停中，两个时限暂不前进。 */
+    private java.time.LocalDateTime slaPausedAt;
+    /** 累计暂停分钟数：恢复时把同长度补回两个时限，暂停时间不计入 SLA。 */
+    private Integer slaPausedMinutes;
     private java.time.LocalDateTime closedAt;
     /** 用户确认“还没解决”后的重开次数。 */
     private Integer reopenedCount;

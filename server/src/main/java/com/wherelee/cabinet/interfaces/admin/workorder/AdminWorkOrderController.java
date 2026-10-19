@@ -138,6 +138,25 @@ public class AdminWorkOrderController {
         return R.ok(workOrders.resolve(id, current.subjectId(), cmd.resultNote(), cmd.needOffline()));
     }
 
+    /** 暂停/恢复：只停 SLA 两个时限的前进，不改工单状态（等配件、等用户到场）。 */
+    @Operation(summary = "暂停SLA", description = "等配件/等用户到场时暂停两个时限；暂停时长不计入 SLA")
+    @OperationLog(module = "workorder", operation = "暂停SLA")
+    @PreAuthorize("hasAuthority('workorder:resolve')")
+    @PostMapping("/{id}/sla/pause")
+    public R<Void> pauseSla(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id) {
+        workOrders.pauseSla(id, current.subjectId());
+        return R.ok();
+    }
+
+    @Operation(summary = "恢复SLA", description = "把暂停时长补回响应/解决时限，并重新登记到点任务")
+    @OperationLog(module = "workorder", operation = "恢复SLA")
+    @PreAuthorize("hasAuthority('workorder:resolve')")
+    @PostMapping("/{id}/sla/resume")
+    public R<Void> resumeSla(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id) {
+        workOrders.resumeSla(id, current.subjectId());
+        return R.ok();
+    }
+
     @Operation(summary = "工单流转留痕", description = "从开单到关闭的每一步，含系统自动转化；线上/线下队列查看人均可读")
     @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @GetMapping("/{id}/timeline")

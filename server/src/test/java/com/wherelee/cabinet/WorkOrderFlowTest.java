@@ -115,6 +115,7 @@ class WorkOrderFlowTest {
 
     @AfterEach
     void cleanup() {
+        jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
@@ -383,8 +384,8 @@ class WorkOrderFlowTest {
                 assertTrue(pre.value().contains("workorder:"), m.getName() + " 的权限点必须属于 workorder 族：" + pre.value());
             }
         }
-        assertEquals(11, guarded,
-                "十一个端点都要独立权限点（两列队列/时间线/证据/AI 简报/认领/处理/派单/电话清单与回填/电话记录/刷新分诊）；"
+        assertEquals(13, guarded,
+                "十三个端点都要独立权限点（两列队列/时间线/证据/AI 简报/认领/处理/派单/电话清单与回填/电话记录/刷新分诊/暂停与恢复SLA）；"
                         + "不能靠一个管理员点完，否则留痕里分不出责任");
         // 线下运维有 claim/resolve 却看不了单内容是自相矛盾：timeline/evidence/ai-brief 必须
         // 让两个队列的查看权都能过（field_ops 只有 field:list，缺了它认领后寸步难行；
