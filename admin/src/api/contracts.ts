@@ -18,10 +18,18 @@ export interface Paged<T> {
  */
 export interface WorkOrderRow {
   id?: string
+  kind?: string
+  source?: string
   type?: string
+  intent?: string
+  category?: string
+  priority?: string
+  impact?: string
+  urgency?: string
   urgent?: boolean
   status?: string
   queueSide?: string
+  assigneeGroup?: string
   slotNo?: string
   cabinetNo?: string
   siteAddress?: string
@@ -30,9 +38,25 @@ export interface WorkOrderRow {
   title?: string
   detection?: string
   resultNote?: string
+  closeReason?: string
   assigneeId?: string
+  parentId?: string
+  parentResultNote?: string
   dueAt?: string
+  responseDueAt?: string
+  resolveDueAt?: string
+  firstResponseAt?: string
+  closedAt?: string
   createTime?: string
+  handoffJson?: string
+  reopenedCount?: number
+}
+
+/** 父子单关系（application/workorder/WorkOrderService.Family）。 */
+export interface WorkOrderFamily {
+  self?: WorkOrderRow
+  parent?: WorkOrderRow
+  children?: WorkOrderRow[]
 }
 
 /**

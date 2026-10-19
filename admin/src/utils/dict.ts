@@ -42,6 +42,38 @@ const WORK_ORDER_STATUS: Record<string, string> = {
   CANCELLED: '已作废',
 }
 
+const WORK_ORDER_CATEGORY: Record<string, string> = {
+  DOOR_FAULT: '开关门故障',
+  DOOR_NOT_CLOSED: '门未关',
+  ITEM_DISPUTE: '物品争议',
+  ITEM_LEFT: '遗留物',
+  DEVICE_OFFLINE: '设备离线',
+  BILLING_DISPUTE: '费用争议',
+  PICKUP_CODE: '取件码问题',
+  UNSORTED: '待人工分拣',
+}
+
+const WORK_ORDER_PRIORITY: Record<string, string> = {
+  P1: 'P1 立即',
+  P2: 'P2 紧急',
+  P3: 'P3 普通',
+  P4: 'P4 可等',
+}
+
+const WORK_ORDER_PRIORITY_TAG: Record<string, TagType> = {
+  P1: 'danger',
+  P2: 'warning',
+  P3: 'primary',
+  P4: 'info',
+}
+
+const ASSIGNEE_GROUP: Record<string, string> = {
+  ONLINE: '线上业务员',
+  FIELD: '线下运维',
+  FIELD_OPS: '现场运维',
+  CUSTOMER_SERVICE: '人工分拣',
+}
+
 const WORK_ORDER_STATUS_TAG: Record<string, TagType> = {
   PENDING: 'danger',
   CLAIMED: 'warning',
@@ -65,6 +97,9 @@ const WORK_ORDER_EVENT: Record<string, string> = {
   PHONE_CALLED: '电话留痕',
   REMINDER: '提醒',
   ESCALATED: '升级处理',
+  TRIAGED: '重新分诊',
+  SLA_PAUSED: '暂停SLA',
+  SLA_RESUMED: '恢复SLA',
   HELPER_CLOSED: '他人代关',
 }
 
@@ -180,6 +215,11 @@ export const workOrderStatusText = (v?: string | null) => pick(WORK_ORDER_STATUS
 export const workOrderStatusTag = (v?: string | null): TagType =>
   (v && WORK_ORDER_STATUS_TAG[v]) || 'info'
 export const queueSideText = (v?: string | null) => pick(QUEUE_SIDE, v)
+export const workOrderCategoryText = (v?: string | null) => pick(WORK_ORDER_CATEGORY, v)
+export const workOrderPriorityText = (v?: string | null) => pick(WORK_ORDER_PRIORITY, v)
+export const workOrderPriorityTag = (v?: string | null): TagType =>
+  (v && WORK_ORDER_PRIORITY_TAG[v]) || 'info'
+export const assigneeGroupText = (v?: string | null) => pick(ASSIGNEE_GROUP, v)
 export const workOrderEventText = (v?: string | null) => pick(WORK_ORDER_EVENT, v)
 
 export const anomalyText = (v?: string | null) => pick(COMPARTMENT_ANOMALY, v)

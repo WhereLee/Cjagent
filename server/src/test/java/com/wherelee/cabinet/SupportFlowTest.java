@@ -131,6 +131,7 @@ class SupportFlowTest {
     @DisplayName("AI 转报走统一开单入口：快照补齐、类型落库正确；重复转报幂等合并")
     void raiseTicketGoesThroughIntakeAndMergesIdempotently() {
         AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "取件时门打不开"));
         String attempt = TenantContext.callAs(TENANT, tools::retryMyDoor);
         assertTrue(attempt.contains("开门"), attempt);
@@ -140,7 +141,8 @@ class SupportFlowTest {
         assertTrue(tools.escalated(), "转报成功要置升级标记");
 
         List<Map<String, Object>> orders = rows(
-                "select id, kind, source, type, queue_side, priority, title, snapshot_json "
+                "select id, kind, source, type, queue_side, priority, title, snapshot_json, "
+                        + "cast(handoff_json as char) as handoff_json "
                         + "from biz_work_order where tenant_id = ? and slot_id = ?", TENANT, slotId);
         assertEquals(1, orders.size(), "AI 建单一张，不多开");
         assertEquals("REQUEST", orders.get(0).get("kind"), "AI 转报是用户请求，不是设备异常");
@@ -153,6 +155,11 @@ class SupportFlowTest {
                 "备注要带进快照的检测值：" + orders.get(0).get("snapshot_json"));
         assertTrue(String.valueOf(orders.get(0).get("snapshot_json")).contains(orderNo),
                 "现场快照由统一入口补齐，不靠 agent 抄");
+        String handoff = String.valueOf(orders.get(0).get("handoff_json"));
+        assertTrue(handoff.contains("attempt") && handoff.contains("nextStep"),
+                "交接包必须带已尝试动作与建议下一步：" + handoff);
+        assertTrue(handoff.contains("用户报取件时") || handoff.contains("用户再次报"),
+                "交接包必须带用户原话：" + handoff);
         Long ticketId = ((Number) orders.get(0).get("id")).longValue();
         assertEquals(ticketId.toString(), tools.ticketNo());
         Map<String, Object> created = jdbc.queryForMap(
@@ -163,6 +170,7 @@ class SupportFlowTest {
 
         // 再转一次：幂等合并到同一张，记 REPEATED，不重复建
         AgentTools again = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "还是打不开"));
         TenantContext.runAs(TENANT, again::retryMyDoor);
         String merged = TenantContext.callAs(TENANT, () ->
@@ -177,6 +185,7 @@ class SupportFlowTest {
     @DisplayName("归属守卫：别人的单转报一律“未找到”，一张单都不建")
     void raiseTicketRejectsForeignOrder() {
         AgentTools intruder = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(FOREIGN, orderNo, "这是我的柜子"));
 
         String out = TenantContext.callAs(TENANT, () -> intruder.raiseTicket("DEVICE_FAULT", "门坏了"));

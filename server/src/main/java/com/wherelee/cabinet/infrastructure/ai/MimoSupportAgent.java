@@ -3,6 +3,7 @@ package com.wherelee.cabinet.infrastructure.ai;
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
 import com.wherelee.cabinet.application.support.SupportAgentPort;
+import com.wherelee.cabinet.application.workorder.WorkOrderHandoffService;
 import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
@@ -47,18 +48,20 @@ public class MimoSupportAgent implements SupportAgentPort {
     private final WorkOrderIntake intake;
     private final BizStorageOrderMapper orderMapper;
     private final BizWorkOrderMapper workOrderMapper;
+    private final WorkOrderHandoffService handoffs;
     private final String systemPrompt;
 
     public MimoSupportAgent(ChatClient chatClient,
                             StorageQueryService queries, StorageOrderFacade doors,
                             WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
-                            BizWorkOrderMapper workOrderMapper) {
+                            BizWorkOrderMapper workOrderMapper, WorkOrderHandoffService handoffs) {
         this.chatClient = chatClient;
         this.queries = queries;
         this.doors = doors;
         this.intake = intake;
         this.orderMapper = orderMapper;
         this.workOrderMapper = workOrderMapper;
+        this.handoffs = handoffs;
         this.systemPrompt = SYSTEM_PROMPT + "\n\n" + WikiLoader.wiki();
         log.info("AI 客服已就绪：wiki={} 字符", systemPrompt.length());
     }
@@ -66,7 +69,8 @@ public class MimoSupportAgent implements SupportAgentPort {
     @Override
     public AgentReply chat(SupportSession session) {
         try {
-            AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper, session);
+            AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+                    handoffs, session);
             String user = "用户消息：" + session.message()
                     + "\n关联订单号：" + (session.orderNo() == null || session.orderNo().isBlank()
                     ? "无" : session.orderNo());

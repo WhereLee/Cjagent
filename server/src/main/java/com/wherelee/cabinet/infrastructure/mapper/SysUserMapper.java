@@ -51,4 +51,17 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
 
     @Update("update sys_user set last_login_at = NOW(3) where id = #{userId} and deleted = 0")
     int touchLastLogin(@Param("userId") Long userId);
+
+    /** 某角色下所有启用账号：值班轮转的候选人（租户隔离由拦截器补 tenant_id）。 */
+    @Select("""
+            select distinct u.id
+            from sys_user u
+                     join sys_user_role ur on ur.user_id = u.id and ur.deleted = 0
+                     join sys_role r on r.id = ur.role_id and r.deleted = 0 and r.status = 1
+            where r.role_code = #{roleCode}
+              and u.status = 1
+              and u.deleted = 0
+            order by u.id
+            """)
+    List<Long> selectActiveUserIdsByRole(@Param("roleCode") String roleCode);
 }

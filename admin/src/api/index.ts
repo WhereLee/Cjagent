@@ -26,7 +26,7 @@ import type {
   UserView,
   View,
 } from './schema-admin'
-import type { CurrentAccount, NoticeRow, Paged, SummaryRow, WorkOrderRow } from './contracts'
+import type { CurrentAccount, NoticeRow, Paged, SummaryRow, WorkOrderFamily, WorkOrderRow } from './contracts'
 
 // ── 认证 /api/admin/auth ──────────────────────────────────────────
 export const adminLogin = (body: AdminLoginRequest) =>
@@ -55,6 +55,10 @@ export const fetchFieldQueue = (params: PageQuery & { openOnly?: boolean }) =>
 
 export const fetchTimeline = (id: string) =>
   request<EventView[]>({ url: `/api/admin/work-orders/${id}/timeline`, method: 'get' })
+
+/** 父子单关系：详情页双向跳转，子单看得到父单结论 */
+export const fetchWorkOrderFamily = (id: string) =>
+  request<WorkOrderFamily>({ url: `/api/admin/work-orders/${id}/family`, method: 'get' })
 
 export const fetchEvidence = (id: string) =>
   request<EvidenceView[]>({ url: `/api/admin/work-orders/${id}/evidence`, method: 'get' })

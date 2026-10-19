@@ -311,6 +311,11 @@ class WorkOrderFlowTest {
         assertEquals(id, ((Number) rows("select parent_id from biz_work_order where id = ?", child).get(0).get("parent_id")).longValue());
         assertEquals(Boolean.TRUE, rows("select urgent from biz_work_order where id = ?", child).get(0).get("urgent"),
                 "线下子单继承紧急级别（用户：紧急异常需快速处理）");
+        Map<String, Object> childRow = rows("select assignee_group, cast(handoff_json as char) as handoff_json "
+                + "from biz_work_order where id = ?", child).get(0);
+        assertEquals("FIELD_OPS", childRow.get("assignee_group"), "线下子单的责任组必须换成现场组");
+        assertTrue(String.valueOf(childRow.get("handoff_json")).contains("需到场取出"),
+                "子单交接包必须带父单结论：" + childRow.get("handoff_json"));
         assertEquals(WorkOrderStatus.RESOLVED.name(),
                 rows("select status from biz_work_order where id = ?", id).get(0).get("status"));
 
@@ -384,8 +389,8 @@ class WorkOrderFlowTest {
                 assertTrue(pre.value().contains("workorder:"), m.getName() + " 的权限点必须属于 workorder 族：" + pre.value());
             }
         }
-        assertEquals(13, guarded,
-                "十三个端点都要独立权限点（两列队列/时间线/证据/AI 简报/认领/处理/派单/电话清单与回填/电话记录/刷新分诊/暂停与恢复SLA）；"
+        assertEquals(14, guarded,
+                "十四个端点都要独立权限点（两列队列/时间线/证据/父子关系/AI 简报/认领/处理/派单/电话清单与回填/电话记录/刷新分诊/暂停与恢复SLA）；"
                         + "不能靠一个管理员点完，否则留痕里分不出责任");
         // 线下运维有 claim/resolve 却看不了单内容是自相矛盾：timeline/evidence/ai-brief 必须
         // 让两个队列的查看权都能过（field_ops 只有 field:list，缺了它认领后寸步难行；

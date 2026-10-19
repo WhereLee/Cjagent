@@ -9,18 +9,23 @@ import {
   fetchFieldQueue,
   fetchOnlineQueue,
   fetchTimeline,
+  fetchWorkOrderFamily,
   phoneNote,
   resolveWorkOrder,
 } from '@/api'
 import type { Brief, EventView, EvidenceView } from '@/api/schema-admin'
-import type { WorkOrderRow } from '@/api/contracts'
+import type { WorkOrderFamily, WorkOrderRow } from '@/api/contracts'
 import { ApiError } from '@/api/http'
 import {
+  assigneeGroupText,
   evidenceMomentText,
   evidenceSourceText,
   presenceText,
   queueSideText,
+  workOrderCategoryText,
   workOrderEventText,
+  workOrderPriorityTag,
+  workOrderPriorityText,
   workOrderStatusTag,
   workOrderStatusText,
   workOrderTypeText,
@@ -83,21 +88,57 @@ const evidence = ref<EvidenceView[]>([])
 const brief = ref<Brief | null>(null)
 const briefLoading = ref(false)
 const detailLoading = ref(false)
+const family = ref<WorkOrderFamily | null>(null)
+
+/** 交接 JSON 只存不查，展示端按字段读；写坏的历史数据当没有交接，不挡页面 */
+interface HandoffView {
+  userStatement?: string
+  attempt?: string
+  userOnSite?: boolean | null
+  nextStep?: string
+  parentResultNote?: string
+}
+const handoff = computed<HandoffView | null>(() => {
+  const raw = current.value?.handoffJson
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as HandoffView
+  } catch {
+    return null
+  }
+})
+
+function userOnSiteText(value?: boolean | null): string {
+  if (value === true) return '在原地'
+  if (value === false) return '已离开'
+  return '未确认'
+}
 
 async function openDetail(row: WorkOrderRow): Promise<void> {
   current.value = row
   drawerOpen.value = true
   brief.value = null
+  family.value = null
   detailLoading.value = true
   try {
-    const [tl, ev] = await Promise.all([fetchTimeline(String(row.id)), fetchEvidence(String(row.id))])
+    const [tl, ev, fam] = await Promise.all([
+      fetchTimeline(String(row.id)),
+      fetchEvidence(String(row.id)),
+      fetchWorkOrderFamily(String(row.id)),
+    ])
     timeline.value = tl ?? []
     evidence.value = ev ?? []
+    family.value = fam ?? null
   } catch (e) {
     ElMessage.error(e instanceof ApiError ? e.message : '详情加载失败')
   } finally {
     detailLoading.value = false
   }
+}
+
+/** 父子跳转：复用详情抽屉，不额外开页 */
+function jumpTo(row?: WorkOrderRow): void {
+  if (row?.id) void openDetail(row)
 }
 
 /** AI 简报不落库：只给当前业务员看，UI 不做"保存简报" */
@@ -235,8 +276,20 @@ onMounted(() => {
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="类型" width="120">
-        <template #default="{ row }">{{ workOrderTypeText(row.type) }}</template>
+      <el-table-column label="优先级" width="100">
+        <template #default="{ row }">
+          <el-tag :type="workOrderPriorityTag(row.priority)" size="small">
+            {{ workOrderPriorityText(row.priority) }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="分类" width="120">
+        <template #default="{ row }">
+          {{ row.category ? workOrderCategoryText(row.category) : workOrderTypeText(row.type) }}
+        </template>
+      </el-table-column>
+      <el-table-column label="责任组" width="110">
+        <template #default="{ row }">{{ assigneeGroupText(row.assigneeGroup) }}</template>
       </el-table-column>
       <el-table-column label="标题" prop="title" min-width="200" show-overflow-tooltip />
       <el-table-column label="柜机/格口" width="130">
@@ -250,8 +303,8 @@ onMounted(() => {
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="截止时间" width="150">
-        <template #default="{ row }">{{ fmtTime(row.dueAt) }}</template>
+      <el-table-column label="解决时限" width="150">
+        <template #default="{ row }">{{ fmtTime(row.resolveDueAt ?? row.dueAt) }}</template>
       </el-table-column>
       <el-table-column label="开单时间" width="150">
         <template #default="{ row }">{{ fmtTime(row.createTime) }}</template>
@@ -294,12 +347,20 @@ onMounted(() => {
   <el-drawer v-model="drawerOpen" size="660px" :title="`工单 #${current?.id ?? ''}`">
     <div v-loading="detailLoading">
       <el-descriptions :column="2" border size="small">
-        <el-descriptions-item label="类型">{{ workOrderTypeText(current?.type) }}</el-descriptions-item>
+        <el-descriptions-item label="分类">
+          {{ current?.category ? workOrderCategoryText(current?.category) : workOrderTypeText(current?.type) }}
+        </el-descriptions-item>
         <el-descriptions-item label="状态">
           <el-tag :type="workOrderStatusTag(current?.status)" size="small">
             {{ workOrderStatusText(current?.status) }}
           </el-tag>
         </el-descriptions-item>
+        <el-descriptions-item label="优先级">
+          <el-tag :type="workOrderPriorityTag(current?.priority)" size="small">
+            {{ workOrderPriorityText(current?.priority) }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="责任组">{{ assigneeGroupText(current?.assigneeGroup) }}</el-descriptions-item>
         <el-descriptions-item label="队列">{{ queueSideText(current?.queueSide) }}</el-descriptions-item>
         <el-descriptions-item label="紧急">
           <el-tag v-if="current?.urgent" type="danger" size="small">紧急</el-tag>
@@ -310,7 +371,8 @@ onMounted(() => {
         </el-descriptions-item>
         <el-descriptions-item label="关联订单">{{ current?.orderNo ?? '—' }}</el-descriptions-item>
         <el-descriptions-item label="客户电话">{{ current?.customerPhone ?? '—' }}</el-descriptions-item>
-        <el-descriptions-item label="截止时间">{{ fmtTime(current?.dueAt) }}</el-descriptions-item>
+        <el-descriptions-item label="响应时限">{{ fmtTime(current?.responseDueAt) }}</el-descriptions-item>
+        <el-descriptions-item label="解决时限">{{ fmtTime(current?.resolveDueAt ?? current?.dueAt) }}</el-descriptions-item>
         <el-descriptions-item label="点位地址" :span="2">
           {{ current?.siteAddress ?? '—' }}
         </el-descriptions-item>
@@ -320,7 +382,43 @@ onMounted(() => {
         <el-descriptions-item label="处理结论" :span="2">
           {{ current?.resultNote ?? '—' }}
         </el-descriptions-item>
+        <el-descriptions-item v-if="current?.parentResultNote" label="父单结论" :span="2">
+          {{ current.parentResultNote }}
+        </el-descriptions-item>
       </el-descriptions>
+
+      <h4 class="section-title">交接事实</h4>
+      <el-descriptions v-if="handoff" :column="1" border size="small">
+        <el-descriptions-item label="用户诉求">{{ handoff.userStatement ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="已尝试">{{ handoff.attempt ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item label="用户位置">{{ userOnSiteText(handoff.userOnSite) }}</el-descriptions-item>
+        <el-descriptions-item label="建议下一步">{{ handoff.nextStep ?? '—' }}</el-descriptions-item>
+        <el-descriptions-item v-if="handoff.parentResultNote" label="父单结论">
+          {{ handoff.parentResultNote }}
+        </el-descriptions-item>
+      </el-descriptions>
+      <p v-else class="muted">这张单没有 AI 交接事实（设备巡检验开的单只带现场快照）。</p>
+
+      <h4 v-if="family?.parent || family?.children?.length" class="section-title">父子单</h4>
+      <div v-if="family?.parent" class="family-row">
+        <span class="muted">父单：</span>
+        <el-button link type="primary" @click="jumpTo(family?.parent)">
+          #{{ family?.parent?.id }} {{ family?.parent?.title }}
+        </el-button>
+        <span v-if="family?.parent?.resultNote" class="muted">结论：{{ family?.parent?.resultNote }}</span>
+      </div>
+      <div v-if="family?.children?.length" class="family-row">
+        <span class="muted">子单：</span>
+        <el-button
+          v-for="child in family?.children"
+          :key="child.id"
+          link
+          type="primary"
+          @click="jumpTo(child)"
+        >
+          #{{ child.id }} {{ workOrderStatusText(child.status) }}
+        </el-button>
+      </div>
 
       <h4 class="section-title">AI 简报（仅供参考，不写回工单）</h4>
       <div class="brief-actions">
@@ -480,5 +578,13 @@ onMounted(() => {
   margin-top: 20px;
   display: flex;
   gap: 8px;
+}
+
+.family-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 </style>

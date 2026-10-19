@@ -72,13 +72,18 @@ public class WorkOrderService {
      * 直接注入会形成构造环（DelayTaskService → handlers → WorkOrderService）。
      */
     private final ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider;
+    /** 交接事实：父单结论与 AI 尝试要能传到子单。 */
+    private final WorkOrderHandoffService handoffs;
+    /** 责任组 → 值班人（组内轮转，不做排班表）。 */
+    private final WorkOrderRoutingService routing;
 
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                             com.wherelee.cabinet.application.notify.NoticeService notices,
                             com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
                             com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper,
                             WorkOrderTriageService triage,
-                            ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider) {
+                            ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider,
+                            WorkOrderHandoffService handoffs, WorkOrderRoutingService routing) {
         this.orders = orders;
         this.events = events;
         this.notices = notices;
@@ -86,6 +91,8 @@ public class WorkOrderService {
         this.cabinetMapper = cabinetMapper;
         this.triage = triage;
         this.schedulerProvider = schedulerProvider;
+        this.handoffs = handoffs;
+        this.routing = routing;
     }
 
     /** 一条证据的可读视图（采集点 + 三值结论 + 置信度 + AI 标签 + 照片引用）。 */
@@ -424,7 +431,9 @@ public class WorkOrderService {
         child.setUrgency(order.getUrgency());
         child.setStatus(WorkOrderStatus.PENDING);
         child.setQueueSide(SIDE_FIELD);
-        child.setAssigneeGroup(order.getAssigneeGroup());
+        child.setAssigneeGroup("FIELD_OPS");
+        // 派线下时按责任组找值班人：组内轮转，不另建排班表；没配人时保持未指派
+        child.setAssigneeId(routing.dutyUser("FIELD_OPS"));
         child.setActiveFlag(1);
         child.setParentId(order.getId());
         child.setSiteId(order.getSiteId());
@@ -436,7 +445,8 @@ public class WorkOrderService {
         child.setCustomerId(order.getCustomerId());
         child.setTitle("线下到场：" + order.getTitle());
         child.setSnapshotJson(order.getSnapshotJson());
-        child.setHandoffJson(order.getHandoffJson());
+        // 复制交接事实 + 父单结论：线下到场第一眼就要知道“为什么派我出来、线上试过什么”
+        child.setHandoffJson(handoffs.forChild(order.getHandoffJson(), resultNote));
         child.setResponseDueAt(order.getResponseDueAt());
         child.setResolveDueAt(order.getResolveDueAt());
         child.setReopenedCount(0);
@@ -533,7 +543,24 @@ public class WorkOrderService {
     }
 
     /**
-     * 同格口同类型、已人工处理完结的历史工单（第 23 刀：AI 简报“以前怎么处理的”唯一数据源）。
+     /** 父子单关系：详情页要能双向跳转，且子单看得到父单结论。 */
+     public record Family(View self, View parent, List<View> children) {
+     }
+     
+     public Family family(Long workOrderId) {
+         BizWorkOrder order = require(workOrderId);
+         View self = toView(order, null);
+         View parent = order.getParentId() == null ? null : one(order.getParentId());
+         List<View> children = orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
+                         .eq(BizWorkOrder::getParentId, workOrderId)
+                         .orderByAsc(BizWorkOrder::getCreateTime))
+                 .stream()
+                 .map(child -> toView(child, order.getResultNote()))
+                 .toList();
+         return new Family(self, parent, children);
+     }
+     
+     /** 同格口同类型、已人工处理完结的历史工单（第 23 刀：AI 简报“以前怎么处理的”唯一数据源）。
      * <p>agent 不得杜撰相似案例——所有“以前怎么处理”都从这里来；没有就空着，
      * 而不是拿别的格口/别的类型的单充数。结果按完结时刻倒序：最近的处理方式最值得参考。
      */
@@ -675,7 +702,8 @@ public class WorkOrderService {
         child.setUrgency(parent.getUrgency());
         child.setStatus(WorkOrderStatus.PENDING);
         child.setQueueSide(SIDE_FIELD);
-        child.setAssigneeGroup(parent.getAssigneeGroup());
+        child.setAssigneeGroup("FIELD_OPS");
+        child.setAssigneeId(routing.dutyUser("FIELD_OPS"));
         child.setActiveFlag(1);
         child.setParentId(parent.getId());
         child.setSiteId(parent.getSiteId());
@@ -687,7 +715,7 @@ public class WorkOrderService {
         child.setCustomerId(parent.getCustomerId());
         child.setTitle("线下到场：" + parent.getTitle());
         child.setSnapshotJson(parent.getSnapshotJson());
-        child.setHandoffJson(parent.getHandoffJson());
+        child.setHandoffJson(handoffs.forChild(parent.getHandoffJson(), parent.getResultNote()));
         child.setResponseDueAt(parent.getResponseDueAt());
         child.setResolveDueAt(parent.getResolveDueAt());
         child.setReopenedCount(0);

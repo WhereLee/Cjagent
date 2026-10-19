@@ -164,6 +164,13 @@ public class AdminWorkOrderController {
         return R.ok(workOrders.timeline(id));
     }
 
+    @Operation(summary = "父子单关系", description = "详情页双向跳转：父单结论、当前单、派生过的子单")
+    @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
+    @GetMapping("/{id}/family")
+    public R<WorkOrderService.Family> family(@PathVariable Long id) {
+        return R.ok(workOrders.family(id));
+    }
+
     /**
      * 这个格口的证据时间线（19C）：四个采集点各一条，含三值结论与 AI 标签。
      *

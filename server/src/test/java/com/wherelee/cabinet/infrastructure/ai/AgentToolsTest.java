@@ -70,6 +70,7 @@ class AgentToolsTest {
 
     private AgentTools tools(String orderNo) {
         return new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
                 new SupportSession(CUSTOMER, orderNo, "帮我看看"));
     }
 

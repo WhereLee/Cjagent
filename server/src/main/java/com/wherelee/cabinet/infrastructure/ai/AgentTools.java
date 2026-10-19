@@ -56,16 +56,19 @@ public class AgentTools {
     private String lastAttemptSummary;
     private boolean escalated;
     private String ticketNo;
+    private final com.wherelee.cabinet.application.workorder.WorkOrderHandoffService handoffs;
 
     public AgentTools(StorageQueryService queries, StorageOrderFacade doors,
                       WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
                       BizWorkOrderMapper workOrderMapper,
+                      com.wherelee.cabinet.application.workorder.WorkOrderHandoffService handoffs,
                       SupportAgentPort.SupportSession session) {
         this.queries = queries;
         this.doors = doors;
         this.intake = intake;
         this.orderMapper = orderMapper;
         this.workOrderMapper = workOrderMapper;
+        this.handoffs = handoffs;
         this.customerId = session.customerId();
         this.orderNo = session.orderNo();
     }
@@ -152,7 +155,12 @@ public class AgentTools {
      */
     /** 兼容旧调用：把旧类型翻译成 intent，真正的分诊由系统规则做。 */
     public String raiseTicket(String issueKind, String issueSummary) {
-        return raiseTicket(intentOfKind(issueKind).name(), issueSummary, null);
+        return raiseTicket(intentOfKind(issueKind).name(), issueSummary, null, null);
+    }
+
+    /** 兼容三参调用（测试与旧路径）：不提供“用户是否在原地”。 */
+    public String raiseTicket(String issueIntent, String issueSummary, String attemptSummary) {
+        return raiseTicket(issueIntent, issueSummary, attemptSummary, null);
     }
 
     @Tool(description = "解决不了时转报工单给人工。你只描述用户现象（intent），不要选工单类型；"
@@ -161,7 +169,8 @@ public class AgentTools {
     public String raiseTicket(
             @ToolParam(description = "用户现象：DOOR_NOT_OPEN/DOOR_NOT_CLOSE/ITEM_MISSING/ITEM_LEFT/DEVICE_OFFLINE/BILLING_DISPUTE/PICKUP_CODE/OTHER") String issueIntent,
             @ToolParam(description = "给业务员的备注（不超过200字）：用户反映+现场状态+已试过什么+结果") String issueSummary,
-            @ToolParam(description = "已尝试动作与结果，例如：OPEN_TEMP 已下发无回执/设备离线", required = false) String attemptSummary) {
+            @ToolParam(description = "已尝试动作与结果，例如：OPEN_TEMP 已下发无回执/设备离线", required = false) String attemptSummary,
+            @ToolParam(description = "用户是否还在柜机旁（true/false）；不知道就不传，别猜", required = false) Boolean userOnSite) {
         if (noOrder()) {
             return "本次对话没有关联订单，无法转报：请让用户从订单详情页进入客服后再报。";
         }
@@ -190,7 +199,7 @@ public class AgentTools {
                     truncate("AI 客服转报（订单 " + orderNo + "）", TITLE_MAX),
                     LocalDateTime.now().plusMinutes(120),
                     WorkOrderKind.REQUEST, WorkOrderSource.AI, intent, null, null,
-                    handoffJson(summary, attempt), traceId);
+                    handoffs.aiReport(orderNo, summary, attempt, userOnSite, intent, traceId), traceId);
             escalated = true;
             ticketNo = String.valueOf(workOrderId);
             return "转报成功，工单号 " + workOrderId
@@ -220,7 +229,8 @@ public class AgentTools {
             StringBuilder sb = new StringBuilder("当前未关闭工单：");
             for (BizWorkOrder o : list) {
                 sb.append("\n- 工单号=").append(o.getId())
-                        .append(" 类型=").append(o.getKind() == null ? "-" : o.getKind().name())
+                        .append(" 类型=").append(o.getCategory() == null
+                                ? (o.getType() == null ? "-" : o.getType().name()) : o.getCategory().name())
                         .append(" 状态=").append(o.getStatus() == null ? "-" : o.getStatus().name())
                         .append(" 优先级=").append(o.getPriority() == null ? "-" : o.getPriority().name())
                         .append(" 要求处理=").append(o.getResolveDueAt() == null ? "未设置" : o.getResolveDueAt())
@@ -252,22 +262,11 @@ public class AgentTools {
         };
     }
 
-    private String handoffJson(String summary, String attempt) {
-        return "{\"orderNo\":\"" + escape(orderNo)
-                + "\",\"userStatement\":\"" + escape(summary)
-                + "\",\"attempt\":\"" + escape(attempt == null ? "未记录" : attempt)
-                + "\",\"traceId\":\"" + escape(traceId) + "\"}";
-    }
-
     private static String firstNonBlank(String first, String second) {
         if (first != null && !first.isBlank()) {
             return first.trim();
         }
         return second == null || second.isBlank() ? null : second.trim();
-    }
-
-    private static String escape(String raw) {
-        return raw == null ? "" : raw.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private boolean noOrder() {
