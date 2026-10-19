@@ -44,9 +44,11 @@ public interface BizWorkOrderMapper extends BaseMapper<BizWorkOrder> {
     @Update("""
             update biz_work_order
                set status = 'AUTO_CLOSED', active_flag = null, closed_at = NOW(3),
+                   close_reason = 'FACT_RECOVERED',
                    result_note = concat(coalesce(result_note, ''), '[自动转化：异常事实已消失]'),
                    version = version + 1, update_time = NOW(3)
-             where slot_id = #{slotId} and type = #{type} and deleted = 0 and active_flag = 1
+             where slot_id = #{slotId} and type = #{type} and kind = 'INCIDENT'
+               and deleted = 0 and active_flag = 1
             """)
     int autoCloseBySlot(@Param("slotId") Long slotId, @Param("type") String type);
 
@@ -60,9 +62,10 @@ public interface BizWorkOrderMapper extends BaseMapper<BizWorkOrder> {
      */
     @Update("""
             update biz_work_order
-               set urgent = 1, due_at = NOW(3),
+               set urgent = 1, priority = 'P1', due_at = NOW(3),
                    version = version + 1, update_time = NOW(3)
-             where slot_id = #{slotId} and type = #{type} and deleted = 0 and active_flag = 1
+             where slot_id = #{slotId} and type = #{type} and kind = 'INCIDENT'
+               and deleted = 0 and active_flag = 1
                and (urgent = 0 or due_at is null or due_at > NOW(3))
             """)
     int escalateBySlot(@Param("slotId") Long slotId, @Param("type") String type);

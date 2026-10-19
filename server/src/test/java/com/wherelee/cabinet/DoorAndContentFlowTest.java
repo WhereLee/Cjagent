@@ -234,8 +234,10 @@ class DoorAndContentFlowTest {
         // 中途取物：再开一次门不得重新发半小时免费（起点不动）。临时开柜要求单在计费中，
         // 所以先把门关回去进入 ACTIVE，再点临时开柜
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
-        TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
-                CommandAction.OPEN_TEMP));
+        var tempView = TenantContext.callAs(TENANT, () -> orderService.openDoor(customerId,
+                order.getOrderNo(), CommandAction.OPEN_TEMP));
+        assertNotNull(tempView.message(),
+                "OPEN_TEMP 也必须把设备结果带出来：AI 客服要靠它判断门到底开没开");
         assertEquals(start.withNano(0), order(order.getOrderNo()).getStartedAt().withNano(0),
                 "暂时开柜不得把起点往后推：那等于每开一次门就白得一段免费时间");
 

@@ -10,6 +10,11 @@ import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
+import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
+import com.wherelee.cabinet.domain.enums.WorkOrderKind;
+import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
+import com.wherelee.cabinet.domain.enums.WorkOrderSource;
 import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
@@ -70,6 +75,7 @@ class WorkOrderFlowTest {
     private JdbcTemplate jdbc;
     private Long cabinetId;
     private Long slotId;
+    private Long orderId;
     private String slotNo;
 
     @BeforeEach
@@ -96,7 +102,7 @@ class WorkOrderFlowTest {
         jdbc.update("insert into biz_customer (id, tenant_id, open_id, nickname, phone, status, register_time, create_time, update_time, deleted) "
                 + "values (?, ?, ?, '工单客户', ?, 1, NOW(3), NOW(3), NOW(3), 0)",
                 81619999L, TENANT, "wo-" + suffix, "13800001234");
-        Long orderId = siteId + 3;
+        orderId = siteId + 3;
         assertEquals(orderId, jdbc.queryForObject("select current_order_id from biz_compartment where id = ?", Long.class, slotId),
                 "夹具必须把格口绑到单上：工单快照里的电话就是从这条活动单回查客户的");
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
@@ -126,6 +132,46 @@ class WorkOrderFlowTest {
 
     private void markDoorOpen() {
         TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 11));
+    }
+
+    @Test
+    @DisplayName("同一格口允许 INCIDENT 与 REQUEST 共存；新字段写入且旧字段双写")
+    void incidentAndRequestCanCoexist() {
+        markDoorOpen();
+        BizStorageOrder order = TenantContext.callAs(TENANT, () -> orderMapper.selectById(orderId));
+        Long requestId = TenantContext.callAs(TENANT, () -> intake.onOrderEvent(
+                order, WorkOrderType.DEVICE_FAULT, false,
+                "AI 客服转报（用户自述，未经设备核实）：门打不开",
+                "AI 客服转报：门打不开", LocalDateTime.now().plusMinutes(120),
+                WorkOrderKind.REQUEST, WorkOrderSource.AI, WorkOrderIntent.DOOR_NOT_OPEN,
+                WorkOrderCategory.DOOR_FAULT, WorkOrderPriority.P2,
+                "{\"attempt\":\"retryMyDoor: 已下发无回执\"}", null));
+        assertNotNull(requestId);
+
+        List<Map<String, Object>> all = rows(
+                "select id, kind, source, type, intent, category, priority, urgent, "
+                        + "due_at, response_due_at, resolve_due_at, handoff_json "
+                        + "from biz_work_order where tenant_id = ? and slot_id = ? order by create_time",
+                TENANT, slotId);
+        assertEquals(2, all.size(), "INCIDENT 与 REQUEST 必须能同格口同队列共存");
+
+        Map<String, Object> request = all.stream()
+                .filter(r -> "REQUEST".equals(r.get("kind")))
+                .findFirst().orElseThrow();
+        assertEquals("AI", request.get("source"));
+        assertEquals("DOOR_NOT_OPEN", request.get("intent"));
+        assertEquals("DOOR_FAULT", request.get("category"));
+        assertEquals("P2", request.get("priority"));
+        assertNotNull(request.get("due_at"), "旧 due_at 必须继续双写");
+        assertNotNull(request.get("response_due_at"));
+        assertNotNull(request.get("resolve_due_at"));
+        assertTrue(String.valueOf(request.get("handoff_json")).contains("retryMyDoor"),
+                "交接事实必须落库：" + request.get("handoff_json"));
+
+        String actor = jdbc.queryForObject(
+                "select actor_type from biz_work_order_event where work_order_id = ? and event_type = 'CREATED'",
+                String.class, requestId);
+        assertEquals("AI", actor, "AI 动作必须和人工/系统动作分开记");
     }
 
     @Test

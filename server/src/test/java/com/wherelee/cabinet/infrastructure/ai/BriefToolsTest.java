@@ -42,10 +42,12 @@ class BriefToolsTest {
     }
 
     private WorkOrderService.View view() {
-        return new WorkOrderService.View(WO, "DEVICE_FAULT", false, "PENDING", "ONLINE",
+        LocalDateTime now = LocalDateTime.now();
+        return new WorkOrderService.View(WO, "INCIDENT", "DEVICE", "DEVICE_FAULT", null, "DOOR_FAULT",
+                "P1", "SINGLE", "HIGH", false, "PENDING", "ONLINE", "ONLINE",
                 "A-01", "CAB-1", "测试点位", "SO-1", "13900001234",
                 "格口 A-01 门未关：取件后未回关", "门=开着；柜内=有物；异常=DOOR_OPEN",
-                null, null, LocalDateTime.now(), LocalDateTime.now());
+                null, null, null, null, null, now, now, now, null, null, now, null, 0);
     }
 
     @Test
@@ -91,8 +93,8 @@ class BriefToolsTest {
     void toolsAreReadOnly() {
         when(workOrders.one(WO)).thenReturn(view());
         when(workOrders.timeline(WO)).thenReturn(List.of(
-                new WorkOrderService.EventView("CREATED", null, "格口 A-01 门未关：取件后未回关",
-                        LocalDateTime.now())));
+                new WorkOrderService.EventView("CREATED", "SYSTEM", null, null,
+                        "格口 A-01 门未关：取件后未回关", LocalDateTime.now())));
         when(workOrders.evidenceFor(WO)).thenReturn(List.of());
         when(workOrders.similarResolved(WO, 3)).thenReturn(List.of());
 
@@ -107,6 +109,7 @@ class BriefToolsTest {
         verify(workOrders, never()).resolve(anyLong(), anyLong(), anyString(), anyBoolean());
         verify(workOrders, never()).claim(anyLong(), anyLong());
         verify(workOrders, never()).notePhoneCall(anyLong(), anyLong(), anyString());
-        verify(workOrders, never()).open(any());
+        verify(workOrders, never()).open(any(WorkOrderService.NewOrder.class));
+        verify(workOrders, never()).open(any(WorkOrderService.NewOrderV2.class));
     }
 }

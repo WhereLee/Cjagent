@@ -689,9 +689,25 @@ public class StorageOrderService {
 
         String openSlotNo = slotNoOf(order.getSlotId());
         // 首次投件开成功时把取件码交给用户（第 25 刀）：place 链用户看到的是这个视图，
-        // 所以交付点必须在开柜动作之后，而不是在被 place 丢掉的 create 视图里
-        String note = opening && outcome.businessSuccess()
-                ? voucherNote(order.getVoucherCode(), openSlotNo) : null;
+        // 所以交付点必须在开柜动作之后，而不是在被 place 丢掉的 create 视图里。
+        // OPEN_TEMP / CLOSE_VERIFY 也必须把设备真实结果带出来：AI 客服要据此判断“开了没有”，
+        // 不能再拿 null 当“成功了”，也不能把“已下发无回执”说成“门已打开”。
+        String note;
+        if (opening && outcome.businessSuccess()) {
+            note = voucherNote(order.getVoucherCode(), openSlotNo);
+        } else if (outcome.message() != null && !outcome.message().isBlank()) {
+            note = outcome.message();
+        } else if (outcome.state() == com.wherelee.cabinet.domain.enums.CommandState.FAILED) {
+            note = "设备明确返回失败，请人工检查柜门或柜机。";
+        } else if (outcome.businessSuccess()) {
+            note = switch (action) {
+                case OPEN_TEMP -> "柜门已重新打开，请尽快完成取放并关好柜门。";
+                case CLOSE_VERIFY -> "关门校验通过。";
+                default -> "指令执行成功。";
+            };
+        } else {
+            note = "指令已下发，但未收到柜机明确回执；请到柜前确认柜门是否弹开。";
+        }
         return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), openSlotNo,
                 order.getSizeType().name(), order.getStatus().name(), order.getEstimateMinutes(),
                 0, allocator.strategy(), note);

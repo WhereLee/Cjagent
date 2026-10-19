@@ -5,6 +5,7 @@ import com.wherelee.cabinet.application.storage.StorageQueryService;
 import com.wherelee.cabinet.application.support.SupportAgentPort;
 import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
+import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -45,16 +46,19 @@ public class MimoSupportAgent implements SupportAgentPort {
     private final StorageOrderFacade doors;
     private final WorkOrderIntake intake;
     private final BizStorageOrderMapper orderMapper;
+    private final BizWorkOrderMapper workOrderMapper;
     private final String systemPrompt;
 
     public MimoSupportAgent(ChatClient chatClient,
                             StorageQueryService queries, StorageOrderFacade doors,
-                            WorkOrderIntake intake, BizStorageOrderMapper orderMapper) {
+                            WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
+                            BizWorkOrderMapper workOrderMapper) {
         this.chatClient = chatClient;
         this.queries = queries;
         this.doors = doors;
         this.intake = intake;
         this.orderMapper = orderMapper;
+        this.workOrderMapper = workOrderMapper;
         this.systemPrompt = SYSTEM_PROMPT + "\n\n" + WikiLoader.wiki();
         log.info("AI 客服已就绪：wiki={} 字符", systemPrompt.length());
     }
@@ -62,7 +66,7 @@ public class MimoSupportAgent implements SupportAgentPort {
     @Override
     public AgentReply chat(SupportSession session) {
         try {
-            AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, session);
+            AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper, session);
             String user = "用户消息：" + session.message()
                     + "\n关联订单号：" + (session.orderNo() == null || session.orderNo().isBlank()
                     ? "无" : session.orderNo());

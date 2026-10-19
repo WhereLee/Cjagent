@@ -8,7 +8,14 @@ import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
+import com.wherelee.cabinet.domain.enums.WorkOrderImpact;
+import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
+import com.wherelee.cabinet.domain.enums.WorkOrderKind;
+import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
+import com.wherelee.cabinet.domain.enums.WorkOrderSource;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.domain.enums.WorkOrderUrgency;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper;
@@ -109,8 +116,14 @@ public class WorkOrderIntake {
         Long customerId = order != null ? order.getCustomerId() : slot.getDoorOpenedBy();
         BizCustomer customer = customerId == null ? null : customerMapper.selectById(customerId);
 
-        workOrders.open(new WorkOrderService.NewOrder(
-                slot.getTenantId(), type, urgent,
+        LocalDateTime dueAt = LocalDateTime.now().plusMinutes(urgent ? 10 : 120);
+        workOrders.open(new WorkOrderService.NewOrderV2(
+                slot.getTenantId(), WorkOrderKind.INCIDENT, type, WorkOrderSource.DEVICE,
+                intentOf(anomaly), categoryOf(type), urgent,
+                urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3,
+                WorkOrderImpact.SINGLE,
+                urgent ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL,
+                WorkOrderService.SIDE_ONLINE,
                 site == null ? null : site.getId(), cabinet == null ? null : cabinet.getId(),
                 slot.getId(), slot.getSlotNo(),
                 order == null ? null : order.getOrderNo(), order == null ? null : order.getId(),
@@ -119,7 +132,7 @@ public class WorkOrderIntake {
                 cabinet == null ? "-" : cabinet.getCabinetNo(),
                 titleOf(anomaly, slot.getSlotNo(), reason),
                 detection(slot),
-                LocalDateTime.now().plusMinutes(urgent ? 10 : 120)));
+                dueAt, dueAt, dueAt, null, null));
     }
 
     /**
@@ -148,21 +161,53 @@ public class WorkOrderIntake {
      */
     public Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
                              String detection, String title, LocalDateTime dueAt) {
+        return onOrderEvent(order, type, urgent, detection, title, dueAt,
+                WorkOrderKind.INCIDENT, WorkOrderSource.SYSTEM, null, null, null, null, null);
+    }
+
+    /** 智能工单入口：AI 转报带 intent/handoff，系统任务仍可走上面的旧签名。 */
+    public Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
+                             String detection, String title, LocalDateTime dueAt,
+                             WorkOrderKind kind, WorkOrderSource source, WorkOrderIntent intent,
+                             WorkOrderCategory category, WorkOrderPriority priority, String handoffJson,
+                             String traceId) {
         BizCompartment slot = order.getSlotId() == null ? null : slotMapper.selectById(order.getSlotId());
         BizCabinet cabinet = slot == null || slot.getCabinetId() == null
                 ? null : cabinetMapper.selectById(slot.getCabinetId());
         BizSite site = cabinet == null ? null : siteMapper.selectById(cabinet.getSiteId());
         BizCustomer customer = order.getCustomerId() == null
                 ? null : customerMapper.selectById(order.getCustomerId());
-        return workOrders.open(new WorkOrderService.NewOrder(
-                order.getTenantId(), type, urgent,
+        return workOrders.open(new WorkOrderService.NewOrderV2(
+                order.getTenantId(), kind, type, source, intent, category, urgent,
+                priority == null ? (urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3) : priority,
+                WorkOrderImpact.SINGLE,
+                urgent ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL,
+                WorkOrderService.SIDE_ONLINE,
                 site == null ? null : site.getId(), cabinet == null ? null : cabinet.getId(),
                 order.getSlotId(), slot == null ? null : slot.getSlotNo(),
                 order.getOrderNo(), order.getId(), order.getCustomerId(),
                 customer == null ? null : customer.getPhone(),
                 site == null ? "未知点位" : site.getName(),
                 cabinet == null ? "-" : cabinet.getCabinetNo(),
-                title, detection, dueAt));
+                title, detection, dueAt, dueAt, dueAt, handoffJson, traceId));
+    }
+
+    private WorkOrderIntent intentOf(CompartmentAnomaly anomaly) {
+        return switch (anomaly) {
+            case DOOR_OPEN -> WorkOrderIntent.DOOR_NOT_CLOSE;
+            case CONTENT_LEFT, CONTENT_UNVERIFIED -> WorkOrderIntent.ITEM_LEFT;
+            case SENSOR_CONFLICT -> WorkOrderIntent.OTHER;
+            default -> WorkOrderIntent.OTHER;
+        };
+    }
+
+    private WorkOrderCategory categoryOf(WorkOrderType type) {
+        return switch (type) {
+            case DOOR_NOT_CLOSED -> WorkOrderCategory.DOOR_NOT_CLOSED;
+            case ITEM_LEFT -> WorkOrderCategory.ITEM_LEFT;
+            case DEVICE_FAULT -> WorkOrderCategory.DOOR_FAULT;
+            case LONG_RUNNING -> WorkOrderCategory.UNSORTED;
+        };
     }
 
     /** 检测值快照：红外/重量/AI 的结论在这里合并成一行可读文本（19C 补上照片记录与 AI 标签）。 */

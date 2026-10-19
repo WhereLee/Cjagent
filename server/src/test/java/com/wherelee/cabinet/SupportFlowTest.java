@@ -7,6 +7,7 @@ import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.infrastructure.ai.AgentTools;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
+import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -25,6 +26,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -59,6 +61,8 @@ class SupportFlowTest {
     private WorkOrderIntake intake;
     @Autowired
     private BizStorageOrderMapper orderMapper;
+    @Autowired
+    private BizWorkOrderMapper workOrderMapper;
 
     private JdbcTemplate jdbc;
     private Long cabinetId;
@@ -126,17 +130,21 @@ class SupportFlowTest {
     @Test
     @DisplayName("AI 转报走统一开单入口：快照补齐、类型落库正确；重复转报幂等合并")
     void raiseTicketGoesThroughIntakeAndMergesIdempotently() {
-        AgentTools tools = new AgentTools(queries, doors, intake, orderMapper,
+        AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "取件时门打不开"));
+        String attempt = TenantContext.callAs(TENANT, tools::retryMyDoor);
+        assertTrue(attempt.contains("开门"), attempt);
         String first = TenantContext.callAs(TENANT, () ->
                 tools.raiseTicket("DEVICE_FAULT", "用户报取件时柜门打不开；已远程重开一次，无回执；疑似锁故障"));
         assertTrue(first.contains("转报成功"), first);
         assertTrue(tools.escalated(), "转报成功要置升级标记");
 
         List<Map<String, Object>> orders = rows(
-                "select id, type, queue_side, title, snapshot_json from biz_work_order "
-                        + "where tenant_id = ? and slot_id = ?", TENANT, slotId);
+                "select id, kind, source, type, queue_side, priority, title, snapshot_json "
+                        + "from biz_work_order where tenant_id = ? and slot_id = ?", TENANT, slotId);
         assertEquals(1, orders.size(), "AI 建单一张，不多开");
+        assertEquals("REQUEST", orders.get(0).get("kind"), "AI 转报是用户请求，不是设备异常");
+        assertEquals("AI", orders.get(0).get("source"));
         assertEquals("DEVICE_FAULT", orders.get(0).get("type"));
         assertEquals("ONLINE", orders.get(0).get("queue_side"), "AI 只建线上单：派线下是业务员的决策");
         assertTrue(String.valueOf(orders.get(0).get("title")).contains("AI 客服转报"),
@@ -147,10 +155,16 @@ class SupportFlowTest {
                 "现场快照由统一入口补齐，不靠 agent 抄");
         Long ticketId = ((Number) orders.get(0).get("id")).longValue();
         assertEquals(ticketId.toString(), tools.ticketNo());
+        Map<String, Object> created = jdbc.queryForMap(
+                "select actor_type, trace_id from biz_work_order_event "
+                        + "where work_order_id = ? and event_type = 'CREATED'", ticketId);
+        assertEquals("AI", created.get("actor_type"), "AI 动作不能混成人工/系统动作");
+        assertNotNull(created.get("trace_id"), "AI 动作必须带对话追踪号");
 
         // 再转一次：幂等合并到同一张，记 REPEATED，不重复建
-        AgentTools again = new AgentTools(queries, doors, intake, orderMapper,
+        AgentTools again = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "还是打不开"));
+        TenantContext.runAs(TENANT, again::retryMyDoor);
         String merged = TenantContext.callAs(TENANT, () ->
                 again.raiseTicket("DEVICE_FAULT", "用户再次报柜门打不开"));
         assertTrue(merged.contains(String.valueOf(ticketId)), "幂等合并要返回同一张单：" + merged);
@@ -162,7 +176,7 @@ class SupportFlowTest {
     @Test
     @DisplayName("归属守卫：别人的单转报一律“未找到”，一张单都不建")
     void raiseTicketRejectsForeignOrder() {
-        AgentTools intruder = new AgentTools(queries, doors, intake, orderMapper,
+        AgentTools intruder = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
                 new SupportAgentPort.SupportSession(FOREIGN, orderNo, "这是我的柜子"));
 
         String out = TenantContext.callAs(TENANT, () -> intruder.raiseTicket("DEVICE_FAULT", "门坏了"));

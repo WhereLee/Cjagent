@@ -9,8 +9,16 @@ import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizWorkOrder;
 import com.wherelee.cabinet.domain.entity.BizWorkOrderEvent;
+import com.wherelee.cabinet.domain.enums.ActorType;
+import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
+import com.wherelee.cabinet.domain.enums.WorkOrderImpact;
+import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
+import com.wherelee.cabinet.domain.enums.WorkOrderKind;
+import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
+import com.wherelee.cabinet.domain.enums.WorkOrderSource;
 import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.domain.enums.WorkOrderUrgency;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
 import org.slf4j.Logger;
@@ -103,15 +111,33 @@ public class WorkOrderService {
                            LocalDateTime dueAt) {
     }
 
+    /** 智能工单入参：在旧 NewOrder 上增加 kind/source/intent/category/priority/SLA/交接。 */
+    public record NewOrderV2(Long tenantId, WorkOrderKind kind, WorkOrderType type, WorkOrderSource source,
+                             WorkOrderIntent intent, WorkOrderCategory category, boolean urgent,
+                             WorkOrderPriority priority, WorkOrderImpact impact, WorkOrderUrgency urgency,
+                             String assigneeGroup,
+                             Long siteId, Long cabinetId, Long slotId, String slotNo,
+                             String orderNo, Long storageId, Long customerId, String customerPhone,
+                             String siteAddress, String cabinetNo, String title, String detection,
+                             LocalDateTime dueAt, LocalDateTime responseDueAt, LocalDateTime resolveDueAt,
+                             String handoffJson, String traceId) {
+    }
+
     /** 队列视图：接口层不回传实体（ArchUnit 会拦，而且实体带着一堆流转细节）。 */
-    public record View(Long id, String type, boolean urgent, String status, String queueSide,
-                       String slotNo, String cabinetNo, String siteAddress, String orderNo,
-                       String customerPhone, String title, String detection, String resultNote,
-                       Long assigneeId, LocalDateTime dueAt, LocalDateTime createTime) {
+    public record View(Long id, String kind, String source, String type, String intent, String category,
+                       String priority, String impact, String urgency, boolean urgent, String status,
+                       String queueSide, String assigneeGroup, String slotNo, String cabinetNo,
+                       String siteAddress, String orderNo, String customerPhone, String title,
+                       String detection, String resultNote, String closeReason, Long assigneeId,
+                       Long parentId, String parentResultNote, LocalDateTime dueAt,
+                       LocalDateTime responseDueAt, LocalDateTime resolveDueAt,
+                       LocalDateTime firstResponseAt, LocalDateTime closedAt, LocalDateTime createTime,
+                       String handoffJson, int reopenedCount) {
     }
 
     /** 留痕视图。 */
-    public record EventView(String eventType, Long operatorId, String detail, LocalDateTime at) {
+    public record EventView(String eventType, String actorType, Long operatorId, String traceId,
+                            String detail, LocalDateTime at) {
     }
 
     /**
@@ -123,18 +149,40 @@ public class WorkOrderService {
     // READ COMMITTED 让回读看到最新提交，业务结果不变。
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long open(NewOrder cmd) {
-        BizWorkOrder existing = findOpen(cmd.type(), cmd.slotId());
+        return open(new NewOrderV2(
+                cmd.tenantId(), WorkOrderKind.INCIDENT, cmd.type(), WorkOrderSource.SYSTEM,
+                null, null, cmd.urgent(), priorityOf(cmd.urgent()), WorkOrderImpact.SINGLE,
+                cmd.urgent() ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL, null,
+                cmd.siteId(), cmd.cabinetId(), cmd.slotId(), cmd.slotNo(),
+                cmd.orderNo(), cmd.storageId(), cmd.customerId(), cmd.customerPhone(),
+                cmd.siteAddress(), cmd.cabinetNo(), cmd.title(), cmd.detection(),
+                cmd.dueAt(), cmd.dueAt(), cmd.dueAt(), null, null));
+    }
+
+    /** 智能工单统一开单入口：异常和用户请求都从这里进来，只是 kind/source 不同。 */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Long open(NewOrderV2 cmd) {
+        BizWorkOrder existing = findOpen(cmd.kind(), cmd.type(), cmd.slotId());
         if (existing != null) {
-            note(existing, "REPEATED", null, "同一异常再次被观察到：" + cmd.detection());
+            note(existing, "REPEATED", null, "同一问题再次被观察到：" + cmd.detection(),
+                    actorTypeOf(cmd.source()), cmd.traceId());
             return existing.getId();
         }
 
         BizWorkOrder order = new BizWorkOrder();
         order.setTenantId(cmd.tenantId());
+        order.setKind(kindOf(cmd.kind()));
+        order.setSource(sourceOf(cmd.source()));
         order.setType(cmd.type());
+        order.setIntent(cmd.intent());
+        order.setCategory(cmd.category());
         order.setUrgent(cmd.urgent());
+        order.setPriority(cmd.priority() == null ? priorityOf(cmd.urgent()) : cmd.priority());
+        order.setImpact(cmd.impact());
+        order.setUrgency(cmd.urgency());
         order.setStatus(WorkOrderStatus.PENDING);
         order.setQueueSide(SIDE_ONLINE);
+        order.setAssigneeGroup(cmd.assigneeGroup());
         order.setActiveFlag(1);
         order.setSiteId(cmd.siteId());
         order.setCabinetId(cmd.cabinetId());
@@ -145,23 +193,30 @@ public class WorkOrderService {
         order.setCustomerId(cmd.customerId());
         order.setTitle(cmd.title());
         order.setDueAt(cmd.dueAt());
+        order.setResponseDueAt(cmd.responseDueAt());
+        order.setResolveDueAt(cmd.resolveDueAt());
+        order.setReopenedCount(0);
+        order.setHandoffJson(cmd.handoffJson());
         order.setSnapshotJson(snapshot(cmd));
         try {
             orders.insert(order);
         } catch (DuplicateKeyException e) {
             // 并发下另一个巡检/另一次上报先到：回读那张，不算失败也不重复建
-            BizWorkOrder won = findOpen(cmd.type(), cmd.slotId());
+            BizWorkOrder won = findOpen(cmd.kind(), cmd.type(), cmd.slotId());
             if (won == null) {
                 // 冲突却查不到：唯一索引挡住了新单而那张已被关/软删，属于不一致现场，必须响
                 throw new BizException(ResultCode.SYSTEM_ERROR,
                         "工单唯一索引冲突但找不到未关闭的那张，slotId=" + cmd.slotId());
             }
-            note(won, "REPEATED", null, "并发开单合并到已有工单：" + cmd.title());
+            note(won, "REPEATED", null, "并发开单合并到已有工单：" + cmd.title(),
+                    actorTypeOf(cmd.source()), cmd.traceId());
             return won.getId();
         }
-        note(order, "CREATED", null, cmd.title() + "｜检测：" + nullSafe(cmd.detection()));
-        log.warn("工单已开 id={} type={} urgent={} slotNo={} orderNo={}",
-                order.getId(), cmd.type(), cmd.urgent(), cmd.slotNo(), cmd.orderNo());
+        note(order, "CREATED", null, cmd.title() + "｜检测：" + nullSafe(cmd.detection()),
+                actorTypeOf(cmd.source()), cmd.traceId());
+        log.warn("工单已开 id={} kind={} source={} type={} priority={} slotNo={} orderNo={}",
+                order.getId(), order.getKind(), order.getSource(), order.getType(),
+                order.getPriority(), cmd.slotNo(), cmd.orderNo());
         return order.getId();
     }
 
@@ -202,18 +257,26 @@ public class WorkOrderService {
         // 同一格口同类型在 FIELD 队列只能有一张未关闭单（唯一索引）。
         // 超 72 小时系统可能已经自动派过一张线下单，此时再点“需线下”必须复用它，
         // 否则会撞 uk_work_order_open 把父单的处理结论一起回滚。
-        BizWorkOrder existingChild = findOpenInQueue(order.getType(), order.getSlotId(), SIDE_FIELD);
+        BizWorkOrder existingChild = findOpenInQueue(order.getKind(), order.getType(), order.getSlotId(), SIDE_FIELD);
         if (existingChild != null) {
             note(existingChild, "DISPATCHED", operatorId, "复用已有线下工单，父单 id=" + order.getId());
             return existingChild.getId();
         }
         BizWorkOrder child = new BizWorkOrder();
         child.setTenantId(order.getTenantId());
+        child.setKind(kindOf(order.getKind()));
+        child.setSource(WorkOrderSource.SYSTEM);
         child.setType(order.getType());
+        child.setIntent(order.getIntent());
+        child.setCategory(order.getCategory());
         // 线下工单继承级别：紧急异常意味着“需要快速处理”（用户口径）
         child.setUrgent(order.getUrgent());
+        child.setPriority(order.getPriority());
+        child.setImpact(order.getImpact());
+        child.setUrgency(order.getUrgency());
         child.setStatus(WorkOrderStatus.PENDING);
         child.setQueueSide(SIDE_FIELD);
+        child.setAssigneeGroup(order.getAssigneeGroup());
         child.setActiveFlag(1);
         child.setParentId(order.getId());
         child.setSiteId(order.getSiteId());
@@ -225,12 +288,16 @@ public class WorkOrderService {
         child.setCustomerId(order.getCustomerId());
         child.setTitle("线下到场：" + order.getTitle());
         child.setSnapshotJson(order.getSnapshotJson());
+        child.setHandoffJson(order.getHandoffJson());
+        child.setResponseDueAt(order.getResponseDueAt());
+        child.setResolveDueAt(order.getResolveDueAt());
+        child.setReopenedCount(0);
         child.setDueAt(LocalDateTime.now().plusHours(order.getUrgent() != null && order.getUrgent() ? 2 : 24));
         try {
             orders.insert(child);
         } catch (DuplicateKeyException raced) {
             // 与自动派单并发：别人先插成功，回读那张即可，父单已经 RESOLVED，不能因子单冲突回滚
-            BizWorkOrder won = findOpenInQueue(order.getType(), order.getSlotId(), SIDE_FIELD);
+            BizWorkOrder won = findOpenInQueue(order.getKind(), order.getType(), order.getSlotId(), SIDE_FIELD);
             if (won == null) {
                 throw new BizException(ResultCode.SYSTEM_ERROR,
                         "线下工单唯一索引冲突但找不到未关闭的那张，slotId=" + order.getSlotId());
@@ -251,6 +318,7 @@ public class WorkOrderService {
         int closed = orders.autoCloseBySlot(slotId, type.name());
         if (closed > 0) {
             List<BizWorkOrder> list = orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
+                    .eq(BizWorkOrder::getKind, WorkOrderKind.INCIDENT)
                     .eq(BizWorkOrder::getSlotId, slotId)
                     .eq(BizWorkOrder::getType, type)
                     .eq(BizWorkOrder::getStatus, WorkOrderStatus.AUTO_CLOSED)
@@ -305,7 +373,13 @@ public class WorkOrderService {
      * 不让电话进模型上下文。
      */
     public View one(Long workOrderId) {
-        return toView(require(workOrderId));
+        BizWorkOrder order = require(workOrderId);
+        String parentNote = null;
+        if (order.getParentId() != null) {
+            BizWorkOrder parent = orders.selectById(order.getParentId());
+            parentNote = parent == null ? null : parent.getResultNote();
+        }
+        return toView(order, parentNote);
     }
 
     /**
@@ -335,7 +409,8 @@ public class WorkOrderService {
                 .eq(BizWorkOrderEvent::getWorkOrderId, workOrderId)
                 .orderByAsc(BizWorkOrderEvent::getCreateTime))
                 .stream()
-                .map(e -> new EventView(e.getEventType(), e.getOperatorId(), e.getDetail(), e.getCreateTime()))
+                .map(e -> new EventView(e.getEventType(), e.getActorType(), e.getOperatorId(),
+                        e.getTraceId(), e.getDetail(), e.getCreateTime()))
                 .toList();
     }
 
@@ -433,16 +508,24 @@ public class WorkOrderService {
         if (SIDE_FIELD.equals(parent.getQueueSide())) {
             return parent.getId();
         }
-        BizWorkOrder existing = findOpenInQueue(parent.getType(), parent.getSlotId(), SIDE_FIELD);
+        BizWorkOrder existing = findOpenInQueue(parent.getKind(), parent.getType(), parent.getSlotId(), SIDE_FIELD);
         if (existing != null) {
             return existing.getId();
         }
         BizWorkOrder child = new BizWorkOrder();
         child.setTenantId(parent.getTenantId());
+        child.setKind(kindOf(parent.getKind()));
+        child.setSource(WorkOrderSource.SYSTEM);
         child.setType(parent.getType());
+        child.setIntent(parent.getIntent());
+        child.setCategory(parent.getCategory());
         child.setUrgent(true);
+        child.setPriority(WorkOrderPriority.P1);
+        child.setImpact(parent.getImpact());
+        child.setUrgency(parent.getUrgency());
         child.setStatus(WorkOrderStatus.PENDING);
         child.setQueueSide(SIDE_FIELD);
+        child.setAssigneeGroup(parent.getAssigneeGroup());
         child.setActiveFlag(1);
         child.setParentId(parent.getId());
         child.setSiteId(parent.getSiteId());
@@ -454,11 +537,15 @@ public class WorkOrderService {
         child.setCustomerId(parent.getCustomerId());
         child.setTitle("线下到场：" + parent.getTitle());
         child.setSnapshotJson(parent.getSnapshotJson());
+        child.setHandoffJson(parent.getHandoffJson());
+        child.setResponseDueAt(parent.getResponseDueAt());
+        child.setResolveDueAt(parent.getResolveDueAt());
+        child.setReopenedCount(0);
         child.setDueAt(java.time.LocalDateTime.now().plusHours(24));
         try {
             orders.insert(child);
         } catch (DuplicateKeyException raced) {
-            BizWorkOrder won = findOpenInQueue(parent.getType(), parent.getSlotId(), SIDE_FIELD);
+            BizWorkOrder won = findOpenInQueue(parent.getKind(), parent.getType(), parent.getSlotId(), SIDE_FIELD);
             return won == null ? child.getId() : won.getId();
         }
         note(child, "DISPATCHED", null, reason + "（系统按时间阈值自动派发）");
@@ -481,11 +568,23 @@ public class WorkOrderService {
     }
 
     private BizWorkOrder findOpenInQueue(WorkOrderType type, Long slotId, String queueSide) {
-        return orders.selectOne(Wrappers.<BizWorkOrder>lambdaQuery()
-                .eq(BizWorkOrder::getType, type)
-                .eq(BizWorkOrder::getSlotId, slotId)
-                .eq(BizWorkOrder::getQueueSide, queueSide)
-                .eq(BizWorkOrder::getActiveFlag, 1));
+        return findOpenInQueue(WorkOrderKind.INCIDENT, type, slotId, queueSide);
+    }
+
+    /** 同 kind + type + slot + queue 的未关闭单；type 为空时按 IS NULL 查。 */
+    private BizWorkOrder findOpenInQueue(WorkOrderKind kind, WorkOrderType type, Long slotId, String queueSide) {
+        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<BizWorkOrder> query =
+                Wrappers.<BizWorkOrder>lambdaQuery()
+                        .eq(BizWorkOrder::getKind, kindOf(kind))
+                        .eq(BizWorkOrder::getSlotId, slotId)
+                        .eq(BizWorkOrder::getQueueSide, queueSide)
+                        .eq(BizWorkOrder::getActiveFlag, 1);
+        if (type == null) {
+            query.isNull(BizWorkOrder::getType);
+        } else {
+            query.eq(BizWorkOrder::getType, type);
+        }
+        return orders.selectOne(query);
     }
 
     /**
@@ -495,8 +594,15 @@ public class WorkOrderService {
      * 只按 slot+type 查会 selectOne 到两条并抛异常，把提醒、升级、阶梯全部打断。
      * 这七处调用说的都是“线上那件事”，线下子单由 {@link #findOpenInQueue} 单独处理。
      */
+    private BizWorkOrder findOpen(WorkOrderKind kind, WorkOrderType type, Long slotId) {
+        if (type == null || slotId == null) {
+            return null;
+        }
+        return findOpenInQueue(kind, type, slotId, SIDE_ONLINE);
+    }
+
     private BizWorkOrder findOpen(WorkOrderType type, Long slotId) {
-        return findOpenInQueue(type, slotId, SIDE_ONLINE);
+        return findOpen(WorkOrderKind.INCIDENT, type, slotId);
     }
 
     private BizWorkOrder require(Long id) {
@@ -507,12 +613,41 @@ public class WorkOrderService {
         return order;
     }
 
+    private WorkOrderKind kindOf(WorkOrderKind kind) {
+        return kind == null ? WorkOrderKind.INCIDENT : kind;
+    }
+
+    private WorkOrderSource sourceOf(WorkOrderSource source) {
+        return source == null ? WorkOrderSource.SYSTEM : source;
+    }
+
+    private WorkOrderPriority priorityOf(boolean urgent) {
+        return urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3;
+    }
+
+    private String actorTypeOf(WorkOrderSource source) {
+        return switch (sourceOf(source)) {
+            case AI -> ActorType.AI.name();
+            case USER -> ActorType.USER.name();
+            case DEVICE, SYSTEM -> ActorType.SYSTEM.name();
+        };
+    }
+
     private void note(BizWorkOrder order, String eventType, Long operatorId, String detail) {
+        note(order, eventType, operatorId, detail,
+                operatorId == null ? ActorType.SYSTEM.name() : ActorType.OPERATOR.name(), null);
+    }
+
+    /** 显式指定 actorType/traceId 的留痕：AI 动作不能混进人工或系统动作。 */
+    private void note(BizWorkOrder order, String eventType, Long operatorId, String detail,
+                      String actorType, String traceId) {
         BizWorkOrderEvent event = new BizWorkOrderEvent();
         event.setTenantId(order.getTenantId());
         event.setWorkOrderId(order.getId());
         event.setEventType(eventType);
+        event.setActorType(actorType == null ? ActorType.SYSTEM.name() : actorType);
         event.setOperatorId(operatorId);
+        event.setTraceId(traceId);
         event.setDetail(detail == null ? eventType : truncate(detail));
         event.setCreateTime(LocalDateTime.now());
         events.insert(event);
@@ -523,7 +658,7 @@ public class WorkOrderService {
     }
 
     /** 快照里放业务员判断性质需要的东西：位置、编号、时间、用户电话、检测值。 */
-    private String snapshot(NewOrder cmd) {
+    private String snapshot(NewOrderV2 cmd) {
         StringBuilder sb = new StringBuilder("{");
         sb.append("\"siteAddress\":\"").append(escape(cmd.siteAddress())).append("\",");
         sb.append("\"cabinetNo\":\"").append(escape(cmd.cabinetNo())).append("\",");
@@ -544,14 +679,31 @@ public class WorkOrderService {
     }
 
     private View toView(BizWorkOrder o) {
+        return toView(o, null);
+    }
+
+    private View toView(BizWorkOrder o, String parentResultNote) {
         // 柜机编号/点位地址/检测值必须从快照带出来：业务员接了单要能凭这一行知道去哪、看什么，
         // 而不是只看到一句“格口 S12 门未关”就出发（这三个字段一直在快照里，只是以前没读）
-        return new View(o.getId(), o.getType().name(), Boolean.TRUE.equals(o.getUrgent()),
-                o.getStatus().name(), o.getQueueSide(), o.getSlotNo(),
+        return new View(o.getId(),
+                o.getKind() == null ? null : o.getKind().name(),
+                o.getSource() == null ? null : o.getSource().name(),
+                o.getType() == null ? null : o.getType().name(),
+                o.getIntent() == null ? null : o.getIntent().name(),
+                o.getCategory() == null ? null : o.getCategory().name(),
+                o.getPriority() == null ? null : o.getPriority().name(),
+                o.getImpact() == null ? null : o.getImpact().name(),
+                o.getUrgency() == null ? null : o.getUrgency().name(),
+                Boolean.TRUE.equals(o.getUrgent()),
+                o.getStatus().name(), o.getQueueSide(), o.getAssigneeGroup(), o.getSlotNo(),
                 readSnapshotString(o, "cabinetNo"), readSnapshotString(o, "siteAddress"), o.getOrderNo(),
                 readSnapshotString(o, "customerPhone"), o.getTitle(),
-                readSnapshotString(o, "detection"), o.getResultNote(), o.getAssigneeId(),
-                o.getDueAt(), o.getCreateTime());
+                readSnapshotString(o, "detection"), o.getResultNote(),
+                o.getCloseReason() == null ? null : o.getCloseReason().name(),
+                o.getAssigneeId(), o.getParentId(), parentResultNote,
+                o.getDueAt(), o.getResponseDueAt(), o.getResolveDueAt(), o.getFirstResponseAt(),
+                o.getClosedAt(), o.getCreateTime(), o.getHandoffJson(),
+                o.getReopenedCount() == null ? 0 : o.getReopenedCount());
     }
 
     /**

@@ -2,13 +2,22 @@ package com.wherelee.cabinet.infrastructure.ai;
 
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
+import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
 import com.wherelee.cabinet.application.support.SupportAgentPort.SupportSession;
 import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
+import com.wherelee.cabinet.domain.entity.BizWorkOrder;
 import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
+import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
+import com.wherelee.cabinet.domain.enums.WorkOrderKind;
+import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
+import com.wherelee.cabinet.domain.enums.WorkOrderSource;
+import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
+import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,6 +33,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.same;
 import static org.mockito.Mockito.times;
@@ -47,6 +57,7 @@ class AgentToolsTest {
     private StorageOrderFacade doors;
     private WorkOrderIntake intake;
     private BizStorageOrderMapper orderMapper;
+    private BizWorkOrderMapper workOrderMapper;
 
     @BeforeEach
     void setUp() {
@@ -54,10 +65,12 @@ class AgentToolsTest {
         doors = mock(StorageOrderFacade.class);
         intake = mock(WorkOrderIntake.class);
         orderMapper = mock(BizStorageOrderMapper.class);
+        workOrderMapper = mock(BizWorkOrderMapper.class);
     }
 
     private AgentTools tools(String orderNo) {
-        return new AgentTools(queries, doors, intake, orderMapper, new SupportSession(CUSTOMER, orderNo, "帮我看看"));
+        return new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+                new SupportSession(CUSTOMER, orderNo, "帮我看看"));
     }
 
     private StorageQueryService.OrderView view(String orderNo) {
@@ -118,25 +131,80 @@ class AgentToolsTest {
     }
 
     @Test
-    @DisplayName("建单类型白名单：两种可建，其余拒绝；合法的走统一入口并回填工单号")
+    @DisplayName("设备故障必须先尝试：没调用 retryMyDoor 的转报被拒绝")
+    void deviceFaultRequiresAttempt() {
+        BizStorageOrder own = new BizStorageOrder();
+        own.setId(9L);
+        own.setOrderNo(ORDER_NO);
+        own.setCustomerId(CUSTOMER);
+        when(orderMapper.selectOne(any())).thenReturn(own);
+
+        String out = tools(ORDER_NO).raiseTicket("DEVICE_FAULT", "门打不开");
+
+        assertTrue(out.contains("先调用 retryMyDoor"), out);
+        verifyNoInteractions(intake);
+    }
+
+    @Test
+    @DisplayName("重开返回真实回执：已下发无回执原样转述，不冒充已打开")
+    void retryDoorRelaysDeviceMessage() {
+        when(doors.openDoor(eq(CUSTOMER), eq(ORDER_NO), eq(CommandAction.OPEN_TEMP)))
+                .thenReturn(new StorageOrderView(ORDER_NO, "CAB-1", "A-01", "SMALL", "ACTIVE",
+                        240, 0, "cas", "指令已下发，但未收到柜机明确回执"));
+
+        String out = tools(ORDER_NO).retryMyDoor();
+
+        assertTrue(out.contains("已下发") && out.contains("未收到柜机明确回执"), out);
+    }
+
+    @Test
+    @DisplayName("建单类型白名单：尝试过才能建，合法类型走统一入口并回填工单号")
     void raiseTicketMapsWhitelistedKinds() {
         BizStorageOrder own = new BizStorageOrder();
         own.setId(9L);
         own.setOrderNo(ORDER_NO);
         own.setCustomerId(CUSTOMER);
         when(orderMapper.selectOne(any())).thenReturn(own);
+        when(doors.openDoor(eq(CUSTOMER), eq(ORDER_NO), eq(CommandAction.OPEN_TEMP)))
+                .thenReturn(new StorageOrderView(ORDER_NO, "CAB-1", "A-01", "SMALL", "ACTIVE",
+                        240, 0, "cas", "指令已下发，但未收到柜机明确回执"));
         when(intake.onOrderEvent(same(own), eq(WorkOrderType.DEVICE_FAULT), eq(false),
-                contains("AI 客服转报"), anyString(), any())).thenReturn(555L);
+                contains("AI 客服转报"), anyString(), any(), eq(WorkOrderKind.REQUEST),
+                eq(WorkOrderSource.AI), eq(WorkOrderIntent.DOOR_NOT_OPEN),
+                eq(WorkOrderCategory.DOOR_FAULT), isNull(), contains("OPEN_TEMP"), anyString()))
+                .thenReturn(555L);
 
         AgentTools agent = tools(ORDER_NO);
-        String out = agent.raiseTicket("DEVICE_FAULT", "用户报取件时门打不开；已远程重开一次，无回执");
+        agent.retryMyDoor();
+        String out = agent.raiseTicket("DEVICE_FAULT", "用户报取件时门打不开",
+                "DOOR_NOT_OPEN", "OPEN_TEMP 已下发无回执");
 
         assertTrue(out.contains("555"), out);
         assertTrue(agent.escalated() && "555".equals(agent.ticketNo()));
 
         String illegal = tools(ORDER_NO).raiseTicket("ITEM_LEFT", "不该由客服建的类型");
         assertTrue(illegal.contains("只支持"), illegal);
-        verify(intake, times(1)).onOrderEvent(any(), any(), anyBoolean(), anyString(), anyString(), any());
+        verify(intake, times(1)).onOrderEvent(any(), any(), anyBoolean(), anyString(), anyString(),
+                any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("工单进度只读：返回状态与标题，不泄露内部备注")
+    void ticketStatusOmitsInternalNote() {
+        BizWorkOrder order = new BizWorkOrder();
+        order.setId(42L);
+        order.setKind(WorkOrderKind.REQUEST);
+        order.setStatus(WorkOrderStatus.PENDING);
+        order.setPriority(WorkOrderPriority.P2);
+        order.setResolveDueAt(LocalDateTime.now().plusHours(2));
+        order.setTitle("格口 A-01 门打不开");
+        order.setResultNote("内部备注：不要给用户看");
+        when(workOrderMapper.selectList(any())).thenReturn(List.of(order));
+
+        String out = tools(ORDER_NO).myTicketStatus();
+
+        assertTrue(out.contains("42") && out.contains("P2") && out.contains("门打不开"), out);
+        assertFalse(out.contains("内部备注"), "工单内部备注不能进模型上下文：" + out);
     }
 
     @Test

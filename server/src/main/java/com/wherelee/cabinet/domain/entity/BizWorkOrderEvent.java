@@ -29,7 +29,12 @@ public class BizWorkOrderEvent {
     /** CREATED / CLAIMED / NOTED / DISPATCHED / RESOLVED / AUTO_CLOSED。 */
     private String eventType;
 
+    /** USER/AI/OPERATOR/SYSTEM：AI 动作必须能和人工动作分开。 */
+    private String actorType;
+
     private Long operatorId;
+    /** 一次对话/一次请求的追踪号。 */
+    private String traceId;
     private String detail;
     private LocalDateTime createTime;
 }
