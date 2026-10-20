@@ -26,6 +26,56 @@ const ORDER_STATUS: Record<string, string> = {
   EXPIRED: '已逾期',
 }
 
+const ORDER_STATUS_TAG: Record<string, TagType> = {
+  INIT: 'info',
+  RESERVED: 'info',
+  OPENING: 'warning',
+  STORED: 'primary',
+  ACTIVE: 'primary',
+  TEMP_OPEN: 'warning',
+  SETTLING: 'primary',
+  CLOSED: 'success',
+  CANCELLED: 'info',
+  ABNORMAL: 'danger',
+  EXPIRED: 'warning',
+}
+
+const SIZE_TYPE: Record<string, string> = {
+  SMALL: '小格',
+  MEDIUM: '中格',
+  LARGE: '大格',
+}
+
+const DISPUTE_STATE: Record<string, string> = {
+  ITEM_DISPUTED: '用户否认',
+  AI_REVIEWED: 'AI 已复审',
+  HUMAN_REVIEW: '转人工复审',
+}
+
+const COMMAND_ACTION: Record<string, string> = {
+  OPEN: '首次开柜',
+  PREPARE: '预备开',
+  OPEN_TEMP: '中途开柜',
+  CLOSE_VERIFY: '关门校验',
+  FORCE_OPEN: '后台强开',
+}
+
+const COMMAND_STATE: Record<string, string> = {
+  PENDING: '待下发',
+  SENT: '已下发',
+  ACKED: '已回执',
+  SUCCEEDED: '成功',
+  FAILED: '失败',
+  TIMEOUT: '超时无回执',
+}
+
+const ORDER_CLOSE_REASON: Record<string, string> = {
+  NORMAL: '正常结束',
+  ABANDONED: '用户放弃物品',
+  REMOTE: '远程关柜结束',
+  DISPUTE_WAIVED: '争议免除',
+}
+
 // ── 工单 ─────────────────────────────────────────────
 const WORK_ORDER_TYPE: Record<string, string> = {
   DOOR_NOT_CLOSED: '门未关',
@@ -221,6 +271,13 @@ const NOTICE_CHANNEL: Record<string, string> = {
 
 export const workOrderTypeText = (v?: string | null) => pick(WORK_ORDER_TYPE, v)
 export const orderStatusText = (v?: string | null) => pick(ORDER_STATUS, v)
+export const orderStatusTag = (v?: string | null): TagType =>
+  (v && ORDER_STATUS_TAG[v]) || 'info'
+export const sizeTypeText = (v?: string | null) => pick(SIZE_TYPE, v)
+export const disputeStateText = (v?: string | null) => pick(DISPUTE_STATE, v)
+export const commandActionText = (v?: string | null) => pick(COMMAND_ACTION, v)
+export const commandStateText = (v?: string | null) => pick(COMMAND_STATE, v)
+export const orderCloseReasonText = (v?: string | null) => pick(ORDER_CLOSE_REASON, v)
 export const workOrderStatusText = (v?: string | null) => pick(WORK_ORDER_STATUS, v)
 export const workOrderStatusTag = (v?: string | null): TagType =>
   (v && WORK_ORDER_STATUS_TAG[v]) || 'info'

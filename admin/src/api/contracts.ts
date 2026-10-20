@@ -90,3 +90,106 @@ export interface SummaryRow {
   rowsCount?: string
   longestMinutes?: string
 }
+
+// ── 订单查询（application/storage/AdminOrderQueryService）──────────────
+// Long 字段（id/customerId）在线路上是字符串；long 点数与 int 计数保持数字，
+// 与 JacksonConfig“ID 用包装 Long、计数用原始 long”的口径一致。
+
+/** 订单行（AdminOrderQueryService.OrderRow） */
+export interface OrderRow {
+  id?: string
+  orderNo?: string
+  status?: string
+  sizeType?: string
+  customerId?: string
+  customerName?: string
+  siteName?: string
+  cabinetNo?: string
+  slotNo?: string
+  prepayPoints?: number
+  settledPoints?: number
+  arrearsPoints?: number
+  createTime?: string
+  startedAt?: string
+  finishedAt?: string
+}
+
+/** 设备动作行（OrderDetail.CommandLine） */
+export interface OrderCommand {
+  action?: string
+  state?: string
+  retryCount?: number
+  sentAt?: string
+  ackedAt?: string
+  lastError?: string
+}
+
+/** 物检证据行（OrderDetail.EvidenceLine）；confidence 是 BigDecimal */
+export interface OrderEvidence {
+  source?: string
+  presence?: string
+  moment?: string
+  confidence?: number
+  aiLabel?: string
+  note?: string
+  at?: string
+}
+
+/** 关联工单行（OrderDetail.WorkOrderLine） */
+export interface OrderWorkOrder {
+  id?: string
+  status?: string
+  category?: string
+  priority?: string
+  closeReason?: string
+  title?: string
+  createTime?: string
+}
+
+/** 账单流水行（StorageQueryService.BillLine） */
+export interface OrderBillLine {
+  type?: string
+  amount?: number
+  balanceAfter?: number
+  remark?: string
+  at?: string
+}
+
+/** 账单（StorageQueryService.BillView）：参数全部取自这张单的快照，不用当前价重算 */
+export interface OrderBill {
+  orderNo?: string
+  status?: string
+  sizeType?: string
+  startedAt?: string
+  finishedAt?: string
+  billedMinutes?: number
+  unitPointsPerHour?: number
+  freeMinutes?: number
+  dailyCapHours?: number
+  capDays?: number
+  billedHours?: number
+  chargePoints?: number
+  prepayPoints?: number
+  settledPoints?: number
+  arrearsPoints?: number
+  lines?: OrderBillLine[]
+}
+
+/** 订单详情（AdminOrderQueryService.OrderDetail）；历史单无快照时 bill 为 null */
+export interface OrderDetail {
+  row?: OrderRow
+  customerPhone?: string
+  closeReason?: string
+  disputeState?: string
+  aiReviewCount?: number
+  tempOpenCount?: number
+  voucherWrongCount?: number
+  voucherLocked?: boolean
+  leftoverReported?: boolean
+  depositPoints?: number
+  remoteClosePoints?: number
+  bill?: OrderBill | null
+  commands?: OrderCommand[]
+  evidence?: OrderEvidence[]
+  workOrders?: OrderWorkOrder[]
+}

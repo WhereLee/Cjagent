@@ -3,6 +3,7 @@ import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import {
+  Document,
   Money,
   Monitor,
   Odometer,
@@ -26,6 +27,7 @@ interface MenuItem {
 
 const iconMap: Record<string, Component> = {
   '/dashboard': Odometer,
+  '/orders': Document,
   '/work-orders': Tickets,
   '/pending-calls': Phone,
   '/anomalies': Warning,

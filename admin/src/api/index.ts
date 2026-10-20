@@ -26,7 +26,7 @@ import type {
   UserView,
   View,
 } from './schema-admin'
-import type { CurrentAccount, NoticeRow, Paged, SummaryRow, WorkOrderFamily, WorkOrderRow } from './contracts'
+import type { CurrentAccount, NoticeRow, OrderDetail, OrderRow, Paged, SummaryRow, WorkOrderFamily, WorkOrderRow } from './contracts'
 
 // ── 认证 /api/admin/auth ──────────────────────────────────────────
 export const adminLogin = (body: AdminLoginRequest) =>
@@ -82,6 +82,23 @@ export const fetchPendingCalls = () =>
 
 export const callDone = (id: string, body: CallDoneCommand) =>
   request<void>({ url: `/api/admin/work-orders/notices/${id}/call-done`, method: 'post', data: body })
+
+// ── 订单查询 /api/admin/orders ─────────────────────────────────────
+// 只读：后台目前没有对订单的写操作，页面不提供任何“修改/退款”按钮。
+export interface OrderQuery extends PageQuery {
+  orderNo?: string
+  phone?: string
+  status?: string
+  /** yyyy-MM-dd，按创建时间过滤（含当天） */
+  from?: string
+  to?: string
+}
+
+export const fetchOrders = (params: OrderQuery) =>
+  request<Paged<OrderRow>>({ url: '/api/admin/orders', method: 'get', params })
+
+export const fetchOrderDetail = (orderNo: string) =>
+  request<OrderDetail>({ url: `/api/admin/orders/${orderNo}`, method: 'get' })
 
 // ── 柜机运营 /api/admin/locker ────────────────────────────────────
 export const fetchAnomalies = (params: PageQuery & { anomaly?: string }) =>

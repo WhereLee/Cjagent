@@ -27,6 +27,12 @@ const router = createRouter({
           meta: { title: '工作台' },
         },
         {
+          path: 'orders',
+          name: 'orders',
+          component: () => import('@/views/OrdersView.vue'),
+          meta: { title: '订单查询', authority: ['order:list'] },
+        },
+        {
           path: 'work-orders',
           name: 'work-orders',
           component: () => import('@/views/WorkOrdersView.vue'),
