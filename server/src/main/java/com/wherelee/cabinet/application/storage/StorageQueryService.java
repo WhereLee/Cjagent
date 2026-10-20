@@ -270,6 +270,16 @@ public class StorageQueryService {
         if (order == null || !java.util.Objects.equals(order.getCustomerId(), customerId)) {
             throw new BizException(ResultCode.DATA_NOT_FOUND, "没找到这张寄存单");
         }
+        return billOf(order);
+    }
+
+    /**
+     * 按单构账单（<b>不校验归属</b>）。后台订单详情与用户端账单共用这一份口径：
+     * 两边各算一遍，迟早出现“后台说欠 3 块、用户看到欠 5 块”。
+     *
+     * <p>“这张单该不该给你看”由调用方负责：用户端按 customerId 校验，后台按权限点放行。
+     */
+    public BillView billOf(BizStorageOrder order) {
         LocalDateTime end = order.getFinishedAt() != null ? order.getFinishedAt() : LocalDateTime.now();
         long minutes = order.getStartedAt() == null ? 0L
                 : Math.max(0L, Duration.between(order.getStartedAt(), end).toMinutes());
