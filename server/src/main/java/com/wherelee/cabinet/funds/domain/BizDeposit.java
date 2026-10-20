@@ -1,9 +1,10 @@
-package com.wherelee.cabinet.domain.entity;
+package com.wherelee.cabinet.funds.domain;
 
+import com.wherelee.cabinet.domain.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.wherelee.cabinet.domain.enums.DepositStatus;
+import com.wherelee.cabinet.funds.api.DepositStatus;
 import lombok.Getter;
 import lombok.Setter;
 

@@ -63,7 +63,7 @@ public class AsyncStorageOrderAppService {
     private final SlotPreDeductionService preDeduction;
     private final OrderPersistPublisher publisher;
     private final ConsumeIdempotencyGuard guard;
-    private final com.wherelee.cabinet.application.point.OrderFundService funds;
+    private final com.wherelee.cabinet.funds.app.OrderFundService funds;
 
     @Value("${cabinet.alloc.hold-ttl:180s}")
     private Duration holdTtl;
@@ -77,7 +77,7 @@ public class AsyncStorageOrderAppService {
                                        SlotPreDeductionService preDeduction,
                                        OrderPersistPublisher publisher,
                                        ConsumeIdempotencyGuard guard,
-                                       com.wherelee.cabinet.application.point.OrderFundService funds) {
+                                       com.wherelee.cabinet.funds.app.OrderFundService funds) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;

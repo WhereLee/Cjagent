@@ -62,7 +62,7 @@ abstract class AbstractAllocationBehaviourTest {
     @Autowired
     protected StorageOrderFacade facade;
     @Autowired
-    protected com.wherelee.cabinet.application.point.PointAccountService points;
+    protected com.wherelee.cabinet.funds.app.PointAccountService points;
     @Autowired
     protected SlotAllocator allocator;
     @Autowired

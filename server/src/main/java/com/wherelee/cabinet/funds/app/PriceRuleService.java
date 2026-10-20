@@ -1,12 +1,12 @@
-package com.wherelee.cabinet.application.billing;
+package com.wherelee.cabinet.funds.app;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizPriceRule;
+import com.wherelee.cabinet.funds.domain.BizPriceRule;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.infrastructure.mapper.BizPriceRuleMapper;
+import com.wherelee.cabinet.funds.infra.BizPriceRuleMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

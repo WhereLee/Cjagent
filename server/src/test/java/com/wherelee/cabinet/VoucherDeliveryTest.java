@@ -81,7 +81,7 @@ class VoucherDeliveryTest {
     @Autowired
     private BizStorageOrderMapper orderMapper;
     @Autowired
-    private com.wherelee.cabinet.application.point.PointAccountService points;
+    private com.wherelee.cabinet.funds.app.PointAccountService points;
     @Autowired
     private StorageOrderService orderService;
     @Autowired

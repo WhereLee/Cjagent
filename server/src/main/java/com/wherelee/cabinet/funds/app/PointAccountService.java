@@ -1,14 +1,14 @@
-package com.wherelee.cabinet.application.point;
+package com.wherelee.cabinet.funds.app;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizPointAccount;
-import com.wherelee.cabinet.domain.entity.BizPointTxn;
-import com.wherelee.cabinet.domain.enums.PointTxnType;
-import com.wherelee.cabinet.infrastructure.mapper.BizPointAccountMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizPointTxnMapper;
+import com.wherelee.cabinet.funds.domain.BizPointAccount;
+import com.wherelee.cabinet.funds.domain.BizPointTxn;
+import com.wherelee.cabinet.funds.api.PointTxnType;
+import com.wherelee.cabinet.funds.infra.BizPointAccountMapper;
+import com.wherelee.cabinet.funds.infra.BizPointTxnMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;

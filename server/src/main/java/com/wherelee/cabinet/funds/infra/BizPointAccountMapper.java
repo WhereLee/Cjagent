@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.funds.infra;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.wherelee.cabinet.domain.entity.BizPointAccount;
+import com.wherelee.cabinet.funds.domain.BizPointAccount;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;

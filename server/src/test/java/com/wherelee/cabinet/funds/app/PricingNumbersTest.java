@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.billing;
+package com.wherelee.cabinet.funds.app;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

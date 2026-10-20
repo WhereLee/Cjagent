@@ -52,7 +52,7 @@ public class StorageOrderService {
     private final SlotAllocator allocator;
     private final SlotPreDeductionService preDeduction;
     private final com.wherelee.cabinet.device.api.CommandPort deviceCommands;
-    private final com.wherelee.cabinet.application.point.OrderFundService funds;
+    private final com.wherelee.cabinet.funds.app.OrderFundService funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
     private final CompartmentStateService states;
     /** 定-21/定-23：预备开重试无效时要开一条设备故障工单（不然故障只活在日志里）。 */
@@ -63,7 +63,7 @@ public class StorageOrderService {
     /** 取件凭据的站内消息（第 25 刀）：下单发一条，重置改写同一条。 */
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
     /** 容错期也可以按点位发布（第 14D 刀）；没发布时仍用配置默认值。 */
-    private final com.wherelee.cabinet.application.billing.PriceRuleService priceRules;
+    private final com.wherelee.cabinet.funds.app.PriceRuleService priceRules;
     /**
      * 取件码错次与锁定要用**独立事务**写：错码后要抛异常，外层事务会回滚，
      * 同一事务里写的计数与锁定会跟着消失——结果是“永远数不到第五次，永远锁不上”却看不出来。
@@ -122,10 +122,10 @@ public class StorageOrderService {
                                SlotAllocator allocator,
                                SlotPreDeductionService preDeduction,
                                com.wherelee.cabinet.device.api.CommandPort deviceCommands,
-                               com.wherelee.cabinet.application.point.OrderFundService funds,
+                               com.wherelee.cabinet.funds.app.OrderFundService funds,
                                CompartmentStateService states,
                                com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
-                               com.wherelee.cabinet.application.billing.PriceRuleService priceRules,
+                               com.wherelee.cabinet.funds.app.PriceRuleService priceRules,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
                                com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
@@ -1083,7 +1083,7 @@ public class StorageOrderService {
      * 没发布过策略时退回配置默认值，与下单冻结时取价的回退路径一致。
      */
     private long toleranceOf(BizStorageOrder order) {
-        com.wherelee.cabinet.domain.entity.BizPriceRule rule = priceRules.effective(order.getSiteId());
+        com.wherelee.cabinet.funds.domain.BizPriceRule rule = priceRules.effective(order.getSiteId());
         return rule == null ? firstRemindMinutes : rule.getToleranceMinutes();
     }
 

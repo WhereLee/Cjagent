@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.interfaces.mini.point;
 
-import com.wherelee.cabinet.application.point.RechargeService;
-import com.wherelee.cabinet.application.point.dto.RechargeView;
+import com.wherelee.cabinet.funds.app.RechargeService;
+import com.wherelee.cabinet.funds.api.RechargeView;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;

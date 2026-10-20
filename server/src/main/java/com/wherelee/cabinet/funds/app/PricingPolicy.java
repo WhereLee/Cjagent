@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.billing;
+package com.wherelee.cabinet.funds.app;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -121,7 +121,7 @@ public class PricingPolicy {
      * <p>策略 id 与版本一并写进快照：结算仍然只读快照参数（不反查策略表），但审计能回答
      * “这单当时按哪一版算的”——回滚与改价都不能追溯，但必须能回渣。
      */
-    public Quote quoteByRule(SizeType size, long minutes, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
+    public Quote quoteByRule(SizeType size, long minutes, com.wherelee.cabinet.funds.domain.BizPriceRule rule) {
         Map<String, Object> extra = new LinkedHashMap<>();
         extra.put("priceRuleId", rule.getId());
         extra.put("priceRuleVersion", rule.getVersion());
@@ -135,7 +135,7 @@ public class PricingPolicy {
     }
 
     /** 这笔单该预收多少：该尺寸单价 × 预收时长（有策略走策略价，没有走配置价）。 */
-    public long prepayPoints(SizeType size, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
+    public long prepayPoints(SizeType size, com.wherelee.cabinet.funds.domain.BizPriceRule rule) {
         long unit = rule == null ? unitOf(size) : rule.unitOf(size);
         return unit * prepayHours;
     }
@@ -147,7 +147,7 @@ public class PricingPolicy {
      * 押金门槛、策略版本），实际用时由服务端在取件时算。这跟“把预估写进快照”的区别很实在：
      * 后者会让有人误把 consumePoints 当应收，而它基于一个用户根本没选过的时长。
      */
-    public String inputSnapshot(SizeType size, com.wherelee.cabinet.domain.entity.BizPriceRule rule) {
+    public String inputSnapshot(SizeType size, com.wherelee.cabinet.funds.domain.BizPriceRule rule) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("strategy", "per-hour-daily-cap");
         snapshot.put("sizeType", size.name());

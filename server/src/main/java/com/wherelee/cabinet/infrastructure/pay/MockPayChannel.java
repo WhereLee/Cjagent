@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.infrastructure.pay;
 
-import com.wherelee.cabinet.application.point.PayChannel;
+import com.wherelee.cabinet.funds.app.PayChannel;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

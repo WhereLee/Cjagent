@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.billing;
+package com.wherelee.cabinet.funds.app;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;

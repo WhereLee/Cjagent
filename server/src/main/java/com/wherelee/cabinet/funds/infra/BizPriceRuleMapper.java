@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.funds.infra;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.wherelee.cabinet.domain.entity.BizPriceRule;
+import com.wherelee.cabinet.funds.domain.BizPriceRule;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -31,7 +31,7 @@ public interface BizPriceRuleMapper extends BaseMapper<BizPriceRule> {
      * 一次查询就把"灰度优先 + 到点切换"两件事都表达清楚了，也不需要先发两条 SQL 再在内存里比。
      */
     @Select("""
-            select ${@com.wherelee.cabinet.infrastructure.mapper.BizPriceRuleMapper@COLUMNS}
+            select ${@com.wherelee.cabinet.funds.infra.BizPriceRuleMapper@COLUMNS}
               from biz_price_rule
              where deleted = 0
                and status = 'LIVE'
@@ -73,7 +73,7 @@ public interface BizPriceRuleMapper extends BaseMapper<BizPriceRule> {
 
     /** 同一范围内的历史版本（新→旧），页面展示与回滚取内容都读它。 */
     @Select("""
-            select ${@com.wherelee.cabinet.infrastructure.mapper.BizPriceRuleMapper@COLUMNS}
+            select ${@com.wherelee.cabinet.funds.infra.BizPriceRuleMapper@COLUMNS}
               from biz_price_rule
              where deleted = 0 and coalesce(site_id, -1) = coalesce(#{siteId}, -1)
              order by version desc
@@ -82,7 +82,7 @@ public interface BizPriceRuleMapper extends BaseMapper<BizPriceRule> {
 
     /** 全站（含各点位）的策略总览，给后台列表页。 */
     @Select("""
-            select ${@com.wherelee.cabinet.infrastructure.mapper.BizPriceRuleMapper@COLUMNS}
+            select ${@com.wherelee.cabinet.funds.infra.BizPriceRuleMapper@COLUMNS}
               from biz_price_rule
              where deleted = 0
              order by site_id is null desc, site_id, version desc

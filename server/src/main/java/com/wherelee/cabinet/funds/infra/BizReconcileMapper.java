@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.funds.infra;
 
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
-import com.wherelee.cabinet.domain.entity.BizPointAccount;
+import com.wherelee.cabinet.funds.domain.BizPointAccount;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.ibatis.annotations.Mapper;

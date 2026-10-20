@@ -66,7 +66,7 @@ class AsyncPersistFlowTest {
     @Autowired
     private AsyncStorageOrderAppService asyncService;
     @Autowired
-    private com.wherelee.cabinet.application.point.PointAccountService points;
+    private com.wherelee.cabinet.funds.app.PointAccountService points;
     @Autowired
     private SlotPreDeductionService preDeduction;
     @Autowired

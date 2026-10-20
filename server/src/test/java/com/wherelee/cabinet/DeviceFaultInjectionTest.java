@@ -75,7 +75,7 @@ class DeviceFaultInjectionTest {
     @Autowired
     private StorageOrderFacade facade;
     @Autowired
-    private com.wherelee.cabinet.application.point.PointAccountService points;
+    private com.wherelee.cabinet.funds.app.PointAccountService points;
     @Autowired
     private DeviceCommandService commandService;
     @Autowired

@@ -1,18 +1,18 @@
-package com.wherelee.cabinet.application.point;
+package com.wherelee.cabinet.funds.app;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.billing.PricingPolicy;
+import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizDeposit;
-import com.wherelee.cabinet.domain.entity.BizPointAccount;
+import com.wherelee.cabinet.funds.domain.BizDeposit;
+import com.wherelee.cabinet.funds.domain.BizPointAccount;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.domain.enums.DepositStatus;
+import com.wherelee.cabinet.funds.api.DepositStatus;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.domain.enums.PointTxnType;
+import com.wherelee.cabinet.funds.api.PointTxnType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizDepositMapper;
+import com.wherelee.cabinet.funds.infra.BizDepositMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,13 +50,13 @@ public class OrderFundService {
     private final PointAccountService points;
     private final PricingPolicy pricing;
     /** 下单时取当前生效的计价策略（第 14D 刀）。拿不到则退回配置默认价，不是拿 0 当价。 */
-    private final com.wherelee.cabinet.application.billing.PriceRuleService priceRules;
+    private final com.wherelee.cabinet.funds.app.PriceRuleService priceRules;
     private final BizDepositMapper depositMapper;
     private final BizStorageOrderMapper orderMapper;
     private final BizCompartmentMapper slotMapper;
 
     public OrderFundService(PointAccountService points, PricingPolicy pricing,
-                            com.wherelee.cabinet.application.billing.PriceRuleService priceRules,
+                            com.wherelee.cabinet.funds.app.PriceRuleService priceRules,
                             BizDepositMapper depositMapper, BizStorageOrderMapper orderMapper,
                             BizCompartmentMapper slotMapper) {
         this.points = points;
@@ -80,7 +80,7 @@ public class OrderFundService {
      */
     @Transactional
     public void holdFunds(BizStorageOrder order) {
-        com.wherelee.cabinet.domain.entity.BizPriceRule rule = priceRules.effective(order.getSiteId());
+        com.wherelee.cabinet.funds.domain.BizPriceRule rule = priceRules.effective(order.getSiteId());
         // 预收（19A，2026-10-11 定稿）：先收该格口 4 小时的钱，真实扣款。
         // 它是消耗而不是冻结：余额不够就直接下单失败（不能先开门再催钱），
         // 也正因为已收进来，结算时才能“多退少补”而不是反复解冻。

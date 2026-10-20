@@ -1,19 +1,19 @@
 package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.point.OrderFundService;
-import com.wherelee.cabinet.application.point.PointAccountService;
+import com.wherelee.cabinet.funds.app.OrderFundService;
+import com.wherelee.cabinet.funds.app.PointAccountService;
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.entity.BizDeposit;
+import com.wherelee.cabinet.funds.domain.BizDeposit;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
 import com.wherelee.cabinet.device.api.CommandAction;
-import com.wherelee.cabinet.domain.enums.DepositStatus;
+import com.wherelee.cabinet.funds.api.DepositStatus;
 import com.wherelee.cabinet.domain.enums.OnlineState;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.SizeType;
@@ -21,7 +21,7 @@ import com.wherelee.cabinet.domain.enums.SlotStatus;
 import com.wherelee.cabinet.device.infra.SimulatedCabinetChannel;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizDepositMapper;
+import com.wherelee.cabinet.funds.infra.BizDepositMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -173,7 +173,7 @@ class PointLedgerTest {
             points.freeze(customerId, 300, "TEST", null, "biz-" + UUID.randomUUID(), "冻结");
             points.unfreeze(customerId, 120, "TEST", null, "biz-" + UUID.randomUUID(), "部分解冻");
             points.consume(customerId, 80, "TEST", null, "biz-" + UUID.randomUUID(), "消耗");
-            points.post(customerId, com.wherelee.cabinet.domain.enums.PointTxnType.ADJUST, -5,
+            points.post(customerId, com.wherelee.cabinet.funds.api.PointTxnType.ADJUST, -5,
                     "TEST", null, "biz-" + UUID.randomUUID(), "人工冲正");
         });
 

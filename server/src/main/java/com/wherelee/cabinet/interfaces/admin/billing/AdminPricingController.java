@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.admin.billing;
 
-import com.wherelee.cabinet.application.billing.PriceRuleService;
+import com.wherelee.cabinet.funds.app.PriceRuleService;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;

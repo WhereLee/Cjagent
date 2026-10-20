@@ -1,12 +1,12 @@
-package com.wherelee.cabinet.application.point;
+package com.wherelee.cabinet.funds.app;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
-import com.wherelee.cabinet.application.point.dto.RechargeView;
+import com.wherelee.cabinet.funds.api.RechargeView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizPayTxn;
-import com.wherelee.cabinet.domain.enums.PayTxnStatus;
-import com.wherelee.cabinet.infrastructure.mapper.BizPayTxnMapper;
+import com.wherelee.cabinet.funds.domain.BizPayTxn;
+import com.wherelee.cabinet.funds.api.PayTxnStatus;
+import com.wherelee.cabinet.funds.infra.BizPayTxnMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;

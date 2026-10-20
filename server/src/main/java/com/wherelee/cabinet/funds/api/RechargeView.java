@@ -1,6 +1,6 @@
-package com.wherelee.cabinet.application.point.dto;
+package com.wherelee.cabinet.funds.api;
 
-import com.wherelee.cabinet.domain.enums.PayTxnStatus;
+import com.wherelee.cabinet.funds.api.PayTxnStatus;
 
 /**
  * 充值结果（给用户看的，不含任何通道内部字段）。

@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.point;
+package com.wherelee.cabinet.funds.app;
 
 /**
  * 支付通道端口：把"收一笔钱"这件事抽象出来。

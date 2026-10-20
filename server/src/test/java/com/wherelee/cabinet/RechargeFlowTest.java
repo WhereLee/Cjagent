@@ -1,8 +1,8 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.point.PayChannel;
-import com.wherelee.cabinet.application.reconcile.ReconcileReport;
-import com.wherelee.cabinet.application.reconcile.ReconcileService;
+import com.wherelee.cabinet.funds.app.PayChannel;
+import com.wherelee.cabinet.funds.app.ReconcileReport;
+import com.wherelee.cabinet.funds.app.ReconcileService;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.infrastructure.pay.MockPayChannel;
 import org.junit.jupiter.api.AfterEach;
@@ -59,9 +59,9 @@ class RechargeFlowTest {
     @Autowired
     private ReconcileService reconcile;
     @Autowired
-    private com.wherelee.cabinet.application.point.PointAccountService points;
+    private com.wherelee.cabinet.funds.app.PointAccountService points;
     @Autowired
-    private com.wherelee.cabinet.infrastructure.mapper.BizPointTxnMapper txnMapper;
+    private com.wherelee.cabinet.funds.infra.BizPointTxnMapper txnMapper;
     @Autowired
     private MockPayChannel simulatorChannel;
     @Autowired
@@ -265,19 +265,19 @@ class RechargeFlowTest {
         // 只在经它自己的写操作时作废；用 jdbc 改完再跑完全相同的聚合 SQL，会直接读到旧结果，
         // 表现为"差异拓不到"——本刀实际被这个机制骗过一次，所以写在这里当注释。
         TenantContext.runAs(TENANT, () -> txnMapper.delete(
-                com.baomidou.mybatisplus.core.toolkit.Wrappers.<com.wherelee.cabinet.domain.entity.BizPointTxn>lambdaQuery()
-                        .eq(com.wherelee.cabinet.domain.entity.BizPointTxn::getCustomerId, customerId)
-                        .eq(com.wherelee.cabinet.domain.entity.BizPointTxn::getBizType,
-                                com.wherelee.cabinet.domain.enums.PointTxnType.RECHARGE)));
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<com.wherelee.cabinet.funds.domain.BizPointTxn>lambdaQuery()
+                        .eq(com.wherelee.cabinet.funds.domain.BizPointTxn::getCustomerId, customerId)
+                        .eq(com.wherelee.cabinet.funds.domain.BizPointTxn::getBizType,
+                                com.wherelee.cabinet.funds.api.PointTxnType.RECHARGE)));
         ReconcileReport missingCredit = reconcile.reconcile(TENANT);
         assertEquals(baseNotCredited + 1, missingCredit.countOf(ReconcileService.PAID_NOT_CREDITED),
                 "通道已收款却没有对应入账必须报出来（这是用户侧资损）");
 
         // 方向二：伪造一条"看起来来自通道"的入账（等价于凭空造点）
-        com.wherelee.cabinet.domain.entity.BizPointTxn forged = new com.wherelee.cabinet.domain.entity.BizPointTxn();
+        com.wherelee.cabinet.funds.domain.BizPointTxn forged = new com.wherelee.cabinet.funds.domain.BizPointTxn();
         forged.setTenantId(TENANT);
         forged.setCustomerId(customerId);
-        forged.setBizType(com.wherelee.cabinet.domain.enums.PointTxnType.RECHARGE);
+        forged.setBizType(com.wherelee.cabinet.funds.api.PointTxnType.RECHARGE);
         forged.setAmount(999L);
         forged.setBalanceAfter(999L);
         forged.setRefType("RECHARGE");

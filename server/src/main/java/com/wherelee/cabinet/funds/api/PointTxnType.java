@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.domain.enums;
+package com.wherelee.cabinet.funds.api;
 
 import java.util.EnumSet;
 import java.util.Locale;

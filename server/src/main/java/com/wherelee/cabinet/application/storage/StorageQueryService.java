@@ -1,11 +1,11 @@
 package com.wherelee.cabinet.application.storage;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.billing.PricingPolicy;
-import com.wherelee.cabinet.application.point.PointAccountService;
+import com.wherelee.cabinet.funds.app.PricingPolicy;
+import com.wherelee.cabinet.funds.app.PointAccountService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizPointTxn;
+import com.wherelee.cabinet.funds.domain.BizPointTxn;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizSite;
@@ -14,7 +14,7 @@ import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizPointTxnMapper;
+import com.wherelee.cabinet.funds.infra.BizPointTxnMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
@@ -288,7 +288,7 @@ public class StorageQueryService {
         // ref_type 不能省：idx_txn_ref 是 (ref_type, ref_id)，只给 ref_id 用不上索引，
         // 还会把其他单据类型下恰好同 id 的流水混进来。
         java.util.List<BillLine> lines = txnMapper.selectList(Wrappers.<BizPointTxn>lambdaQuery()
-                        .eq(BizPointTxn::getRefType, com.wherelee.cabinet.application.point.OrderFundService.REF_ORDER)
+                        .eq(BizPointTxn::getRefType, com.wherelee.cabinet.funds.app.OrderFundService.REF_ORDER)
                         .eq(BizPointTxn::getRefId, order.getId())
                         .orderByAsc(BizPointTxn::getCreateTime)
                         .last("limit 60"))
