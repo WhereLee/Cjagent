@@ -41,140 +41,21 @@ class ModuleBoundaryTest {
      * <p>条目形如 {@code app.storage->domain}。P1 起只减不增：每搜完一个服务，
      * 就删掉对应的一批行；这个块清空那天，8 个业务服务的边界才算真的成立。
      */
-    private static final String BASELINE_TEXT = """
-            app.auth->common
-            app.auth->config
-            app.auth->domain
-            app.auth->infra.mapper
-            app.auth->infra.security
-            app.auth->infra.wechat
-            app.billing->common
-            app.billing->domain
-            app.billing->infra.mapper
-            app.device->app.task
-            app.device->common
-            app.device->domain
-            app.device->infra.mapper
-            app.locker->app.device
-            app.locker->app.storage
-            app.locker->app.support
-            app.locker->common
-            app.locker->domain
-            app.locker->infra.mapper
-            app.notify->common
-            app.notify->domain
-            app.notify->infra.mapper
-            app.point->app.billing
-            app.point->common
-            app.point->domain
-            app.point->infra.mapper
-            app.reconcile->domain
-            app.reconcile->infra.mapper
-            app.storage->app.billing
-            app.storage->app.device
-            app.storage->app.notify
-            app.storage->app.point
-            app.storage->app.support
-            app.storage->app.task
-            app.storage->app.workorder
-            app.storage->common
-            app.storage->domain
-            app.storage->infra.alloc
-            app.storage->infra.mapper
-            app.support->common
-            app.support->domain
-            app.support->infra.mapper
-            app.task->app.billing
-            app.task->app.device
-            app.task->app.notify
-            app.task->app.point
-            app.task->app.reconcile
-            app.task->app.storage
-            app.task->app.workorder
-            app.task->common
-            app.task->domain
-            app.task->infra.alloc
-            app.task->infra.mapper
-            app.user->app.support
-            app.user->common
-            app.user->domain
-            app.user->infra.mapper
-            app.workorder->app.notify
-            app.workorder->app.support
-            app.workorder->app.task
-            app.workorder->common
-            app.workorder->domain
-            app.workorder->infra.mapper
-            common->config
-            common->domain
-            config->app.task
-            config->common
-            config->domain
-            config->infra.mapper
-            config->infra.mybatis
-            config->infra.security
-            domain->common
-            infra.ai->app.ops
-            infra.ai->app.storage
-            infra.ai->app.support
-            infra.ai->app.workorder
-            infra.ai->common
-            infra.ai->domain
-            infra.ai->infra.mapper
-            infra.alloc->domain
-            infra.audit->common
-            infra.audit->domain
-            infra.audit->infra.mapper
-            infra.audit->infra.security
-            infra.device->app.device
-            infra.device->domain
-            infra.idempotent->common
-            infra.idempotent->infra.security
-            infra.mapper->domain
-            infra.mq->app.storage
-            infra.mq->common
-            infra.mybatis->common
-            infra.mybatis->config
-            infra.mybatis->domain
-            infra.pay->app.point
-            infra.ratelimit->common
-            infra.ratelimit->infra.security
-            infra.security->common
-            infra.security->config
-            infra.security->domain
-            infra.security->infra.mapper
-            infra.task->app.task
-            infra.task->domain
-            infra.wechat->common
-            infra.wechat->config
-            ui.admin->app.auth
-            ui.admin->app.billing
-            ui.admin->app.locker
-            ui.admin->app.notify
-            ui.admin->app.ops
-            ui.admin->app.storage
-            ui.admin->app.user
-            ui.admin->app.workorder
-            ui.admin->common
-            ui.admin->domain
-            ui.admin->infra.security
-            ui.mini->app.auth
-            ui.mini->app.notify
-            ui.mini->app.point
-            ui.mini->app.storage
-            ui.mini->app.support
-            ui.mini->app.workorder
-            ui.mini->common
-            ui.mini->domain
-            ui.mini->infra.security
-            ui.mq->app.storage
-            ui.system->common
-            """;
-    
-    private static final Set<String> BASELINE = BASELINE_TEXT.lines()
-            .map(String::trim)
-            .filter(line -> !line.isEmpty())
-            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    private static final Set<String> BASELINE = loadBaseline();
+
+    private static Set<String> loadBaseline() {
+        try (java.io.InputStream in = ModuleBoundaryTest.class
+                .getResourceAsStream("/module-boundary-baseline.txt")) {
+            if (in == null) {
+                throw new IllegalStateException("缺少模块边界基线文件 module-boundary-baseline.txt");
+            }
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+                    .lines().map(String::trim).filter(line -> !line.isEmpty())
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
 
     @Test
     @DisplayName("模块边界只能收紧：不允许新增跨模块依赖")
@@ -218,6 +99,8 @@ class ModuleBoundaryTest {
         }
         String[] parts = rest.split("\\.");
         return switch (parts[0]) {
+            // 根包 app 是启动/装配层（原 config），与 application 的缩写 app 撞名，单独叫 boot
+            case "app" -> "boot";
             case "application" -> parts.length > 1 ? "app." + parts[1] : "app";
             case "interfaces" -> parts.length > 1 ? "ui." + parts[1] : "ui";
             case "infrastructure" -> parts.length > 1 ? "infra." + parts[1] : "infra";

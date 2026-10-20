@@ -3,7 +3,7 @@ package com.wherelee.cabinet.interfaces.mini.workorder;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -45,7 +45,7 @@ public class MiniWorkOrderController {
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping
     public R<List<WorkOrderService.CustomerView>> myOrders(
-            @AuthenticationPrincipal VerifiedToken current,
+            @AuthenticationPrincipal Caller current,
             @RequestParam(defaultValue = "20") int limit) {
         return R.ok(workOrders.myOrders(current.subjectId(), limit));
     }
@@ -54,7 +54,7 @@ public class MiniWorkOrderController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/{id}")
-    public R<WorkOrderService.CustomerView> detail(@AuthenticationPrincipal VerifiedToken current,
+    public R<WorkOrderService.CustomerView> detail(@AuthenticationPrincipal Caller current,
                                                    @PathVariable Long id) {
         return R.ok(workOrders.myOrder(id, current.subjectId()));
     }
@@ -64,7 +64,7 @@ public class MiniWorkOrderController {
     @RateLimit(limit = 20, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{id}/confirm")
-    public R<Long> confirm(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
+    public R<Long> confirm(@AuthenticationPrincipal Caller current, @PathVariable Long id,
                            @Valid @RequestBody ConfirmCommand cmd) {
         if (cmd.solved()) {
             workOrders.confirmResolved(id, current.subjectId(), cmd.note());

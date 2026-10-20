@@ -5,7 +5,7 @@ import com.wherelee.cabinet.application.workorder.WorkOrderMetrics;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>用户遇到简单业务问题先找 AI：查自己的单、重开一次柜门、计费口径答疑；
  * 解决不了由 AI 转报工单（进线上队列，派线下仍是业务员的决策）。
- * 身份只来自登录态（{@code VerifiedToken}），请求体里没有也不允许有 customerId。
+ * 身份只来自登录态（{@code Caller}），请求体里没有也不允许有 customerId。
  *
  * <p>限流是硬约束而不是调优项：工具循环的每一轮都在花钱（模型 token）与动真物
  * （远程开门、建单），不给刷对话留门。AI 不可用时端口实现自己兜底，
@@ -50,7 +50,7 @@ public class MiniSupportController {
     @RateLimit(limit = 10, windowSeconds = 60, message = "提问太频繁了，请稍等片刻再试")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/chat")
-    public R<SupportAgentPort.AgentReply> chat(@AuthenticationPrincipal VerifiedToken current,
+    public R<SupportAgentPort.AgentReply> chat(@AuthenticationPrincipal Caller current,
                                                @Valid @RequestBody ChatRequest request) {
         SupportAgentPort.AgentReply reply = support.chat(new SupportAgentPort.SupportSession(
                 current.subjectId(), request.orderNo(), request.message()));

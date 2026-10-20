@@ -3,7 +3,7 @@ package com.wherelee.cabinet.interfaces.mini.notify;
 import com.wherelee.cabinet.application.notify.NoticeService;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -37,14 +37,14 @@ public class MiniNoticeController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping
-    public R<List<NoticeService.View>> mine(@AuthenticationPrincipal VerifiedToken current) {
+    public R<List<NoticeService.View>> mine(@AuthenticationPrincipal Caller current) {
         return R.ok(notices.forCustomer(current.subjectId()));
     }
 
     @Operation(summary = "标记已读", description = "只能标自己收到的消息")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{id}/read")
-    public R<Void> read(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id) {
+    public R<Void> read(@AuthenticationPrincipal Caller current, @PathVariable Long id) {
         notices.markRead(id, current.subjectId());
         return R.ok();
     }

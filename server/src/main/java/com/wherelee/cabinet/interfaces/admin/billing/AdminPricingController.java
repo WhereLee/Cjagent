@@ -4,7 +4,7 @@ import com.wherelee.cabinet.application.billing.PriceRuleService;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -74,7 +74,7 @@ public class AdminPricingController {
     @Idempotent(message = "该发布正在处理中，请勿重复提交")
     @PreAuthorize("hasAuthority('pricing:rule:publish')")
     @PostMapping("/rules")
-    public R<PriceRuleService.View> publish(@AuthenticationPrincipal VerifiedToken current,
+    public R<PriceRuleService.View> publish(@AuthenticationPrincipal Caller current,
                                   @NotNull @Valid @RequestBody PriceRuleService.Draft request) {
         return R.ok(rules.publish(request.toRule(), request.siteId(), request.effectiveAt(),
                 request.reason(), current.subjectId()));
@@ -85,7 +85,7 @@ public class AdminPricingController {
     @Idempotent(key = "#ruleId", requireKey = true, message = "该回滚正在处理中")
     @PreAuthorize("hasAuthority('pricing:rule:publish')")
     @PostMapping("/rules/{ruleId}/rollback")
-    public R<PriceRuleService.View> rollback(@AuthenticationPrincipal VerifiedToken current,
+    public R<PriceRuleService.View> rollback(@AuthenticationPrincipal Caller current,
                                    @PathVariable Long ruleId,
                                    @Valid @RequestBody ReasonRequest request) {
         return R.ok(rules.rollback(ruleId, request.reason(), current.subjectId()));

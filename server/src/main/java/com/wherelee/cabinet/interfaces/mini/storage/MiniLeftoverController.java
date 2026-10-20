@@ -5,7 +5,7 @@ import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
@@ -46,7 +46,7 @@ public class MiniLeftoverController {
     @Idempotent(message = "开门请求处理中，请勿重复操作")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/open")
-    public R<String> open(@AuthenticationPrincipal VerifiedToken current,
+    public R<String> open(@AuthenticationPrincipal Caller current,
                           @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(retrievals.openForRetrieval(current.subjectId(), orderNo));
     }
@@ -58,7 +58,7 @@ public class MiniLeftoverController {
     @Idempotent(message = "确认处理中，请勿重复提交")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/taken")
-    public R<String> taken(@AuthenticationPrincipal VerifiedToken current,
+    public R<String> taken(@AuthenticationPrincipal Caller current,
                            @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(retrievals.confirmRetrieved(current.subjectId(), orderNo));
     }

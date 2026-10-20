@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.infrastructure.mq.RocketMQHealthIndicator;
+import com.wherelee.cabinet.platform.mq.RocketMQHealthIndicator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

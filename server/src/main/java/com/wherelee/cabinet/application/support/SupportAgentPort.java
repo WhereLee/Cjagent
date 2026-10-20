@@ -23,7 +23,7 @@ public interface SupportAgentPort {
 
     /**
      * 一次对话的输入。<b>customerId 由登录态注入</b>，来自端点层的
-     * {@code VerifiedToken}，永远不接受模型或请求体传身份。
+     * {@code Caller}，永远不接受模型或请求体传身份。
      * {@code orderNo} 可空：用户从订单详情进来会带上，从客服入口进来则为空。
      */
     record SupportSession(Long customerId, String orderNo, String message) {

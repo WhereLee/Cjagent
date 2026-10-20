@@ -8,7 +8,7 @@ import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -54,7 +54,7 @@ public class MiniStorageOrderController {
     @Idempotent(key = "#cmd.requestId", requireKey = true, message = "该请求已处理，请勿重复提交")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping
-    public R<StorageOrderView> create(@AuthenticationPrincipal VerifiedToken current,
+    public R<StorageOrderView> create(@AuthenticationPrincipal Caller current,
                                       @Valid @RequestBody CreateOrderCommand cmd) {
         return R.ok(storageOrderFacade.place(current.subjectId(), cmd));
     }
@@ -79,7 +79,7 @@ public class MiniStorageOrderController {
     @Idempotent(message = "开柜请求处理中，请勿重复操作")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{orderNo}/door")
-    public R<StorageOrderView> door(@AuthenticationPrincipal VerifiedToken current,
+    public R<StorageOrderView> door(@AuthenticationPrincipal Caller current,
                                     @PathVariable @NotBlank @Size(max = 32) String orderNo,
                                     @RequestParam @NotBlank @Size(max = 16) String action) {
         return R.ok(storageOrderFacade.openDoor(current.subjectId(), orderNo,
@@ -98,7 +98,7 @@ public class MiniStorageOrderController {
     @RateLimit(limit = 12, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{orderNo}/pickup")
-    public R<StorageOrderView> pickup(@AuthenticationPrincipal VerifiedToken current,
+    public R<StorageOrderView> pickup(@AuthenticationPrincipal Caller current,
                                       @PathVariable @NotBlank @Size(max = 32) String orderNo,
                                       @RequestBody(required = false) PickupRequest request) {
         return R.ok(storageOrderFacade.pickup(current.subjectId(), orderNo,
@@ -127,7 +127,7 @@ public class MiniStorageOrderController {
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{orderNo}/voucher/reset")
     public R<com.wherelee.cabinet.application.storage.dto.VoucherView> resetVoucher(
-            @AuthenticationPrincipal VerifiedToken current,
+            @AuthenticationPrincipal Caller current,
             @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(storageOrderFacade.resetVoucher(current.subjectId(), orderNo));
     }
@@ -144,7 +144,7 @@ public class MiniStorageOrderController {
     @Idempotent(message = "上报处理中，请勿重复提交")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{orderNo}/report-leftover")
-    public R<StorageOrderView> reportLeftover(@AuthenticationPrincipal VerifiedToken current,
+    public R<StorageOrderView> reportLeftover(@AuthenticationPrincipal Caller current,
                                              @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(storageOrderFacade.reportLeftover(current.subjectId(), orderNo));
     }

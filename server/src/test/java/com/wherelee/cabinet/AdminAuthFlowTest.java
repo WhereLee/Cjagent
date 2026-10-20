@@ -5,7 +5,7 @@ import com.wherelee.cabinet.domain.entity.SysTenant;
 import com.wherelee.cabinet.domain.entity.SysUser;
 import com.wherelee.cabinet.infrastructure.mapper.SysTenantMapper;
 import com.wherelee.cabinet.infrastructure.mapper.SysUserMapper;
-import com.wherelee.cabinet.infrastructure.security.AdminPermissionService;
+import com.wherelee.cabinet.platform.security.AdminPermissionService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

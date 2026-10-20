@@ -6,7 +6,7 @@ import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -59,7 +59,7 @@ public class MiniRechargeController {
     @Idempotent(key = "#cmd.requestId", requireKey = true, message = "该充值请求已在处理，请勿重复提交")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/recharge")
-    public R<RechargeView> recharge(@AuthenticationPrincipal VerifiedToken current,
+    public R<RechargeView> recharge(@AuthenticationPrincipal Caller current,
                                     @Valid @RequestBody RechargeCommand cmd) {
         return R.ok(recharge.recharge(current.subjectId(), cmd.points()));
     }

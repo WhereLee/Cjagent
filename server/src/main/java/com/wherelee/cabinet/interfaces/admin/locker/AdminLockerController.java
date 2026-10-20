@@ -7,7 +7,7 @@ import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -111,7 +111,7 @@ public class AdminLockerController {
     @Idempotent(message = "开柜指令正在下发，请勿重复确认")
     @PreAuthorize("hasAuthority('locker:door:force-open')")
     @PostMapping("/compartments/{compartmentId}/force-open")
-    public R<Void> forceOpen(@AuthenticationPrincipal VerifiedToken current,
+    public R<Void> forceOpen(@AuthenticationPrincipal Caller current,
                              @PathVariable Long compartmentId,
                              @Valid @RequestBody ForceOpenRequest request) {
         console.forceOpen(compartmentId, request.confirmed(), request.reason(), current.subjectId());

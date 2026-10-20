@@ -3,7 +3,7 @@ package com.wherelee.cabinet.interfaces.mini.storage;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
@@ -58,7 +58,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/orders")
-    public R<List<StorageQueryService.OrderView>> myOrders(@AuthenticationPrincipal VerifiedToken current,
+    public R<List<StorageQueryService.OrderView>> myOrders(@AuthenticationPrincipal Caller current,
                                                            @RequestParam(defaultValue = "20") int limit) {
         return R.ok(queries.myOrders(current.subjectId(), limit));
     }
@@ -68,7 +68,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/orders/{orderNo}/bill")
-    public R<StorageQueryService.BillView> bill(@AuthenticationPrincipal VerifiedToken current,
+    public R<StorageQueryService.BillView> bill(@AuthenticationPrincipal Caller current,
                                                 @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(queries.bill(current.subjectId(), orderNo));
     }
@@ -80,7 +80,7 @@ public class MiniStorageQueryController {
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/orders/{orderNo}/voucher")
     public R<com.wherelee.cabinet.application.storage.dto.VoucherView> voucher(
-            @AuthenticationPrincipal VerifiedToken current,
+            @AuthenticationPrincipal Caller current,
             @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(queries.voucher(current.subjectId(), orderNo));
     }
@@ -90,7 +90,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/wallet")
-    public R<StorageQueryService.WalletView> wallet(@AuthenticationPrincipal VerifiedToken current) {
+    public R<StorageQueryService.WalletView> wallet(@AuthenticationPrincipal Caller current) {
         return R.ok(queries.wallet(current.subjectId()));
     }
 }

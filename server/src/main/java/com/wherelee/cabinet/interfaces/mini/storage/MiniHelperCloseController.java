@@ -3,7 +3,7 @@ package com.wherelee.cabinet.interfaces.mini.storage;
 import com.wherelee.cabinet.application.storage.CabinetAvailabilityService;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
@@ -52,7 +52,7 @@ public class MiniHelperCloseController {
     @RateLimit(limit = 10, windowSeconds = 60, message = "操作过于频繁，请稍后再试")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{cabinetNo}/slots/{slotNo}/closed-by-helper")
-    public R<String> confirmClosed(@AuthenticationPrincipal VerifiedToken current,
+    public R<String> confirmClosed(@AuthenticationPrincipal Caller current,
                                    @PathVariable @NotBlank @Size(max = 32) String cabinetNo,
                                    @PathVariable @NotBlank @Size(max = 16) String slotNo) {
         return R.ok(cabinets.confirmClosedByAnother(cabinetNo, slotNo, current.subjectId()));

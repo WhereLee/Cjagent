@@ -32,7 +32,25 @@ class ArchitectureTest {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".domain..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         ROOT + ".interfaces..", ROOT + ".application..",
-                        ROOT + ".infrastructure..", ROOT + ".config..");
+                        ROOT + ".infrastructure..", ROOT + ".app..");
+        rule.check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    @DisplayName("common 保持纯契约：不沾平台运行时、启动装配与业务服务")
+    void commonDependsOnNothingButItself() {
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".common..")
+                .should().dependOnClassesThat().resideInAnyPackage(
+                        ROOT + ".platform..", ROOT + ".app..", ROOT + ".interfaces..",
+                        ROOT + ".application..", ROOT + ".infrastructure..");
+        rule.check(PRODUCTION_CLASSES);
+    }
+
+    @Test
+    @DisplayName("接口层不得依赖基础设施层：控制器只认平台层的 Caller 与视图")
+    void interfacesDoNotTouchInfrastructure() {
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".infrastructure..");
         rule.check(PRODUCTION_CLASSES);
     }
 

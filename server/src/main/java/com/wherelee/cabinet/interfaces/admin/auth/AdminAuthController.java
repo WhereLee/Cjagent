@@ -5,8 +5,8 @@ import com.wherelee.cabinet.application.auth.dto.AdminLoginRequest;
 import com.wherelee.cabinet.application.auth.dto.CurrentAccountView;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.TokenPair;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.TokenPair;
+import com.wherelee.cabinet.platform.security.Caller;
 import com.wherelee.cabinet.interfaces.admin.auth.dto.RefreshRequest;
 import com.wherelee.cabinet.interfaces.admin.auth.dto.TokenView;
 import io.swagger.v3.oas.annotations.Operation;
@@ -51,7 +51,7 @@ public class AdminAuthController {
 
     @Operation(summary = "注销", description = "当前 access 进黑名单，可选带上 refresh 一并作废")
     @PostMapping("/logout")
-    public R<Void> logout(@AuthenticationPrincipal VerifiedToken current,
+    public R<Void> logout(@AuthenticationPrincipal Caller current,
                           @RequestBody(required = false) RefreshRequest request) {
         authService.logout(current, request == null ? null : request.refreshToken());
         return R.ok();
@@ -59,7 +59,7 @@ public class AdminAuthController {
 
     @Operation(summary = "当前账号与权限", description = "前端启动时拉一次用于渲染菜单")
     @GetMapping("/me")
-    public R<CurrentAccountView> me(@AuthenticationPrincipal VerifiedToken current) {
+    public R<CurrentAccountView> me(@AuthenticationPrincipal Caller current) {
         return R.ok(authService.me(current));
     }
 

@@ -10,7 +10,7 @@ import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.domain.enums.CloseReason;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -87,7 +87,7 @@ public class AdminWorkOrderController {
     @Idempotent(key = "#current.subjectId() + ':call:' + #id", requireKey = false)
     @PreAuthorize("hasAuthority('workorder:resolve')")
     @PostMapping("/notices/{id}/call-done")
-    public R<Void> callDone(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
+    public R<Void> callDone(@AuthenticationPrincipal Caller current, @PathVariable Long id,
                             @Valid @RequestBody CallDoneCommand cmd) {
         notices.markCallDone(id, cmd.resultNote());
         return R.ok();
@@ -118,7 +118,7 @@ public class AdminWorkOrderController {
     @Idempotent(key = "#current.subjectId() + ':' + #id", requireKey = false)
     @PreAuthorize("hasAuthority('workorder:claim')")
     @PostMapping("/{id}/claim")
-    public R<Void> claim(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id) {
+    public R<Void> claim(@AuthenticationPrincipal Caller current, @PathVariable Long id) {
         workOrders.claim(id, current.subjectId());
         return R.ok();
     }
@@ -134,7 +134,7 @@ public class AdminWorkOrderController {
     // 派线下是独立权限点：能关线上单不等于能派人跑现场。needOffline=false 时不需要它。
     @PreAuthorize("hasAuthority('workorder:resolve') and (!#cmd.needOffline() or hasAuthority('workorder:dispatch-field'))")
     @PostMapping("/{id}/resolve")
-    public R<Long> resolve(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
+    public R<Long> resolve(@AuthenticationPrincipal Caller current, @PathVariable Long id,
                            @Valid @RequestBody ResolveCommand cmd) {
         return R.ok(workOrders.resolve(id, current.subjectId(), cmd.resultNote(), cmd.needOffline(),
                 cmd.closeReason()));
@@ -145,7 +145,7 @@ public class AdminWorkOrderController {
     @OperationLog(module = "workorder", operation = "暂停SLA")
     @PreAuthorize("hasAuthority('workorder:resolve')")
     @PostMapping("/{id}/sla/pause")
-    public R<Void> pauseSla(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id) {
+    public R<Void> pauseSla(@AuthenticationPrincipal Caller current, @PathVariable Long id) {
         workOrders.pauseSla(id, current.subjectId());
         return R.ok();
     }
@@ -154,7 +154,7 @@ public class AdminWorkOrderController {
     @OperationLog(module = "workorder", operation = "恢复SLA")
     @PreAuthorize("hasAuthority('workorder:resolve')")
     @PostMapping("/{id}/sla/resume")
-    public R<Void> resumeSla(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id) {
+    public R<Void> resumeSla(@AuthenticationPrincipal Caller current, @PathVariable Long id) {
         workOrders.resumeSla(id, current.subjectId());
         return R.ok();
     }
@@ -199,7 +199,7 @@ public class AdminWorkOrderController {
     @RateLimit(limit = 6, windowSeconds = 60, message = "简报生成太频繁，请稍后再试")
     @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @PostMapping("/{id}/ai-brief")
-    public R<WorkOrderBriefPort.Brief> brief(@AuthenticationPrincipal VerifiedToken current,
+    public R<WorkOrderBriefPort.Brief> brief(@AuthenticationPrincipal Caller current,
                                              @PathVariable Long id) {
         return R.ok(briefs.brief(id, current.subjectId()));
     }
@@ -209,7 +209,7 @@ public class AdminWorkOrderController {
     @Idempotent(key = "#current.subjectId() + ':phone:' + #id", requireKey = false)
     @PreAuthorize("hasAuthority('workorder:resolve')")
     @PostMapping("/{id}/phone-note")
-    public R<Void> phoneNote(@AuthenticationPrincipal VerifiedToken current, @PathVariable Long id,
+    public R<Void> phoneNote(@AuthenticationPrincipal Caller current, @PathVariable Long id,
                              @Valid @RequestBody PhoneNoteCommand cmd) {
         workOrders.notePhoneCall(id, current.subjectId(), cmd.resultNote());
         return R.ok();

@@ -6,7 +6,7 @@ import com.wherelee.cabinet.application.auth.dto.CustomerLoginView;
 import com.wherelee.cabinet.application.auth.dto.CustomerView;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.Caller;
 import com.wherelee.cabinet.interfaces.mini.auth.dto.MiniRefreshRequest;
 import com.wherelee.cabinet.interfaces.mini.auth.dto.MiniTokenView;
 import io.swagger.v3.oas.annotations.Operation;
@@ -59,7 +59,7 @@ public class MiniAuthController {
     @Operation(summary = "注销")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/logout")
-    public R<Void> logout(@AuthenticationPrincipal VerifiedToken current,
+    public R<Void> logout(@AuthenticationPrincipal Caller current,
                           @RequestBody(required = false) MiniRefreshRequest request) {
         customerAuthService.logout(current, request == null ? null : request.refreshToken());
         return R.ok();
@@ -68,7 +68,7 @@ public class MiniAuthController {
     @Operation(summary = "当前客户信息", description = "不回传 openId/unionId：那是服务端身份标识")
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/me")
-    public R<CustomerView> me(@AuthenticationPrincipal VerifiedToken current) {
+    public R<CustomerView> me(@AuthenticationPrincipal Caller current) {
         return R.ok(customerAuthService.currentProfile(current));
     }
 }

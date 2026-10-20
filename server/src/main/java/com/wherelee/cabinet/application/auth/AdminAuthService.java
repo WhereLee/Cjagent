@@ -6,13 +6,13 @@ import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.common.security.AuthConstants;
-import com.wherelee.cabinet.common.security.LoginUser;
+import com.wherelee.cabinet.platform.security.LoginUser;
 import com.wherelee.cabinet.domain.entity.SysTenant;
 import com.wherelee.cabinet.infrastructure.mapper.SysUserMapper;
-import com.wherelee.cabinet.infrastructure.security.AdminPermissionService;
-import com.wherelee.cabinet.infrastructure.security.TokenIssuer;
-import com.wherelee.cabinet.infrastructure.security.TokenPair;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.AdminPermissionService;
+import com.wherelee.cabinet.platform.security.TokenIssuer;
+import com.wherelee.cabinet.platform.security.TokenPair;
+import com.wherelee.cabinet.platform.security.Caller;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -87,12 +87,12 @@ public class AdminAuthService {
         return tokenIssuer.refresh(AuthConstants.END_ADMIN, refreshToken);
     }
 
-    public void logout(VerifiedToken currentAccess, String refreshToken) {
+    public void logout(Caller currentAccess, String refreshToken) {
         tokenIssuer.logout(AuthConstants.END_ADMIN, currentAccess, refreshToken);
     }
 
     /** 当前账号信息（前端启动时拉菜单用）。权限走缓存，所以这个方法很轻。 */
-    public CurrentAccountView me(VerifiedToken current) {
+    public CurrentAccountView me(Caller current) {
         return new CurrentAccountView(current.subjectId(), current.username(), current.tenantId(),
                 current.end(), permissionService.resolve(current.subjectId()));
     }

@@ -5,7 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
 import com.wherelee.cabinet.application.storage.message.OrderPersistMessage;
-import com.wherelee.cabinet.application.support.ConsumeIdempotencyGuard;
+import com.wherelee.cabinet.platform.mq.ConsumeIdempotencyGuard;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;

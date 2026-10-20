@@ -7,13 +7,13 @@ import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.common.security.AuthConstants;
-import com.wherelee.cabinet.config.CabinetProperties;
+import com.wherelee.cabinet.app.CabinetProperties;
 import com.wherelee.cabinet.domain.entity.BizCustomer;
 import com.wherelee.cabinet.domain.entity.SysTenant;
 import com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper;
-import com.wherelee.cabinet.infrastructure.security.TokenIssuer;
-import com.wherelee.cabinet.infrastructure.security.TokenPair;
-import com.wherelee.cabinet.infrastructure.security.VerifiedToken;
+import com.wherelee.cabinet.platform.security.TokenIssuer;
+import com.wherelee.cabinet.platform.security.TokenPair;
+import com.wherelee.cabinet.platform.security.Caller;
 import com.wherelee.cabinet.infrastructure.wechat.MiniAppClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -128,7 +128,7 @@ public class CustomerAuthService {
         return tokenIssuer.refresh(AuthConstants.END_MINI, refreshToken);
     }
 
-    public void logout(VerifiedToken currentAccess, String refreshToken) {
+    public void logout(Caller currentAccess, String refreshToken) {
         tokenIssuer.logout(AuthConstants.END_MINI, currentAccess, refreshToken);
     }
 
@@ -138,7 +138,7 @@ public class CustomerAuthService {
      * <p>回的是 {@link CustomerView} 而不是实体：openId / unionId 属于服务端侧身份标识，
      * 下发给客户端没有任何用处，却把一个稳定主键泄露到了前端与日志里。
      */
-    public CustomerView currentProfile(VerifiedToken current) {
+    public CustomerView currentProfile(Caller current) {
         BizCustomer customer = customerMapper.selectById(current.subjectId());
         if (customer == null) {
             throw new BizException(ResultCode.UNAUTHORIZED, "账号不存在或已被删除，请重新登录");

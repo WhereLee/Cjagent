@@ -3,7 +3,7 @@ package com.wherelee.cabinet.infrastructure.wechat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.config.CabinetProperties;
+import com.wherelee.cabinet.app.CabinetProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
