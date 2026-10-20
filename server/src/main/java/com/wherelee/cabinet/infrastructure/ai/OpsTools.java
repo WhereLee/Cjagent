@@ -1,8 +1,8 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.domain.entity.BizFaultEvent;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.domain.BizFaultEvent;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.boot.actuate.health.CompositeHealth;
 import org.springframework.boot.actuate.health.Health;

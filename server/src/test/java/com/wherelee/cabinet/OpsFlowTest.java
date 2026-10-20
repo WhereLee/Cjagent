@@ -2,9 +2,9 @@ package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
 import com.wherelee.cabinet.common.context.TenantContext;
-import com.wherelee.cabinet.domain.enums.FaultType;
+import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.infrastructure.ai.OpsTools;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

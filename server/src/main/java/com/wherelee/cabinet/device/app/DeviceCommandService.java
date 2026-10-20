@@ -1,4 +1,6 @@
-package com.wherelee.cabinet.application.device;
+package com.wherelee.cabinet.device.app;
+
+import com.wherelee.cabinet.device.api.DeviceChannel;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -8,19 +10,19 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.entity.BizDeviceCommand;
-import com.wherelee.cabinet.domain.entity.BizDeviceReport;
-import com.wherelee.cabinet.domain.entity.BizFaultEvent;
+import com.wherelee.cabinet.device.domain.BizDeviceCommand;
+import com.wherelee.cabinet.device.domain.BizDeviceReport;
+import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
-import com.wherelee.cabinet.domain.enums.CommandAction;
-import com.wherelee.cabinet.domain.enums.CommandState;
-import com.wherelee.cabinet.domain.enums.FaultType;
+import com.wherelee.cabinet.device.api.CommandAction;
+import com.wherelee.cabinet.device.api.CommandState;
+import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.SlotStatus;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizDeviceReportMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
+import com.wherelee.cabinet.device.infra.BizDeviceReportMapper;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

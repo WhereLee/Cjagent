@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.domain.enums;
+package com.wherelee.cabinet.device.api;
 
 import java.util.Locale;
 

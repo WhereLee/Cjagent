@@ -4,7 +4,7 @@ import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;

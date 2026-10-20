@@ -66,7 +66,7 @@ public class WorkOrderService {
     /** 19D：升级时同时生成“必须打电话”待办与给客户的站内消息。 */
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
     /** 19C：证据记录（四个采集点）随工单一起看，不然采集了也等于没人看到。 */
-    private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
+    private final com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper;
     /** 分诊事实之一：柜机在线快照（离线时门故障改按设备故障处置）。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper;
     /** 关闭依据核验：事实恢复要看格口异常是否已解除。 */
@@ -84,7 +84,7 @@ public class WorkOrderService {
 
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                             com.wherelee.cabinet.notify.api.NoticePort notices,
-                            com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
+                            com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper,
                             com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper,
                             com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper slotMapper,
                             WorkOrderTriageService triage,
@@ -119,9 +119,9 @@ public class WorkOrderService {
             return java.util.List.of();
         }
         return evidenceMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
-                        .<com.wherelee.cabinet.domain.entity.BizItemEvidence>lambdaQuery()
-                        .eq(com.wherelee.cabinet.domain.entity.BizItemEvidence::getCompartmentId, order.getSlotId())
-                        .orderByAsc(com.wherelee.cabinet.domain.entity.BizItemEvidence::getCreateTime)
+                        .<com.wherelee.cabinet.device.domain.BizItemEvidence>lambdaQuery()
+                        .eq(com.wherelee.cabinet.device.domain.BizItemEvidence::getCompartmentId, order.getSlotId())
+                        .orderByAsc(com.wherelee.cabinet.device.domain.BizItemEvidence::getCreateTime)
                         .last("limit 60"))
                 .stream()
                 .map(e -> new EvidenceView(e.getMoment() == null ? null : e.getMoment().name(),

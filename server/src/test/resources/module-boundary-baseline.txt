@@ -11,6 +11,7 @@ bff.admin->servicedesk
 bff.admin->storage
 bff.mini->assistant
 bff.mini->common
+bff.mini->device
 bff.mini->domain
 bff.mini->funds
 bff.mini->identity
@@ -40,6 +41,7 @@ identity->infra.wechat
 identity->platform
 infra.ai->assistant
 infra.ai->common
+infra.ai->device
 infra.ai->domain
 infra.ai->infra.mapper
 infra.ai->servicedesk
@@ -69,6 +71,7 @@ platform->domain
 platform->infra.mapper
 servicedesk->assistant
 servicedesk->common
+servicedesk->device
 servicedesk->domain
 servicedesk->infra.mapper
 servicedesk->notify

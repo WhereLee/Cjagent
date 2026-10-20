@@ -7,8 +7,8 @@ import com.wherelee.cabinet.application.storage.StorageQueryService;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
-import com.wherelee.cabinet.infrastructure.device.SimulatedCabinetChannel;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.infra.SimulatedCabinetChannel;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderEventMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -186,10 +186,10 @@ class LeftoverRetrieveFlowTest {
                 "复检无物后格口自动回可售（用户定的收口方式）");
         assertEquals(1, com.wherelee.cabinet.common.context.TenantContext.callAs(TENANT,
                 () -> faultMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
-                        .<com.wherelee.cabinet.domain.entity.BizFaultEvent>lambdaQuery()
-                        .eq(com.wherelee.cabinet.domain.entity.BizFaultEvent::getSlotId, slotId)
-                        .eq(com.wherelee.cabinet.domain.entity.BizFaultEvent::getAction,
-                                com.wherelee.cabinet.domain.enums.FaultType.Action.RECOVER))).size(),
+                        .<com.wherelee.cabinet.device.domain.BizFaultEvent>lambdaQuery()
+                        .eq(com.wherelee.cabinet.device.domain.BizFaultEvent::getSlotId, slotId)
+                        .eq(com.wherelee.cabinet.device.domain.BizFaultEvent::getAction,
+                                com.wherelee.cabinet.device.api.FaultType.Action.RECOVER))).size(),
                 "解除动作要进台账：谁取的、复检结果是什么");
         assertEquals(1, com.wherelee.cabinet.common.context.TenantContext.callAs(TENANT,
                 () -> eventMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers

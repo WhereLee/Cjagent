@@ -1,11 +1,12 @@
-package com.wherelee.cabinet.domain.entity;
+package com.wherelee.cabinet.device.domain;
 
 import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.Version;
-import com.wherelee.cabinet.domain.enums.CommandAction;
-import com.wherelee.cabinet.domain.enums.CommandState;
+import com.wherelee.cabinet.device.api.CommandAction;
+import com.wherelee.cabinet.device.api.CommandState;
+import com.wherelee.cabinet.domain.entity.BaseEntity;
 import lombok.Getter;
 import lombok.Setter;
 

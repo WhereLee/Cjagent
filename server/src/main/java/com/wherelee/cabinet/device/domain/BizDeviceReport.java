@@ -1,9 +1,9 @@
-package com.wherelee.cabinet.domain.entity;
+package com.wherelee.cabinet.device.domain;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.wherelee.cabinet.domain.enums.ReportEvent;
+import com.wherelee.cabinet.device.api.ReportEvent;
 import lombok.Getter;
 import lombok.Setter;
 

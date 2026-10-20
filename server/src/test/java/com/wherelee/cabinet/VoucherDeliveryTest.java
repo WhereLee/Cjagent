@@ -17,7 +17,7 @@ import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
-import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.domain.enums.OnlineState;
 import com.wherelee.cabinet.domain.enums.SizeType;
 import com.wherelee.cabinet.domain.enums.SlotStatus;

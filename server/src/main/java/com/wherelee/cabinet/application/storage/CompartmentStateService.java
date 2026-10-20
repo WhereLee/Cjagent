@@ -1,22 +1,22 @@
 package com.wherelee.cabinet.application.storage;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.device.DeviceChannel;
+import com.wherelee.cabinet.device.api.DeviceChannel;
 import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.entity.BizItemEvidence;
-import com.wherelee.cabinet.domain.enums.EvidenceSource;
-import com.wherelee.cabinet.domain.entity.BizFaultEvent;
+import com.wherelee.cabinet.device.domain.BizItemEvidence;
+import com.wherelee.cabinet.device.api.EvidenceSource;
+import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
-import com.wherelee.cabinet.domain.enums.FaultType;
+import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +57,7 @@ public class CompartmentStateService {
      * <p>写在这里而不是各调用方自己写：这已经是门态与物检的唯一写入点，
      * 分散写必然出现“实时路径记了、巡检路径漏了”那种同事件不同结果（第 13 刀为此合并过一次）。
      */
-    private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
+    private final com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper;
     /** 遗留物通知（第 21 刀）：物主收到的站内消息走它，一张未关闭工单只发一条。 */
     private final NoticePort notices;
     /** 遗留物归因：发现遗留物时活动单早已结束，能指认的就是这个格口最近一张终态单的主人。 */
@@ -86,7 +86,7 @@ public class CompartmentStateService {
                                    DeviceChannel channel,
                                    com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
                                    com.wherelee.cabinet.application.workorder.WorkOrderService workOrders,
-                                   com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
+                                   com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper,
                                    NoticePort notices,
                                    BizStorageOrderMapper orderMapper) {
         this.slotMapper = slotMapper;

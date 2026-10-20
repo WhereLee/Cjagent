@@ -1,8 +1,8 @@
-package com.wherelee.cabinet.application.device;
+package com.wherelee.cabinet.device.api;
 
-import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.domain.enums.Presence;
-import com.wherelee.cabinet.domain.enums.ReportEvent;
+import com.wherelee.cabinet.device.api.ReportEvent;
 
 import java.time.LocalDateTime;
 import java.util.concurrent.CompletableFuture;

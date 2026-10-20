@@ -8,7 +8,7 @@ import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.entity.BizWorkOrder;
-import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
 import com.wherelee.cabinet.domain.enums.WorkOrderKind;
 import com.wherelee.cabinet.domain.enums.WorkOrderSource;

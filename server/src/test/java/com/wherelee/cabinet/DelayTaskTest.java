@@ -10,13 +10,13 @@ import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
 import com.wherelee.cabinet.domain.entity.BizDeposit;
-import com.wherelee.cabinet.domain.entity.BizFaultEvent;
+import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import com.wherelee.cabinet.domain.entity.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CabinetStatus;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.DepositStatus;
-import com.wherelee.cabinet.domain.enums.FaultType;
+import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OnlineState;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.Presence;
@@ -28,7 +28,7 @@ import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizDelayTaskMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizDepositMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import com.wherelee.cabinet.application.point.PointAccountService;
@@ -212,9 +212,9 @@ class DelayTaskTest {
     /** 把单推到 ACTIVE（真开柜 + 关门校验），没这个就不能测“计费中遇逾期”这条真实链路。 */
     private BizStorageOrder activate(Long customerId, BizStorageOrder order) {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
-                com.wherelee.cabinet.domain.enums.CommandAction.OPEN));
+                com.wherelee.cabinet.device.api.CommandAction.OPEN));
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
-                com.wherelee.cabinet.domain.enums.CommandAction.CLOSE_VERIFY));
+                com.wherelee.cabinet.device.api.CommandAction.CLOSE_VERIFY));
         return TenantContext.callAs(TENANT, () -> orderMapper.selectById(order.getId()));
     }
 
@@ -470,7 +470,7 @@ class DelayTaskTest {
         BizStorageOrder order = newOrder(customerId);
         // 走到 OPENING：开柜成功（模拟器正常回执）
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
-                com.wherelee.cabinet.domain.enums.CommandAction.OPEN));
+                com.wherelee.cabinet.device.api.CommandAction.OPEN));
         assertEquals(OrderStatus.OPENING, TenantContext.callAs(TENANT,
                 () -> orderMapper.selectById(order.getId())).getStatus());
 
@@ -511,7 +511,7 @@ class DelayTaskTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
-                com.wherelee.cabinet.domain.enums.CommandAction.OPEN));
+                com.wherelee.cabinet.device.api.CommandAction.OPEN));
         jdbc.update("update biz_storage_order set tolerance_until = date_sub(now(3), interval 1 second) "
                 + "where id = ?", order.getId());
         scheduleNow(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());

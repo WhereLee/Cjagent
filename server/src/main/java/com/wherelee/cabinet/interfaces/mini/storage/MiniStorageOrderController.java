@@ -83,7 +83,7 @@ public class MiniStorageOrderController {
                                     @PathVariable @NotBlank @Size(max = 32) String orderNo,
                                     @RequestParam @NotBlank @Size(max = 16) String action) {
         return R.ok(storageOrderFacade.openDoor(current.subjectId(), orderNo,
-                com.wherelee.cabinet.domain.enums.CommandAction.of(action)));
+                com.wherelee.cabinet.device.api.CommandAction.of(action)));
     }
 
     /**

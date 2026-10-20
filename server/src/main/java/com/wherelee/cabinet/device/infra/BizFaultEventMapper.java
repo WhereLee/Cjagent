@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.device.infra;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.wherelee.cabinet.domain.entity.BizFaultEvent;
+import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

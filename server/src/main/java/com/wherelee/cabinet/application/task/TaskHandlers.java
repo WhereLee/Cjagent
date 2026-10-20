@@ -3,7 +3,7 @@ package com.wherelee.cabinet.application.task;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.billing.PricingPolicy;
 import com.wherelee.cabinet.application.point.OrderFundService;
-import com.wherelee.cabinet.application.device.DeviceCommandService;
+import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.application.reconcile.ReconcileReport;
 import com.wherelee.cabinet.application.reconcile.ReconcileService;
 import com.wherelee.cabinet.application.storage.CompartmentStateService;
@@ -16,11 +16,11 @@ import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
 import com.wherelee.cabinet.domain.entity.BizDeposit;
-import com.wherelee.cabinet.domain.entity.BizDeviceCommand;
-import com.wherelee.cabinet.domain.entity.BizFaultEvent;
+import com.wherelee.cabinet.device.domain.BizDeviceCommand;
+import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.DepositStatus;
-import com.wherelee.cabinet.domain.enums.FaultType;
+import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.SlotStatus;
 import com.wherelee.cabinet.domain.enums.SizeType;
@@ -29,8 +29,8 @@ import com.wherelee.cabinet.infrastructure.alloc.SlotPreDeductionService;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizDepositMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -76,11 +76,11 @@ public final class TaskHandlers {
 
         private final BizStorageOrderMapper orderMapper;
         private final StorageOrderService orders;
-        private final com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper commandMapper;
+        private final com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper;
         private final com.wherelee.cabinet.application.storage.CompartmentStateService states;
 
         SlotReleaseHandler(BizStorageOrderMapper orderMapper, StorageOrderService orders,
-                           com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper commandMapper,
+                           com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper,
                            com.wherelee.cabinet.application.storage.CompartmentStateService states) {
             this.orderMapper = orderMapper;
             this.orders = orders;
@@ -95,13 +95,13 @@ public final class TaskHandlers {
 
         /** 这张单上是否有一条**成功的**开门指令（不管是首次投件还是临时开柜）。 */
         private boolean anyOpenSucceeded(Long orderId) {
-            return commandMapper.selectCount(Wrappers.<com.wherelee.cabinet.domain.entity.BizDeviceCommand>lambdaQuery()
-                    .eq(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getOrderId, orderId)
-                    .in(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getAction,
-                            com.wherelee.cabinet.domain.enums.CommandAction.OPEN,
-                            com.wherelee.cabinet.domain.enums.CommandAction.OPEN_TEMP)
-                    .eq(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getStatus,
-                            com.wherelee.cabinet.domain.enums.CommandState.SUCCEEDED)) > 0;
+            return commandMapper.selectCount(Wrappers.<com.wherelee.cabinet.device.domain.BizDeviceCommand>lambdaQuery()
+                    .eq(com.wherelee.cabinet.device.domain.BizDeviceCommand::getOrderId, orderId)
+                    .in(com.wherelee.cabinet.device.domain.BizDeviceCommand::getAction,
+                            com.wherelee.cabinet.device.api.CommandAction.OPEN,
+                            com.wherelee.cabinet.device.api.CommandAction.OPEN_TEMP)
+                    .eq(com.wherelee.cabinet.device.domain.BizDeviceCommand::getStatus,
+                            com.wherelee.cabinet.device.api.CommandState.SUCCEEDED)) > 0;
         }
 
         @Override
@@ -505,7 +505,7 @@ public final class TaskHandlers {
             // 不返 true 就等于只重试一次就断链（本刀实测）。
             return result.action() == DeviceCommandService.RescanAction.REDISPATCHED
                     && result.outcome() != null
-                    && result.outcome().state() == com.wherelee.cabinet.domain.enums.CommandState.TIMEOUT;
+                    && result.outcome().state() == com.wherelee.cabinet.device.api.CommandState.TIMEOUT;
         }
     }
 

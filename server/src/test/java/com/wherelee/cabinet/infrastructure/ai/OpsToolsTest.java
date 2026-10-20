@@ -1,8 +1,8 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
-import com.wherelee.cabinet.domain.entity.BizFaultEvent;
-import com.wherelee.cabinet.domain.enums.FaultType;
-import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
+import com.wherelee.cabinet.device.domain.BizFaultEvent;
+import com.wherelee.cabinet.device.api.FaultType;
+import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

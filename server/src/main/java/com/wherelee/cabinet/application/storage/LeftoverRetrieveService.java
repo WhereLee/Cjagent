@@ -1,21 +1,21 @@
 package com.wherelee.cabinet.application.storage;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.device.DeviceCommandService;
+import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
-import com.wherelee.cabinet.domain.enums.CommandAction;
-import com.wherelee.cabinet.domain.enums.FaultType;
+import com.wherelee.cabinet.device.api.CommandAction;
+import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizDeviceCommandMapper;
+import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -182,8 +182,8 @@ public class LeftoverRetrieveService {
     }
 
     private long countAttempts(String orderNo) {
-        return commandMapper.selectCount(Wrappers.<com.wherelee.cabinet.domain.entity.BizDeviceCommand>lambdaQuery()
-                .likeRight(com.wherelee.cabinet.domain.entity.BizDeviceCommand::getRequestId,
+        return commandMapper.selectCount(Wrappers.<com.wherelee.cabinet.device.domain.BizDeviceCommand>lambdaQuery()
+                .likeRight(com.wherelee.cabinet.device.domain.BizDeviceCommand::getRequestId,
                         orderNo + ":LEFTOVER:"));
     }
 }

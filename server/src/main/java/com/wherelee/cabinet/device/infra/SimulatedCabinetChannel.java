@@ -1,9 +1,9 @@
-package com.wherelee.cabinet.infrastructure.device;
+package com.wherelee.cabinet.device.infra;
 
-import com.wherelee.cabinet.application.device.DeviceChannel;
-import com.wherelee.cabinet.domain.enums.CommandAction;
+import com.wherelee.cabinet.device.api.DeviceChannel;
+import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.domain.enums.Presence;
-import com.wherelee.cabinet.domain.enums.ReportEvent;
+import com.wherelee.cabinet.device.api.ReportEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
