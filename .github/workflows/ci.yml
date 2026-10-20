@@ -66,6 +66,13 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      # npm 的 optionalDependencies 已知 bug（npm/cli#4828）：在 Windows 上生成的 lock
+      # 不含 linux 平台二进制，ubuntu runner 上 npm ci 后 rollup 启动即报
+      # "Cannot find module @rollup/rollup-linux-x64-gnu"。只补这一个包：
+      # 不改 package.json、不写 lock、不重装其它依赖。
+      - name: 补齐 rollup 的 Linux 二进制
+        run: npm i --no-save --package-lock=false --no-audit --no-fund "@rollup/rollup-linux-x64-gnu@$(node -p 'require("rollup/package.json").version')"
+
       - name: Lint
         run: npm run lint
 
@@ -92,6 +99,10 @@ jobs:
 
       - name: 安装依赖
         run: npm ci
+
+      # 同 admin：补 Linux 平台的 rollup 二进制（npm/cli#4828）
+      - name: 补齐 rollup 的 Linux 二进制
+        run: npm i --no-save --package-lock=false --no-audit --no-fund "@rollup/rollup-linux-x64-gnu@$(node -p 'require("rollup/package.json").version')"
 
       - name: Lint
         run: npm run lint
