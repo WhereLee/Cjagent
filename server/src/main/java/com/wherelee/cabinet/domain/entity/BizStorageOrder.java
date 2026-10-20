@@ -8,7 +8,7 @@ import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SizeType;
 import lombok.Getter;
 import lombok.Setter;
 

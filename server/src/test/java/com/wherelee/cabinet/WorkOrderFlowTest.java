@@ -1,15 +1,15 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.storage.CompartmentStateService;
+import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
-import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.Presence;
 import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
 import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
 import com.wherelee.cabinet.domain.enums.WorkOrderKind;

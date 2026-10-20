@@ -1,4 +1,5 @@
 package com.wherelee.cabinet.application.storage;
+import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -9,15 +10,15 @@ import com.wherelee.cabinet.platform.mq.ConsumeIdempotencyGuard;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizCabinet;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
+import com.wherelee.cabinet.locker.domain.BizCabinet;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.domain.enums.CabinetStatus;
+import com.wherelee.cabinet.locker.api.CabinetStatus;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.infrastructure.alloc.SlotPreDeductionService;
-import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.api.SizeType;
+import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
+import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

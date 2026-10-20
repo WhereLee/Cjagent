@@ -11,7 +11,7 @@ import com.wherelee.cabinet.funds.api.DepositStatus;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.funds.api.PointTxnType;
-import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.funds.infra.BizDepositMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;

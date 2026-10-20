@@ -1,10 +1,10 @@
-package com.wherelee.cabinet.application.storage;
+package com.wherelee.cabinet.locker.app;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.SizeType;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 

@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.assistant.api;
 
-import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.locker.api.Presence;
 
 import java.math.BigDecimal;
 

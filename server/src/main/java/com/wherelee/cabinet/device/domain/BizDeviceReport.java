@@ -1,4 +1,5 @@
 package com.wherelee.cabinet.device.domain;
+import com.wherelee.cabinet.domain.entity.BaseEntity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;

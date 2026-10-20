@@ -41,7 +41,7 @@ class RedissonAllocationTest extends AbstractAllocationBehaviourTest {
     @Test
     @DisplayName("并发跑完不泄漏锁：柜机锁必须处于未锁定状态")
     void noLockLeakAfterConcurrentRuns() throws Exception {
-        runConcurrentRequests(THREADS, com.wherelee.cabinet.domain.enums.SizeType.LARGE);
+        runConcurrentRequests(THREADS, com.wherelee.cabinet.locker.api.SizeType.LARGE);
 
         // 锁 key 与 CabinetLockGuard 一致：cab:alloc:lock:{cabinetNo}
         var lock = redissonClient.getLock("cab:alloc:lock:" + currentCabinetNo());

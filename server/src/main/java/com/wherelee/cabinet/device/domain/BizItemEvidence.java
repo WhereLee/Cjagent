@@ -3,7 +3,7 @@ package com.wherelee.cabinet.device.domain;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.wherelee.cabinet.device.api.EvidenceSource;
 import com.wherelee.cabinet.domain.entity.BaseEntity;
-import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.locker.api.Presence;
 import lombok.Getter;
 import lombok.Setter;
 

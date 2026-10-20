@@ -1,6 +1,6 @@
-package com.wherelee.cabinet.infrastructure.alloc;
+package com.wherelee.cabinet.locker.infra;
 
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SizeType;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;

@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.admin.locker;
 
-import com.wherelee.cabinet.application.locker.LockerConsoleService;
+import com.wherelee.cabinet.locker.app.LockerConsoleService;
 import com.wherelee.cabinet.application.storage.AsyncStorageOrderAppService;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;

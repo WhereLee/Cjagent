@@ -2,7 +2,7 @@ package com.wherelee.cabinet.device.infra;
 
 import com.wherelee.cabinet.device.api.DeviceChannel;
 import com.wherelee.cabinet.device.api.CommandAction;
-import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.locker.api.Presence;
 import com.wherelee.cabinet.device.api.ReportEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

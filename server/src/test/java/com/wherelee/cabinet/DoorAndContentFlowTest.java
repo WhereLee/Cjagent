@@ -2,29 +2,29 @@ package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PointAccountService;
-import com.wherelee.cabinet.application.storage.CompartmentStateService;
-import com.wherelee.cabinet.application.storage.SlotCandidateQuery;
+import com.wherelee.cabinet.locker.app.CompartmentStateService;
+import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizCabinet;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.entity.BizSite;
+import com.wherelee.cabinet.locker.domain.BizCabinet;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.domain.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.domain.enums.CabinetStatus;
-import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.CabinetStatus;
+import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
 import com.wherelee.cabinet.device.api.CommandAction;
-import com.wherelee.cabinet.domain.enums.OnlineState;
+import com.wherelee.cabinet.locker.api.OnlineState;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.domain.enums.Presence;
-import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.domain.enums.SlotStatus;
+import com.wherelee.cabinet.locker.api.Presence;
+import com.wherelee.cabinet.locker.api.SizeType;
+import com.wherelee.cabinet.locker.api.SlotStatus;
 import com.wherelee.cabinet.device.infra.SimulatedCabinetChannel;
-import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
+import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.infra.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,9 +95,9 @@ class DoorAndContentFlowTest {
     @Autowired
     private SimulatedCabinetChannel simulator;
     @Autowired
-    private com.wherelee.cabinet.application.storage.CabinetAvailabilityService availabilityService;
+    private com.wherelee.cabinet.locker.app.CabinetAvailabilityService availabilityService;
     @Autowired
-    private com.wherelee.cabinet.application.storage.CompartmentStateService compartmentStates;
+    private com.wherelee.cabinet.locker.app.CompartmentStateService compartmentStates;
     @Autowired
     private com.wherelee.cabinet.application.storage.StorageQueryService queries;
 
@@ -573,7 +573,7 @@ class DoorAndContentFlowTest {
     private long freeSmall() {
         return TenantContext.callAs(TENANT, () -> availabilityService.of(cabinetNo).sizes().stream()
                 .filter(s -> "SMALL".equals(s.sizeType()))
-                .mapToLong(com.wherelee.cabinet.application.storage.CabinetAvailabilityService.SizeFree::free)
+                .mapToLong(com.wherelee.cabinet.locker.app.CabinetAvailabilityService.SizeFree::free)
                 .findFirst().orElse(-1L));
     }
 

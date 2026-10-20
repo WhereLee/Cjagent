@@ -1,8 +1,9 @@
-package com.wherelee.cabinet.domain.entity;
+package com.wherelee.cabinet.locker.domain;
+import com.wherelee.cabinet.domain.entity.BaseEntity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.wherelee.cabinet.domain.enums.CabinetStatus;
-import com.wherelee.cabinet.domain.enums.OnlineState;
+import com.wherelee.cabinet.locker.api.CabinetStatus;
+import com.wherelee.cabinet.locker.api.OnlineState;
 import lombok.Getter;
 import lombok.Setter;
 

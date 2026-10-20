@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.domain.enums;
+package com.wherelee.cabinet.locker.api;
 
 /**
  * 柜机状态（业务开关），与在线状态是两个维度，故意不合成一个枚举：

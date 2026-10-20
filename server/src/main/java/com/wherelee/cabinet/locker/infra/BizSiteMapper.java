@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.locker.infra;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.wherelee.cabinet.domain.entity.BizSite;
+import com.wherelee.cabinet.locker.domain.BizSite;
 import org.apache.ibatis.annotations.Mapper;
 
 @Mapper

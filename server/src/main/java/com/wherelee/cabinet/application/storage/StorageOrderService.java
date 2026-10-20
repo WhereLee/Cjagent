@@ -1,4 +1,9 @@
 package com.wherelee.cabinet.application.storage;
+import com.wherelee.cabinet.locker.app.SlotAllocator;
+import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
+import com.wherelee.cabinet.locker.app.CompartmentStateService;
+import com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper;
+import com.wherelee.cabinet.locker.api.Presence;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -7,16 +12,16 @@ import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
 import com.wherelee.cabinet.application.storage.dto.VoucherView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizCabinet;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
+import com.wherelee.cabinet.locker.domain.BizCabinet;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.domain.enums.CabinetStatus;
+import com.wherelee.cabinet.locker.api.CabinetStatus;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.infrastructure.alloc.SlotPreDeductionService;
-import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.api.SizeType;
+import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
+import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +64,7 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
     // 柜内物品争议与“误报免除”已于 2026-10-12 作废（用户定：结束不拦人后“争议期间”不存在）。
     /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
-    private final com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper;
+    private final com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper;
     /** 取件凭据的站内消息（第 25 刀）：下单发一条，重置改写同一条。 */
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
     /** 容错期也可以按点位发布（第 14D 刀）；没发布时仍用配置默认值。 */
@@ -124,7 +129,7 @@ public class StorageOrderService {
                                com.wherelee.cabinet.device.api.CommandPort deviceCommands,
                                com.wherelee.cabinet.storage.api.FundPort funds,
                                CompartmentStateService states,
-                               com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
+                               com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper,
                                com.wherelee.cabinet.funds.app.PriceRuleService priceRules,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
@@ -261,7 +266,7 @@ public class StorageOrderService {
         // 取消不能比结束更松：检测到柜内有东西时不得取消。否则就是“钱退了、件留下了、
         // 格子又卖给了第三个人”——那是一整个流程里最难收拾的现场（不变量 I12）。
         CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
-        if (sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.PRESENT) {
+        if (sensing.presence() == com.wherelee.cabinet.locker.api.Presence.PRESENT) {
             throw new BizException(ResultCode.BIZ_ERROR,
                     "柜内检测到物品：请先取出再取消（或走“声明放弃物品”结束）");
         }
@@ -1178,7 +1183,7 @@ public class StorageOrderService {
 
     /** 这条读数能不能当“柜内已空”的凭据用（坏了、离线、结论过期都算不能用）。 */
     private boolean emptyEvidence(CompartmentStateService.Sensing sensing) {
-        return sensing.presence() == com.wherelee.cabinet.domain.enums.Presence.ABSENT && states.fresh(sensing);
+        return sensing.presence() == com.wherelee.cabinet.locker.api.Presence.ABSENT && states.fresh(sensing);
     }
 
     private long countAttempts(String orderNo, com.wherelee.cabinet.device.api.CommandAction action) {

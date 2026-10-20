@@ -1,4 +1,9 @@
 package com.wherelee.cabinet.application.workorder;
+import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.domain.BizCabinet;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.OnlineState;
 
 import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
 
@@ -68,9 +73,9 @@ public class WorkOrderService {
     /** 19C：证据记录（四个采集点）随工单一起看，不然采集了也等于没人看到。 */
     private final com.wherelee.cabinet.device.api.EvidencePort evidencePort;
     /** 分诊事实之一：柜机在线快照（离线时门故障改按设备故障处置）。 */
-    private final com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper;
+    private final com.wherelee.cabinet.locker.infra.BizCabinetMapper cabinetMapper;
     /** 关闭依据核验：事实恢复要看格口异常是否已解除。 */
-    private final com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper slotMapper;
+    private final com.wherelee.cabinet.locker.infra.BizCompartmentMapper slotMapper;
     private final WorkOrderTriageService triage;
     /**
      * 延迟任务用 ObjectProvider 取：TaskHandler 反过来依赖本服务（超时转工单），
@@ -85,8 +90,8 @@ public class WorkOrderService {
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                             com.wherelee.cabinet.notify.api.NoticePort notices,
                             com.wherelee.cabinet.device.api.EvidencePort evidencePort,
-                            com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper,
-                            com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper slotMapper,
+                            com.wherelee.cabinet.locker.infra.BizCabinetMapper cabinetMapper,
+                            com.wherelee.cabinet.locker.infra.BizCompartmentMapper slotMapper,
                             WorkOrderTriageService triage,
                             ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider,
                             WorkOrderHandoffService handoffs, WorkOrderRoutingService routing) {
@@ -292,9 +297,9 @@ public class WorkOrderService {
         if (order.getCabinetId() == null) {
             return false;
         }
-        com.wherelee.cabinet.domain.entity.BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
+        com.wherelee.cabinet.locker.domain.BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
         return cabinet != null
-                && cabinet.getOnlineState() == com.wherelee.cabinet.domain.enums.OnlineState.OFFLINE;
+                && cabinet.getOnlineState() == com.wherelee.cabinet.locker.api.OnlineState.OFFLINE;
     }
 
     /**
@@ -562,7 +567,7 @@ public class WorkOrderService {
         if (order.getSlotId() == null) {
             return false;
         }
-        com.wherelee.cabinet.domain.entity.BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        com.wherelee.cabinet.locker.domain.BizCompartment slot = slotMapper.selectById(order.getSlotId());
         return slot != null && slot.getAnomaly() == null;
     }
 

@@ -1,6 +1,6 @@
-package com.wherelee.cabinet.application.storage;
+package com.wherelee.cabinet.locker.app;
 
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SizeType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 

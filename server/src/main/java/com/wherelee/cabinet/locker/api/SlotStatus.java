@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.domain.enums;
+package com.wherelee.cabinet.locker.api;
 
 /**
  * 格口物理状态。

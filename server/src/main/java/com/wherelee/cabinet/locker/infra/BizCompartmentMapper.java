@@ -1,9 +1,10 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.locker.infra;
+import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
-import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.Presence;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;

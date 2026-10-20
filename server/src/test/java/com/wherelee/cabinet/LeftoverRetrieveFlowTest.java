@@ -1,7 +1,7 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.locker.LockerConsoleService;
-import com.wherelee.cabinet.application.storage.CompartmentStateService;
+import com.wherelee.cabinet.locker.app.LockerConsoleService;
+import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.application.storage.LeftoverRetrieveService;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;

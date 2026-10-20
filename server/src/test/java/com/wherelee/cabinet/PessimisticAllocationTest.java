@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SizeType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

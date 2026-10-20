@@ -5,7 +5,7 @@ import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.enums.CloseReason;
-import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
 import com.wherelee.cabinet.domain.enums.TaskType;
 import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
 import com.wherelee.cabinet.domain.enums.WorkOrderImpact;

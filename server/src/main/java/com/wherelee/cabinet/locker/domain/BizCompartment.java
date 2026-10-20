@@ -1,11 +1,12 @@
-package com.wherelee.cabinet.domain.entity;
+package com.wherelee.cabinet.locker.domain;
+import com.wherelee.cabinet.domain.entity.BaseEntity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.baomidou.mybatisplus.annotation.Version;
-import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
-import com.wherelee.cabinet.domain.enums.Presence;
-import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.domain.enums.SlotStatus;
+import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.Presence;
+import com.wherelee.cabinet.locker.api.SizeType;
+import com.wherelee.cabinet.locker.api.SlotStatus;
 import lombok.Getter;
 import lombok.Setter;
 

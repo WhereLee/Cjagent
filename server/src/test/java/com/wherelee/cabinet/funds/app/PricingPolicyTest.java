@@ -2,7 +2,7 @@ package com.wherelee.cabinet.funds.app;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SizeType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;

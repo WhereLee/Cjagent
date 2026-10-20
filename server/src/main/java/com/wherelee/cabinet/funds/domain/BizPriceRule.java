@@ -2,7 +2,7 @@ package com.wherelee.cabinet.funds.domain;
 
 import com.wherelee.cabinet.domain.entity.BaseEntity;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SizeType;
 import lombok.Getter;
 import lombok.Setter;
 

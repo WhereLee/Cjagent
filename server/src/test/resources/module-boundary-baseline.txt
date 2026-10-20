@@ -1,4 +1,5 @@
 assistant->domain
+assistant->locker
 bff.admin->assistant
 bff.admin->common
 bff.admin->domain
@@ -15,6 +16,7 @@ bff.mini->device
 bff.mini->domain
 bff.mini->funds
 bff.mini->identity
+bff.mini->locker
 bff.mini->notify
 bff.mini->platform
 bff.mini->servicedesk
@@ -28,11 +30,14 @@ boot->task
 device->common
 device->domain
 device->infra.mapper
+device->locker
 device->task
 domain->common
+domain->locker
 funds->common
 funds->domain
 funds->infra.mapper
+funds->locker
 funds->storage
 identity->boot
 identity->common
@@ -45,6 +50,7 @@ infra.ai->common
 infra.ai->device
 infra.ai->domain
 infra.ai->infra.mapper
+infra.ai->locker
 infra.ai->servicedesk
 infra.ai->storage
 infra.alloc->domain
@@ -62,7 +68,9 @@ locker->common
 locker->device
 locker->domain
 locker->infra.mapper
+locker->notify
 locker->platform
+locker->servicedesk
 locker->storage
 notify->common
 notify->domain
@@ -75,6 +83,7 @@ servicedesk->common
 servicedesk->device
 servicedesk->domain
 servicedesk->infra.mapper
+servicedesk->locker
 servicedesk->notify
 servicedesk->platform
 servicedesk->task
@@ -84,6 +93,7 @@ storage->domain
 storage->funds
 storage->infra.alloc
 storage->infra.mapper
+storage->locker
 storage->notify
 storage->platform
 storage->servicedesk
@@ -94,6 +104,7 @@ task->domain
 task->funds
 task->infra.alloc
 task->infra.mapper
+task->locker
 task->notify
 task->servicedesk
 task->storage

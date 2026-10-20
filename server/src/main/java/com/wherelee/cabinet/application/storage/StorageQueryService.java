@@ -1,4 +1,6 @@
 package com.wherelee.cabinet.application.storage;
+import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
+import com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
@@ -6,17 +8,17 @@ import com.wherelee.cabinet.funds.app.PointAccountService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.funds.domain.BizPointTxn;
-import com.wherelee.cabinet.domain.entity.BizCabinet;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.entity.BizSite;
+import com.wherelee.cabinet.locker.domain.BizCabinet;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.domain.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.domain.enums.CompartmentAnomaly;
-import com.wherelee.cabinet.domain.enums.SizeType;
-import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
+import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.SizeType;
+import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
 import com.wherelee.cabinet.funds.infra.BizPointTxnMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.infra.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.springframework.stereotype.Service;
 

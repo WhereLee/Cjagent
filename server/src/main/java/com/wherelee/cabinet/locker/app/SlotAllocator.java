@@ -1,6 +1,6 @@
-package com.wherelee.cabinet.application.storage;
+package com.wherelee.cabinet.locker.app;
 
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SizeType;
 
 /**
  * 格口分配策略。<b>刻意做成接口</b>：第 9~10 刀要用同一份业务代码跑四种并发方案

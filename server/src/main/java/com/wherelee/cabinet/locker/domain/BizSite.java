@@ -1,4 +1,5 @@
-package com.wherelee.cabinet.domain.entity;
+package com.wherelee.cabinet.locker.domain;
+import com.wherelee.cabinet.domain.entity.BaseEntity;
 
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Getter;

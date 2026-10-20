@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.device.api;
 
 import com.wherelee.cabinet.device.api.CommandAction;
-import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.locker.api.Presence;
 import com.wherelee.cabinet.device.api.ReportEvent;
 
 import java.time.LocalDateTime;

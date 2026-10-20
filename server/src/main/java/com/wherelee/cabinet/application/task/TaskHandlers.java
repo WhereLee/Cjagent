@@ -6,14 +6,14 @@ import com.wherelee.cabinet.storage.api.FundPort;
 import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
-import com.wherelee.cabinet.application.storage.CompartmentStateService;
-import com.wherelee.cabinet.application.storage.SlotCandidateQuery;
+import com.wherelee.cabinet.locker.app.CompartmentStateService;
+import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizCabinet;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
+import com.wherelee.cabinet.locker.domain.BizCabinet;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
 import com.wherelee.cabinet.funds.domain.BizDeposit;
 import com.wherelee.cabinet.device.domain.BizDeviceCommand;
@@ -22,12 +22,12 @@ import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.funds.api.DepositStatus;
 import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.domain.enums.SlotStatus;
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.api.SlotStatus;
+import com.wherelee.cabinet.locker.api.SizeType;
 import com.wherelee.cabinet.domain.enums.TaskType;
-import com.wherelee.cabinet.infrastructure.alloc.SlotPreDeductionService;
-import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
+import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
+import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.funds.infra.BizDepositMapper;
 import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
 import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
@@ -77,11 +77,11 @@ public final class TaskHandlers {
         private final BizStorageOrderMapper orderMapper;
         private final StorageOrderService orders;
         private final com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper;
-        private final com.wherelee.cabinet.application.storage.CompartmentStateService states;
+        private final com.wherelee.cabinet.locker.app.CompartmentStateService states;
 
         SlotReleaseHandler(BizStorageOrderMapper orderMapper, StorageOrderService orders,
                            com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper,
-                           com.wherelee.cabinet.application.storage.CompartmentStateService states) {
+                           com.wherelee.cabinet.locker.app.CompartmentStateService states) {
             this.orderMapper = orderMapper;
             this.orders = orders;
             this.commandMapper = commandMapper;

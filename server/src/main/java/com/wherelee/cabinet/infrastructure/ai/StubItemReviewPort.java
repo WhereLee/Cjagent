@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
 import com.wherelee.cabinet.assistant.api.ItemReviewPort;
-import com.wherelee.cabinet.domain.enums.Presence;
+import com.wherelee.cabinet.locker.api.Presence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;

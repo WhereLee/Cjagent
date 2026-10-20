@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.domain.enums;
+package com.wherelee.cabinet.locker.api;
 
 import java.util.Arrays;
 import java.util.Comparator;

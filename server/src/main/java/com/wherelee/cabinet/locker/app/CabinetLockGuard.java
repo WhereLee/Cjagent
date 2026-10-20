@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.storage;
+package com.wherelee.cabinet.locker.app;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;

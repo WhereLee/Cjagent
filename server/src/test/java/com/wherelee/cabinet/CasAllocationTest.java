@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.storage.CasSlotAllocator;
+import com.wherelee.cabinet.locker.app.CasSlotAllocator;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -32,7 +32,7 @@ class CasAllocationTest extends AbstractAllocationBehaviourTest {
     @Test
     @DisplayName("CAS 会真的发生竞争重试（平均尝试次数 > 1），说明确实在抢而非排队")
     void contentionProducesRetries() throws Exception {
-        var results = runConcurrentRequests(THREADS, com.wherelee.cabinet.domain.enums.SizeType.LARGE);
+        var results = runConcurrentRequests(THREADS, com.wherelee.cabinet.locker.api.SizeType.LARGE);
 
         var views = results.stream()
                 .filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView)

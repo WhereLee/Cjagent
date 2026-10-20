@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.mini.storage;
 
-import com.wherelee.cabinet.application.storage.CabinetAvailabilityService;
+import com.wherelee.cabinet.locker.app.CabinetAvailabilityService;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import io.swagger.v3.oas.annotations.Operation;

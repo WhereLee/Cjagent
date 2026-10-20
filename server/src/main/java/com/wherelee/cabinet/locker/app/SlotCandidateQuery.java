@@ -1,10 +1,10 @@
-package com.wherelee.cabinet.application.storage;
+package com.wherelee.cabinet.locker.app;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.domain.enums.SlotStatus;
-import com.wherelee.cabinet.domain.enums.SizeType;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.SlotStatus;
+import com.wherelee.cabinet.locker.api.SizeType;
 
 import java.util.Collection;
 

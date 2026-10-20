@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.locker.infra;
 
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.wherelee.cabinet.domain.entity.BizCompartment;
+import com.wherelee.cabinet.locker.domain.BizCompartment;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;

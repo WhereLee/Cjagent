@@ -1,4 +1,5 @@
 package com.wherelee.cabinet.domain.enums;
+import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
 
 import java.util.Locale;
 

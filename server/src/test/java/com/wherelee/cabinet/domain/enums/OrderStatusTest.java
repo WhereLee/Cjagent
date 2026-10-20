@@ -1,4 +1,5 @@
 package com.wherelee.cabinet.domain.enums;
+import com.wherelee.cabinet.locker.api.SizeType;
 
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
