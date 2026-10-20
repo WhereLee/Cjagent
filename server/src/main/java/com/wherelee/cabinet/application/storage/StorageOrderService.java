@@ -62,7 +62,7 @@ public class StorageOrderService {
     /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper;
     /** 取件凭据的站内消息（第 25 刀）：下单发一条，重置改写同一条。 */
-    private final com.wherelee.cabinet.application.notify.NoticeService notices;
+    private final com.wherelee.cabinet.notify.api.NoticePort notices;
     /** 容错期也可以按点位发布（第 14D 刀）；没发布时仍用配置默认值。 */
     private final com.wherelee.cabinet.application.billing.PriceRuleService priceRules;
     /**
@@ -131,7 +131,7 @@ public class StorageOrderService {
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
                                com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
-                               com.wherelee.cabinet.application.notify.NoticeService notices) {
+                               com.wherelee.cabinet.notify.api.NoticePort notices) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
@@ -239,7 +239,7 @@ public class StorageOrderService {
         // 柜机屏那条凭码路径事实上不可达（"有锁没钥匙"）。
         String createdSlotNo = slotNoOf(allocated.slotId());
         notices.emit(cabinet.getTenantId(),
-                com.wherelee.cabinet.application.notify.NoticeService.CHANNEL_MESSAGE,
+                com.wherelee.cabinet.notify.api.NoticePort.CHANNEL_MESSAGE,
                 "PICKUP_VOUCHER", order.getOrderNo() + ":voucher",
                 credentialNote(order.getVoucherCode(), createdSlotNo),
                 order.getCustomerId(), null, order.getOrderNo());

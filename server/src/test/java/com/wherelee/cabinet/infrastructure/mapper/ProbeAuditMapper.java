@@ -2,6 +2,7 @@ package com.wherelee.cabinet.infrastructure.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.wherelee.cabinet.fixture.ProbeAudit;
+import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -11,6 +12,7 @@ import org.apache.ibatis.annotations.Select;
  * <p>放在主包名下是为了让 {@code MysqlDataSourceConfig} 的 @MapperScan 直接扫到，
  * 不需要为测试再加一套扫描配置；文件本身仍在 src/test 下，不进生产构件。
  */
+@Mapper
 public interface ProbeAuditMapper extends BaseMapper<ProbeAudit> {
 
     /**

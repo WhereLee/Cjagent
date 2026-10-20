@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.infrastructure.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Mapper;
 import com.wherelee.cabinet.domain.entity.SysUser;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -15,6 +16,7 @@ import java.util.List;
  * sys_user_role / sys_role_permission 都不在白名单），所以"同名账号跨租户串号"不可能发生；
  * 而 {@code sys_permission} 是全局字典，join 它不会被加条件。
  */
+@Mapper
 public interface SysUserMapper extends BaseMapper<SysUser> {
 
     /** 按用户名查（配合登录时已设定的租户上下文，实际条件是 username + tenant_id）。 */

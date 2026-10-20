@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.mini.notify;
 
-import com.wherelee.cabinet.application.notify.NoticeService;
+import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.platform.security.Caller;
@@ -27,9 +27,9 @@ import java.util.List;
 @RequestMapping("/api/mini/notices")
 public class MiniNoticeController {
 
-    private final NoticeService notices;
+    private final NoticePort notices;
 
-    public MiniNoticeController(NoticeService notices) {
+    public MiniNoticeController(NoticePort notices) {
         this.notices = notices;
     }
 
@@ -37,7 +37,7 @@ public class MiniNoticeController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping
-    public R<List<NoticeService.View>> mine(@AuthenticationPrincipal Caller current) {
+    public R<List<NoticePort.View>> mine(@AuthenticationPrincipal Caller current) {
         return R.ok(notices.forCustomer(current.subjectId()));
     }
 

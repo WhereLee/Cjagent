@@ -1,6 +1,7 @@
-package com.wherelee.cabinet.domain.entity;
+package com.wherelee.cabinet.notify.domain;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.wherelee.cabinet.domain.entity.BaseEntity;
 import lombok.Getter;
 import lombok.Setter;
 

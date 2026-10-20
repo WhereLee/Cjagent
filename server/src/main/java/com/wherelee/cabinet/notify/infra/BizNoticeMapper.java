@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.mapper;
+package com.wherelee.cabinet.notify.infra;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import com.wherelee.cabinet.domain.entity.BizNotice;
+import com.wherelee.cabinet.notify.domain.BizNotice;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Update;

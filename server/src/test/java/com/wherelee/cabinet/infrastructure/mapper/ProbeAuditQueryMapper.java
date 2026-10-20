@@ -1,5 +1,6 @@
 package com.wherelee.cabinet.infrastructure.mapper;
 
+import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -12,6 +13,7 @@ import java.util.Map;
  * <p>故意不放在 main：读审计的正式接口（分页查询、导出）属于后台功能，
  * 现在写进生产代码就是没有调用方的死代码。
  */
+@Mapper
 public interface ProbeAuditQueryMapper {
 
     /**

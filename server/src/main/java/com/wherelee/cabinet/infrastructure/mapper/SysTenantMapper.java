@@ -2,6 +2,7 @@ package com.wherelee.cabinet.infrastructure.mapper;
 
 import com.baomidou.mybatisplus.annotation.InterceptorIgnore;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Mapper;
 import com.wherelee.cabinet.domain.entity.SysTenant;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -10,6 +11,7 @@ import org.apache.ibatis.annotations.Select;
  * 租户查询。sys_tenant 在租户拦截器白名单内（见 {@code CabinetTenantHandler}），
  * 因此这些 SQL 不需要租户上下文也能执行。
  */
+@Mapper
 public interface SysTenantMapper extends BaseMapper<SysTenant> {
 
     @InterceptorIgnore(tenantLine = "true")

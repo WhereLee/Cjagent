@@ -2,7 +2,7 @@ package com.wherelee.cabinet.application.storage;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.device.DeviceChannel;
-import com.wherelee.cabinet.application.notify.NoticeService;
+import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
@@ -59,7 +59,7 @@ public class CompartmentStateService {
      */
     private final com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper;
     /** 遗留物通知（第 21 刀）：物主收到的站内消息走它，一张未关闭工单只发一条。 */
-    private final NoticeService notices;
+    private final NoticePort notices;
     /** 遗留物归因：发现遗留物时活动单早已结束，能指认的就是这个格口最近一张终态单的主人。 */
     private final BizStorageOrderMapper orderMapper;
     // 19D 阶梯的三个数（用户在 2026-10-11 给出）：3 分钟首响、5 分钟连发三条、10 分钟必须处理
@@ -87,7 +87,7 @@ public class CompartmentStateService {
                                    com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
                                    com.wherelee.cabinet.application.workorder.WorkOrderService workOrders,
                                    com.wherelee.cabinet.infrastructure.mapper.BizItemEvidenceMapper evidenceMapper,
-                                   NoticeService notices,
+                                   NoticePort notices,
                                    BizStorageOrderMapper orderMapper) {
         this.slotMapper = slotMapper;
         this.faultMapper = faultMapper;
@@ -429,7 +429,7 @@ public class CompartmentStateService {
             if (workOrderId == null) {
                 return;
             }
-            notices.emit(slot.getTenantId(), NoticeService.CHANNEL_MESSAGE, "LEFTOVER_OWNER",
+            notices.emit(slot.getTenantId(), NoticePort.CHANNEL_MESSAGE, "LEFTOVER_OWNER",
                     "WO" + workOrderId + ":OWNER_MSG",
                     "你的暂存柜格口 " + slot.getSlotNo() + " 检测到遗留物品，请到柜取回。"
                             + "取回路径：小程序-我的寄存单-该订单-取回物品",

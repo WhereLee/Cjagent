@@ -48,12 +48,12 @@ import java.util.List;
 public class AdminWorkOrderController {
 
     private final WorkOrderService workOrders;
-    private final com.wherelee.cabinet.application.notify.NoticeService notices;
+    private final com.wherelee.cabinet.notify.api.NoticePort notices;
     private final WorkOrderBriefPort briefs;
     private final WorkOrderTriageService triage;
 
     public AdminWorkOrderController(WorkOrderService workOrders,
-                                    com.wherelee.cabinet.application.notify.NoticeService notices,
+                                    com.wherelee.cabinet.notify.api.NoticePort notices,
                                     WorkOrderBriefPort briefs,
                                     WorkOrderTriageService triage) {
         this.workOrders = workOrders;
@@ -78,7 +78,7 @@ public class AdminWorkOrderController {
     @Operation(summary = "待联系客户的电话任务", description = "阶梯升到“必须处理”时生成，未回填前一直在列")
     @PreAuthorize("hasAuthority('workorder:online:list')")
     @GetMapping("/pending-calls")
-    public R<java.util.List<com.wherelee.cabinet.application.notify.NoticeService.View>> pendingCalls() {
+    public R<java.util.List<com.wherelee.cabinet.notify.api.NoticePort.View>> pendingCalls() {
         return R.ok(notices.pendingCalls());
     }
 

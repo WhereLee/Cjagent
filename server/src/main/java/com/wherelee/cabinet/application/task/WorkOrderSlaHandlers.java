@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.application.task;
 
-import com.wherelee.cabinet.application.notify.NoticeService;
+import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
 import com.wherelee.cabinet.domain.entity.BizWorkOrder;
 import com.wherelee.cabinet.domain.enums.TaskType;
@@ -30,9 +30,9 @@ public final class WorkOrderSlaHandlers {
     public static class ResponseSlaHandler implements TaskHandler {
 
         private final BizWorkOrderMapper orders;
-        private final NoticeService notices;
+        private final NoticePort notices;
 
-        ResponseSlaHandler(BizWorkOrderMapper orders, NoticeService notices) {
+        ResponseSlaHandler(BizWorkOrderMapper orders, NoticePort notices) {
             this.orders = orders;
             this.notices = notices;
         }
@@ -53,7 +53,7 @@ public final class WorkOrderSlaHandlers {
             if (due == null || due.isAfter(LocalDateTime.now())) {
                 return false;
             }
-            notices.emit(order.getTenantId(), NoticeService.CHANNEL_PHONE, "SLA_RESPONSE",
+            notices.emit(order.getTenantId(), NoticePort.CHANNEL_PHONE, "SLA_RESPONSE",
                     "WO" + order.getId() + ":SLA:RESP",
                     "工单 " + order.getId() + " 响应超时（" + order.getPriority() + "）："
                             + order.getTitle(),
@@ -67,9 +67,9 @@ public final class WorkOrderSlaHandlers {
     public static class ResolveSlaHandler implements TaskHandler {
 
         private final BizWorkOrderMapper orders;
-        private final NoticeService notices;
+        private final NoticePort notices;
 
-        ResolveSlaHandler(BizWorkOrderMapper orders, NoticeService notices) {
+        ResolveSlaHandler(BizWorkOrderMapper orders, NoticePort notices) {
             this.orders = orders;
             this.notices = notices;
         }
@@ -89,7 +89,7 @@ public final class WorkOrderSlaHandlers {
             if (due == null || due.isAfter(LocalDateTime.now())) {
                 return false;
             }
-            notices.emit(order.getTenantId(), NoticeService.CHANNEL_PHONE, "SLA_RESOLVE",
+            notices.emit(order.getTenantId(), NoticePort.CHANNEL_PHONE, "SLA_RESOLVE",
                     "WO" + order.getId() + ":SLA:RESOLVE",
                     "工单 " + order.getId() + " 解决超时（" + order.getPriority() + "）："
                             + order.getTitle(),

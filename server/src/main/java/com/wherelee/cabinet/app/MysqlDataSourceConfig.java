@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.app;
 
 import com.zaxxer.hikari.HikariDataSource;
+import org.apache.ibatis.annotations.Mapper;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -27,7 +28,9 @@ import javax.sql.DataSource;
  */
 @Configuration
 @EnableTransactionManagement
-@MapperScan("com.wherelee.cabinet.infrastructure.mapper")
+// 按 @Mapper 注解扫，而不是写死某个包：服务化后 mapper 会分散到各服务的 infra 包，
+// 写死前缀会漏掉新搬的 mapper（显式包列表也会随服务数量增长而漂移）。
+@MapperScan(basePackages = "com.wherelee.cabinet", annotationClass = Mapper.class)
 public class MysqlDataSourceConfig {
 
     @Bean(name = "mysqlDataSource")

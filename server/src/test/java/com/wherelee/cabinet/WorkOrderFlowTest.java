@@ -67,7 +67,7 @@ class WorkOrderFlowTest {
     @Autowired
     private WorkOrderService workOrders;
     @Autowired
-    private com.wherelee.cabinet.application.notify.NoticeService notices;
+    private com.wherelee.cabinet.notify.api.NoticePort notices;
     @Autowired
     private com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
     @Autowired

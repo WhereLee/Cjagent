@@ -1,7 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.notify.NoticeService;
+import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.application.storage.PublicPickupService;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
@@ -91,7 +91,7 @@ class VoucherDeliveryTest {
     @Autowired
     private PublicPickupService publicPickup;
     @Autowired
-    private NoticeService notices;
+    private NoticePort notices;
 
     private JdbcTemplate jdbc;
     private String cabinetNo;

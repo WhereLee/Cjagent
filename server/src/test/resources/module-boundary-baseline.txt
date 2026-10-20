@@ -63,7 +63,6 @@ locker->platform
 locker->storage
 notify->common
 notify->domain
-notify->infra.mapper
 platform->boot
 platform->common
 platform->domain

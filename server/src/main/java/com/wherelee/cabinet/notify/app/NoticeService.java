@@ -1,10 +1,12 @@
-package com.wherelee.cabinet.application.notify;
+package com.wherelee.cabinet.notify.app;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.entity.BizNotice;
-import com.wherelee.cabinet.infrastructure.mapper.BizNoticeMapper;
+import com.wherelee.cabinet.notify.api.NoticePort;
+import com.wherelee.cabinet.notify.api.NoticePort.View;
+import com.wherelee.cabinet.notify.domain.BizNotice;
+import com.wherelee.cabinet.notify.infra.BizNoticeMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -25,25 +27,14 @@ import java.util.List;
  * 这两种形态共用一张表：它们的共同点是"某条异常，该被某人看到一次"，区别只在收件人是谁。
  */
 @Service
-public class NoticeService {
+public class NoticeService implements NoticePort {
 
     private static final Logger log = LoggerFactory.getLogger(NoticeService.class);
-
-    public static final String CHANNEL_MESSAGE = "SYSTEM_MESSAGE";
-    public static final String CHANNEL_PHONE = "PHONE_CALL";
-    /** 队列侧通知：给业务员看的“这件事已经收口”，不是一个待办。 */
-    public static final String CHANNEL_QUEUE = "QUEUE";
 
     private final BizNoticeMapper notices;
 
     public NoticeService(BizNoticeMapper notices) {
         this.notices = notices;
-    }
-
-    /** 视图：接口层不回传实体。 */
-    public record View(Long id, String channel, String kind, String content, String orderNo,
-                       Long workOrderId, java.time.LocalDateTime createTime, java.time.LocalDateTime doneAt,
-                       String doneNote) {
     }
 
     /**
