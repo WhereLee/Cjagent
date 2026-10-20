@@ -11,6 +11,8 @@ import com.wherelee.cabinet.device.api.EvidenceSource;
 import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.Sensing;
+import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.api.Presence;
@@ -37,7 +39,7 @@ import java.time.LocalDateTime;
  * （docs/门态与物品争议设计.md §9）。
  */
 @Service
-public class CompartmentStateService {
+public class CompartmentStateService implements SlotPort {
 
     private static final Logger log = LoggerFactory.getLogger(CompartmentStateService.class);
 
@@ -100,19 +102,11 @@ public class CompartmentStateService {
     }
 
     /**
-     * 一次读数的结果（物检结论已经落库）。
-     *
-     * <p>它不自己判新不新鲜：时效是可配的业规则，属于本服务（{@link #fresh(Sensing)}），
-     * 把判定放进数据记录里就会出现“每个记录对象自己拿一份配置”的无法测试形态。
-     */
-    public record Sensing(boolean doorClosed, Presence presence, LocalDateTime sensedAt) {
-    }
-
-    /**
      * 问一次设备传感器，并把物检结论连同时刻落库。
      *
      * <p>落库而不是只用返回值：业务运维与纠纷还原要能看到"当时设备报了什么、什么时候报的"。
      */
+    @Override
     public Sensing sense(Long cabinetId, Long slotId) {
         DeviceChannel.SlotSensor sensor = channel.probe(cabinetId, slotId);
         LocalDateTime at = sensor.sensedAt() == null ? LocalDateTime.now() : sensor.sensedAt();
@@ -123,6 +117,7 @@ public class CompartmentStateService {
     }
 
     /** 物检结论能不能当凭据（时效在 {@code presence-max-age-minutes} 内）。 */
+    @Override
     public boolean fresh(Sensing sensing) {
         return sensing.sensedAt() != null
                 && java.time.Duration.between(sensing.sensedAt(), LocalDateTime.now()).toMinutes()
@@ -145,6 +140,11 @@ public class CompartmentStateService {
             log.debug("门已经是开着的，起点保持不动 slotNo={}", slot.getSlotNo());
         }
         recordEvidence(BizItemEvidence.Moment.DOOR_OPENED, slot, "开门采集：此时柜内应为空，作为后续比对的基准");
+    }
+
+    @Override
+    public void afterDoorOpened(Long slotId, Long customerId) {
+        afterDoorOpened(requireSlot(slotId), customerId);
     }
 
     /**
@@ -232,6 +232,7 @@ public class CompartmentStateService {
      * 开单也在同一个调用链上。阶梯用**已催次数**而不是“当前几分”判定，因为巡检可能被
      * 租约接管后重跑，拿墙上时间判会在同一分钟重复发提醒。
      */
+    @Override
     public void markDoorOpenPastTolerance(Long slotId, long openMinutes) {
         markAnomalyAndLog(slotId, CompartmentAnomaly.DOOR_OPEN,
                 "柜门已开 " + openMinutes + " 分钟仍未关闭，计费已起计，直到关门或用户结束订单");
@@ -285,6 +286,11 @@ public class CompartmentStateService {
      *
      * @return true 表示这次真的把"开着"关成了"关上"；false 表示门本来就关着（幂等重跑）
      */
+    @Override
+    public boolean afterDoorClosed(Long slotId, Long customerId) {
+        return afterDoorClosed(requireSlot(slotId), customerId);
+    }
+
     public boolean afterDoorClosed(BizCompartment slot, Long customerId) {
         int moved = slotMapper.markDoorClosed(slot.getId(), customerId, LocalDateTime.now());
         if (moved == 0) {
@@ -324,6 +330,7 @@ public class CompartmentStateService {
      * 拿它来卡 DOOR_OPEN 的解除，会让所有没装物检的柜机（现实中的大多数）永远解不了异常，
      * 整柜很快全变成“不可分配”。
      */
+    @Override
     public void tryAutoRecover(Long slotId, Sensing sensing) {
         BizCompartment slot = slotMapper.selectById(slotId);
         if (slot == null || slot.getAnomaly() == null || !slot.getAnomaly().autoRecoverable()) {
@@ -393,6 +400,7 @@ public class CompartmentStateService {
      * <b>通知物主</b>（第 21 刀，用户定：自动发站内消息、业务员可选打电话）——
      * 发现遗留物的那一刻，最该知道的人就是把它落在这里的那位。
      */
+    @Override
     public void markContentLeft(Long slotId, String reason) {
         markAnomalyAndLog(slotId, CompartmentAnomaly.CONTENT_LEFT, reason);
         notifyOwnerForLeftover(slotId);
@@ -441,6 +449,11 @@ public class CompartmentStateService {
     }
 
     /** 物主取回复检后的证据采集（第 21 刀新增采集点，与四个既有采集点同表同规）。 */
+    @Override
+    public void recordRetrievalEvidence(Long slotId, String note) {
+        recordRetrievalEvidence(requireSlot(slotId), note);
+    }
+
     public void recordRetrievalEvidence(BizCompartment slot, String note) {
         recordEvidence(BizItemEvidence.Moment.RETRIEVED_CHECK, slot, note);
     }
@@ -451,6 +464,7 @@ public class CompartmentStateService {
      * <p>不会拚掉更强的锁：“遗留物”是已经看见有东西，“测不到”只是没凭据。
      * 让弱锁盖掉强锁，就会出现“上报过别人东西的格口因为一次探测失败被降级成待确认”然后被人清走。
      */
+    @Override
     public void markContentUnverified(Long slotId, String reason) {
         BizCompartment slot = slotMapper.selectById(slotId);
         if (slot != null && slot.getAnomaly() != null && slot.getAnomaly() != CompartmentAnomaly.DOOR_OPEN) {
@@ -466,11 +480,13 @@ public class CompartmentStateService {
      * <p>这类<b>不能自动归类</b>：系统没有足够信息判断到底是门没关、还是传感器坏了，
      * 猜哪一边都可能造成不可逆的后果（把还有东西的格子卖出去，或把一个空柜永久锁死）。
      */
+    @Override
     public void markSensorConflict(Long slotId, String reason) {
         markAnomalyAndLog(slotId, CompartmentAnomaly.SENSOR_CONFLICT, reason);
     }
 
     /** 人工清柜完成：把这次解除落成 RECOVER 事件（状态列只存当前值，回答不了“谁什么时候清的”）。 */
+    @Override
     public void recordManualRecovery(Long slotId, String note) {
         BizCompartment slot = slotMapper.selectById(slotId);
         if (slot == null) {
@@ -485,6 +501,7 @@ public class CompartmentStateService {
      * <p><b>不拿 DOOR_OPEN 去盖掉已有的更强锁</b>：遗留物格口被打开取东西时，门只是“暂时开着”，
      * 而“里面有别人东西”这件事不会因开一次门就消失。降级会让格子在下次关门时变回可卖。
      */
+    @Override
     public void markForcedOpen(Long slotId, Long adminId, String reason) {
         BizCompartment slot = slotMapper.selectById(slotId);
         if (slot == null) {
@@ -498,7 +515,49 @@ public class CompartmentStateService {
                 "后台强制开柜：操作人 admin:" + adminId + "，事由：" + reason);
     }
 
+    // ------------------------------------------------------------------
+    // 占用与释放：条件更新，看影响行数判定抢到没抢到（与 SlotCandidateQuery 同判据）
+    // ------------------------------------------------------------------
+
+    @Override
+    public boolean reserve(Long slotId, Long orderId) {
+        return slotMapper.reserveSlot(slotId, orderId) == 1;
+    }
+
+    @Override
+    public boolean occupy(Long slotId, Long orderId) {
+        return slotMapper.markOccupied(slotId, orderId) == 1;
+    }
+
+    @Override
+    public boolean releaseReserved(Long slotId, Long orderId) {
+        return slotMapper.releaseSlot(slotId, orderId) == 1;
+    }
+
+    @Override
+    public boolean releaseOccupied(Long slotId, Long orderId) {
+        return slotMapper.releaseOccupiedSlot(slotId, orderId) == 1;
+    }
+
+    @Override
+    public void markFaulty(Long slotId) {
+        slotMapper.markFaulty(slotId);
+    }
+
+    @Override
+    public boolean clearAnomaly(Long slotId) {
+        return slotMapper.clearAnomaly(slotId) == 1;
+    }
+
     public BizCompartment reload(Long slotId) {
         return slotMapper.selectById(slotId);
+    }
+
+    private BizCompartment requireSlot(Long slotId) {
+        BizCompartment slot = slotMapper.selectById(slotId);
+        if (slot == null) {
+            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "格口不存在");
+        }
+        return slot;
     }
 }

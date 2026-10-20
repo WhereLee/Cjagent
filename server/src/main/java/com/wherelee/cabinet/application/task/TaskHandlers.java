@@ -6,7 +6,7 @@ import com.wherelee.cabinet.storage.api.FundPort;
 import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
-import com.wherelee.cabinet.locker.app.CompartmentStateService;
+import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.common.api.ResultCode;
@@ -77,11 +77,11 @@ public final class TaskHandlers {
         private final BizStorageOrderMapper orderMapper;
         private final StorageOrderService orders;
         private final com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper;
-        private final com.wherelee.cabinet.locker.app.CompartmentStateService states;
+        private final com.wherelee.cabinet.locker.api.SlotPort states;
 
         SlotReleaseHandler(BizStorageOrderMapper orderMapper, StorageOrderService orders,
                            com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper,
-                           com.wherelee.cabinet.locker.app.CompartmentStateService states) {
+                           com.wherelee.cabinet.locker.api.SlotPort states) {
             this.orderMapper = orderMapper;
             this.orders = orders;
             this.commandMapper = commandMapper;
@@ -160,11 +160,11 @@ public final class TaskHandlers {
         private final BizStorageOrderMapper orderMapper;
         private final BizFaultEventMapper faultMapper;
         private final StorageOrderService orders;
-        private final CompartmentStateService states;
+        private final SlotPort states;
         private final PricingPolicy pricing;
     
         DoorNotClosedHandler(BizStorageOrderMapper orderMapper, BizFaultEventMapper faultMapper,
-                             StorageOrderService orders, CompartmentStateService states, PricingPolicy pricing) {
+                             StorageOrderService orders, SlotPort states, PricingPolicy pricing) {
             this.orderMapper = orderMapper;
             this.faultMapper = faultMapper;
             this.orders = orders;

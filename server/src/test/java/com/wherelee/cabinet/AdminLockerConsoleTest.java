@@ -3,6 +3,7 @@ package com.wherelee.cabinet;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.locker.app.LockerConsoleService;
 import com.wherelee.cabinet.funds.app.PointAccountService;
+import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
@@ -223,7 +224,7 @@ class AdminLockerConsoleTest {
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
-                new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
+                new Sensing(false, Presence.ABSENT, LocalDateTime.now())));
 
         var page = TenantContext.callAs(TENANT, () ->
                 console.anomalies(new PageQuery(), "DOOR_OPEN", siteId));
@@ -247,7 +248,7 @@ class AdminLockerConsoleTest {
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
-                new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
+                new Sensing(false, Presence.ABSENT, LocalDateTime.now())));
         Long slotId = order(order.getOrderNo()).getSlotId();
 
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,

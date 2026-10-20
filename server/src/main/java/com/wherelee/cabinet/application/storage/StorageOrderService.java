@@ -1,7 +1,8 @@
 package com.wherelee.cabinet.application.storage;
 import com.wherelee.cabinet.locker.api.SlotAllocator;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
-import com.wherelee.cabinet.locker.app.CompartmentStateService;
+import com.wherelee.cabinet.locker.api.Sensing;
+import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper;
 import com.wherelee.cabinet.locker.api.Presence;
 
@@ -59,7 +60,7 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.device.api.CommandPort deviceCommands;
     private final com.wherelee.cabinet.storage.api.FundPort funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
-    private final CompartmentStateService states;
+    private final SlotPort states;
     /** 定-21/定-23：预备开重试无效时要开一条设备故障工单（不然故障只活在日志里）。 */
     private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
     // 柜内物品争议与“误报免除”已于 2026-10-12 作废（用户定：结束不拦人后“争议期间”不存在）。
@@ -128,7 +129,7 @@ public class StorageOrderService {
                                SlotPreDeductionService preDeduction,
                                com.wherelee.cabinet.device.api.CommandPort deviceCommands,
                                com.wherelee.cabinet.storage.api.FundPort funds,
-                               CompartmentStateService states,
+                               SlotPort states,
                                com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper,
                                com.wherelee.cabinet.funds.app.PriceRuleService priceRules,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
@@ -265,7 +266,7 @@ public class StorageOrderService {
 
         // 取消不能比结束更松：检测到柜内有东西时不得取消。否则就是“钱退了、件留下了、
         // 格子又卖给了第三个人”——那是一整个流程里最难收拾的现场（不变量 I12）。
-        CompartmentStateService.Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
+        Sensing sensing = states.sense(order.getCabinetId(), order.getSlotId());
         if (sensing.presence() == com.wherelee.cabinet.locker.api.Presence.PRESENT) {
             throw new BizException(ResultCode.BIZ_ERROR,
                     "柜内检测到物品：请先取出再取消（或走“声明放弃物品”结束）");
@@ -289,8 +290,8 @@ public class StorageOrderService {
      */
     private StorageOrderView releaseOrder(BizStorageOrder order) {
         order.transitTo(OrderStatus.CANCELLED);
-        int released = slotMapper.releaseSlot(order.getSlotId(), order.getId());
-        if (released == 0) {
+        boolean released = states.releaseReserved(order.getSlotId(), order.getId());
+        if (!released) {
             // 状态说该释放却释放不掉：说明格口已被他人改写，必须报错回滚而不是"取消成功但格口仍占着"
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，请联系运营处理");
         }
@@ -493,7 +494,7 @@ public class StorageOrderService {
         // 门开了（或柜机应答正常但未回明细）：登记门态与证据，取物期间这一格不会被分给别人。
         // 不再在这里顺手标“门未关”台账：door_open_at 本身就是超时回扫的输入，
         // 而“结束后门一直没关”属于取完东西不收尾的现场，由回扫与对账接手，不在这里刷一张单
-        states.afterDoorOpened(slot, customerId);
+        states.afterDoorOpened(slot.getId(), customerId);
         return settled.withMessage(outcome.businessSuccess()
                 ? "柜门已打开，请取走物品并随手关好柜门"
                 : "已下发开门，请确认柜门已开；若没反应请联系现场工作人员");
@@ -906,7 +907,7 @@ public class StorageOrderService {
                     // 会让后来人以为这里已经防住（2026-10-12 实测核对后改掉）。
                     // 谎报开门为什么可接受：头 30 分钟免费兑住了当场发现的情况，而当场没发现时
                     // 还有 19D 的门未关阶梯与工单接手——已由用例 openReceiptCannotBillTheUser 钉住。
-                    states.afterDoorOpened(states.reload(order.getSlotId()), order.getCustomerId());
+                    states.afterDoorOpened(order.getSlotId(), order.getCustomerId());
                     // 19A（2026-10-11 定稿）：<b>开柜瞬间就是计费起点</b>，不再等关门、
                     // 也不靠容错到期去“补一个起点”。头 30 分钟免费由计价算法扣除，
                     // 所以“开了门没放东西”与“开了门忘了关门”都会自然产生费用。
@@ -918,7 +919,7 @@ public class StorageOrderService {
                 case OPEN_TEMP -> {
                     order.setTempOpenCount(order.getTempOpenCount() == null ? 1 : order.getTempOpenCount() + 1);
                     order.transitTo(OrderStatus.TEMP_OPEN);
-                    states.afterDoorOpened(states.reload(order.getSlotId()), order.getCustomerId());
+                    states.afterDoorOpened(order.getSlotId(), order.getCustomerId());
                     scheduleDoorWatch(order);
                 }
                 case CLOSE_VERIFY -> closeVerified(order);
@@ -968,14 +969,14 @@ public class StorageOrderService {
      * 后者只在结束订单那一刻判（结束三条件），拿它卡住投件/临时开柜的关门是错的——
      * 投件时柜内本来就该有东西。
      */
-    private void applyCloseVerified(BizStorageOrder order, CompartmentStateService.Sensing sensing) {
+    private void applyCloseVerified(BizStorageOrder order, Sensing sensing) {
         if (!sensing.doorClosed()) {
             // 指令层成功而门磁不认：不推进。宁可让用户再点一次，也不能把“没关上”记成已存
             states.markSensorConflict(order.getSlotId(), "收到关门校验但门磁仍报开着，需现场确认");
             log.warn("关门校验未被门磁确认 orderNo={} slotId={}", order.getOrderNo(), order.getSlotId());
             return;
         }
-        states.afterDoorClosed(states.reload(order.getSlotId()), order.getCustomerId());
+        states.afterDoorClosed(order.getSlotId(), order.getCustomerId());
         if (order.getStatus() == OrderStatus.TEMP_OPEN) {
             // 中途取物后又关回来：本来就在计费，起点不动（I10）
             order.transitTo(OrderStatus.ACTIVE);
@@ -1123,7 +1124,7 @@ public class StorageOrderService {
      * @return true 表示还要继续盯着（下一轮提醒）；false 表示这条看管到此为止
      */
     @Transactional
-    public boolean doorWatchTick(String orderNo, CompartmentStateService.Sensing sensing) {
+    public boolean doorWatchTick(String orderNo, Sensing sensing) {
         BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getOrderNo, orderNo));
         if (order == null || order.getStatus().isTerminal()) {
@@ -1182,7 +1183,7 @@ public class StorageOrderService {
     // 19A 结束不拦人之后这种费用不存在了，结束从来只算到此刻，也就没什么可“免”。
 
     /** 这条读数能不能当“柜内已空”的凭据用（坏了、离线、结论过期都算不能用）。 */
-    private boolean emptyEvidence(CompartmentStateService.Sensing sensing) {
+    private boolean emptyEvidence(Sensing sensing) {
         return sensing.presence() == com.wherelee.cabinet.locker.api.Presence.ABSENT && states.fresh(sensing);
     }
 

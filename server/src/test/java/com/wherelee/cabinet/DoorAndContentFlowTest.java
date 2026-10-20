@@ -2,6 +2,7 @@ package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PointAccountService;
+import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
@@ -282,7 +283,7 @@ class DoorAndContentFlowTest {
 
         // 门是关着的、物检也报“没有”，也必须等人来清：自动解除只服务 DOOR_OPEN
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
-                new CompartmentStateService.Sensing(true, Presence.ABSENT, LocalDateTime.now())));
+                new Sensing(true, Presence.ABSENT, LocalDateTime.now())));
 
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(),
                 "CONTENT_LEFT 被自动解除了：门一关就把别人还留着东西的格子放回可售池，违反 I9");
@@ -327,7 +328,7 @@ class DoorAndContentFlowTest {
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         TenantContext.runAs(TENANT, () -> orderService.doorWatchTick(order.getOrderNo(),
-                new CompartmentStateService.Sensing(false, Presence.ABSENT, LocalDateTime.now())));
+                new Sensing(false, Presence.ABSENT, LocalDateTime.now())));
 
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
 

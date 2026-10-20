@@ -1,5 +1,6 @@
 package com.wherelee.cabinet;
 
+import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import com.wherelee.cabinet.common.api.PageQuery;
@@ -266,7 +267,7 @@ class WorkOrderFlowTest {
                 "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
 
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
-                new CompartmentStateService.Sensing(true, Presence.ABSENT, LocalDateTime.now())));
+                new Sensing(true, Presence.ABSENT, LocalDateTime.now())));
 
         Map<String, Object> row = rows("select status, active_flag, result_note, assignee_id from biz_work_order where id = ?", id).get(0);
         assertEquals(WorkOrderStatus.AUTO_CLOSED.name(), row.get("status"), "事实消失要自动转化，不能挂着让人误以为还要办");

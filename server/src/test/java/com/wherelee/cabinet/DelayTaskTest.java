@@ -1,6 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
@@ -524,7 +525,7 @@ class DelayTaskTest {
         // 如果把“测不到”也算成解除阻碍，整柜会越用越多地永久卡在异常里。
         // runAs 不能省：服务内部要读格口，没有租户上下文会被守卫直接拒执（本会话第 6 次踩这条）
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(order.getSlotId(),
-                new CompartmentStateService.Sensing(true, Presence.UNKNOWN, LocalDateTime.now())));
+                new Sensing(true, Presence.UNKNOWN, LocalDateTime.now())));
 
         assertNull(TenantContext.callAs(TENANT, () -> slotMapper.selectById(order.getSlotId())).getAnomaly(),
                 "DOOR_OPEN 的解除判据只能是门本身；“里面有没有东西”是另外两类异常的责任");

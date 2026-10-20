@@ -2,6 +2,7 @@ package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PointAccountService;
+import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
@@ -270,7 +271,7 @@ class ItemDisputeFlowTest {
 
         // 门磁又被确认关上（下一个人来之前它物理上是关的）：异常必须仍在
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
-                new CompartmentStateService.Sensing(true, Presence.ABSENT, LocalDateTime.now())));
+                new Sensing(true, Presence.ABSENT, LocalDateTime.now())));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(), "I9：遗留物只能由人放行");
 
         List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
