@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
-import com.wherelee.cabinet.application.support.SupportAgentPort;
+import com.wherelee.cabinet.assistant.api.SupportAgentPort;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 

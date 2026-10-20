@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.storage;
+package com.wherelee.cabinet.assistant.api;
 
 import com.wherelee.cabinet.domain.enums.Presence;
 

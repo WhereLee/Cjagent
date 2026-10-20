@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.admin.workorder;
 
-import com.wherelee.cabinet.application.workorder.WorkOrderBriefPort;
+import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import com.wherelee.cabinet.application.workorder.WorkOrderTriageService;
 import com.wherelee.cabinet.common.api.PageQuery;

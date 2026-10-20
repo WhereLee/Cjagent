@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
-import com.wherelee.cabinet.application.ops.OpsDiagnosePort;
+import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 

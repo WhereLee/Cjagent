@@ -82,7 +82,7 @@ class BriefToolsTest {
         assertTrue(tools().similarResolved().contains("暂无"), "没有历史要明说，不许编");
 
         when(workOrders.similarResolved(WO, 3)).thenReturn(List.of(
-                new com.wherelee.cabinet.application.workorder.WorkOrderBriefPort.SimilarCase(
+                new com.wherelee.cabinet.assistant.api.WorkOrderBriefPort.SimilarCase(
                         "格口 A-01 门未关：取件后未回关", "电话联系后用户返回关好柜门，柜内无物", "2026-10-10")));
         String out = tools().similarResolved();
         assertTrue(out.contains("电话联系后用户返回关好柜门"), "结论必须原文转述：" + out);

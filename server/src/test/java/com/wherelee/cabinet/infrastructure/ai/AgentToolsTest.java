@@ -3,7 +3,7 @@ package com.wherelee.cabinet.infrastructure.ai;
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
 import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
-import com.wherelee.cabinet.application.support.SupportAgentPort.SupportSession;
+import com.wherelee.cabinet.assistant.api.SupportAgentPort.SupportSession;
 import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;

@@ -1,8 +1,8 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.ops.OpsDiagnosePort;
-import com.wherelee.cabinet.application.support.SupportAgentPort;
-import com.wherelee.cabinet.application.workorder.WorkOrderBriefPort;
+import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
+import com.wherelee.cabinet.assistant.api.SupportAgentPort;
+import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
 import com.wherelee.cabinet.common.context.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

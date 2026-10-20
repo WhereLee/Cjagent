@@ -2,7 +2,7 @@ package com.wherelee.cabinet.infrastructure.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.wherelee.cabinet.application.storage.ItemReviewPort;
+import com.wherelee.cabinet.assistant.api.ItemReviewPort;
 import com.wherelee.cabinet.domain.enums.Presence;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;

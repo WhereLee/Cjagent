@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
-import com.wherelee.cabinet.application.storage.ItemReviewPort;
+import com.wherelee.cabinet.assistant.api.ItemReviewPort;
 import com.wherelee.cabinet.domain.enums.Presence;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

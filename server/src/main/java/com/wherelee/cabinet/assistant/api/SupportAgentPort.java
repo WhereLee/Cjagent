@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.support;
+package com.wherelee.cabinet.assistant.api;
 
 /**
  * C 端智能客服的端口（第 22 刀）。

@@ -2,7 +2,7 @@ package com.wherelee.cabinet.infrastructure.ai;
 
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
-import com.wherelee.cabinet.application.support.SupportAgentPort;
+import com.wherelee.cabinet.assistant.api.SupportAgentPort;
 import com.wherelee.cabinet.application.workorder.WorkOrderHandoffService;
 import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;

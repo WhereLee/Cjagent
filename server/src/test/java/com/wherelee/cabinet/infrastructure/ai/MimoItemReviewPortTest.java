@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
-import com.wherelee.cabinet.application.storage.ItemReviewPort;
+import com.wherelee.cabinet.assistant.api.ItemReviewPort;
 import com.wherelee.cabinet.domain.enums.Presence;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.DisplayName;

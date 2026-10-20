@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
-import com.wherelee.cabinet.application.ops.OpsDiagnosePort;
+import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
 import com.wherelee.cabinet.infrastructure.mapper.BizFaultEventMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.application.ops;
+package com.wherelee.cabinet.assistant.api;
 
 import java.util.List;
 

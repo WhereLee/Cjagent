@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.ops.OpsDiagnosePort;
+import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.domain.enums.FaultType;
 import com.wherelee.cabinet.infrastructure.ai.OpsTools;

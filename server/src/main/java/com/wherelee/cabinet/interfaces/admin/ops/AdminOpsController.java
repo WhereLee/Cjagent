@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.admin.ops;
 
-import com.wherelee.cabinet.application.ops.OpsDiagnosePort;
+import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;

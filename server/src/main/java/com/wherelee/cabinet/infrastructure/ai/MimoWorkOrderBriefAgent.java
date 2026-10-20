@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.infrastructure.ai;
 
-import com.wherelee.cabinet.application.workorder.WorkOrderBriefPort;
+import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
 import com.wherelee.cabinet.application.workorder.WorkOrderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

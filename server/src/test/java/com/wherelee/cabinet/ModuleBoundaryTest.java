@@ -49,8 +49,12 @@ class ModuleBoundaryTest {
             if (in == null) {
                 throw new IllegalStateException("缺少模块边界基线文件 module-boundary-baseline.txt");
             }
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
-                    .lines().map(String::trim).filter(line -> !line.isEmpty())
+            String text = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+            // Windows 下用 PowerShell 维护基线文件时会带 BOM，去掉后再按行读
+            if (text.startsWith("\uFEFF")) {
+                text = text.substring(1);
+            }
+            return text.lines().map(String::trim).filter(line -> !line.isEmpty())
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
         } catch (java.io.IOException e) {
             throw new java.io.UncheckedIOException(e);
@@ -86,8 +90,11 @@ class ModuleBoundaryTest {
     }
 
     /**
-     * 包名 → 模块名。重构前只有"层"的概念，所以先按层聚合；P1 起这里会改成
-     * {@code identity/locker/storage/...} 的服务名。
+     * 包名 → <b>目标服务名</b>。
+     *
+     * <p>不能按当前包名统计：P3 会把 {@code application.storage} 搬成 {@code storage}，
+     * 键名一变，基线就看不出“到底拆没拆”。所以这里把新旧位置归一到同一个服务名，
+     * 搬迁前后键不变，数字只会在“真的不再依赖”时下降。
      */
     private static String moduleOf(String packageName) {
         if (!packageName.startsWith(ROOT)) {
@@ -98,13 +105,29 @@ class ModuleBoundaryTest {
             return "root";
         }
         String[] parts = rest.split("\\.");
-        return switch (parts[0]) {
-            // 根包 app 是启动/装配层（原 config），与 application 的缩写 app 撞名，单独叫 boot
+        String head = parts[0];
+        String sub = parts.length > 1 ? parts[1] : "";
+        return switch (head) {
+            // 根包 app 是启动/装配层（原 config），与 application 的缩写撞名，单独叫 boot
             case "app" -> "boot";
-            case "application" -> parts.length > 1 ? "app." + parts[1] : "app";
-            case "interfaces" -> parts.length > 1 ? "ui." + parts[1] : "ui";
-            case "infrastructure" -> parts.length > 1 ? "infra." + parts[1] : "infra";
-            default -> parts[0];
+            case "application" -> serviceName(sub);
+            case "interfaces" -> "bff." + sub;
+            case "infrastructure" -> "infra." + sub;
+            case "identity", "locker", "storage", "funds", "device", "servicedesk", "notify", "assistant" -> head;
+            case "bff" -> "bff." + sub;
+            case "platform" -> "platform";
+            default -> head;
+        };
+    }
+    
+    /** 旧包名到目标服务名的映射：搬迁前后保持同一个键。 */
+    private static String serviceName(String legacy) {
+        return switch (legacy) {
+            case "auth", "user" -> "identity";
+            case "point", "billing", "reconcile" -> "funds";
+            case "workorder" -> "servicedesk";
+            case "support", "ops" -> "assistant";
+            default -> legacy;
         };
     }
 }
