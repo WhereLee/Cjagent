@@ -1,7 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.locker.app.SlotAllocator;
+import com.wherelee.cabinet.locker.api.SlotAllocator;
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.StorageOrderService;
 import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;

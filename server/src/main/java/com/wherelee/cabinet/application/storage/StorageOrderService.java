@@ -1,5 +1,5 @@
 package com.wherelee.cabinet.application.storage;
-import com.wherelee.cabinet.locker.app.SlotAllocator;
+import com.wherelee.cabinet.locker.api.SlotAllocator;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper;

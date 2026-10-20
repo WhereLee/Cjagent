@@ -1,5 +1,8 @@
 package com.wherelee.cabinet.locker.app;
 
+import com.wherelee.cabinet.locker.api.SlotAllocator;
+import com.wherelee.cabinet.locker.api.SlotAllocator.AllocatedSlot;
+
 import com.wherelee.cabinet.locker.api.SizeType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;

@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.ai;
+package com.wherelee.cabinet.assistant.infra;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

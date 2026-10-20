@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.ai;
+package com.wherelee.cabinet.assistant.infra;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

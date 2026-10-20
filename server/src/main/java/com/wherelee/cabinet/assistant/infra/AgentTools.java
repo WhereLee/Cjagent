@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.ai;
+package com.wherelee.cabinet.assistant.infra;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;

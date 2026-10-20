@@ -1,5 +1,10 @@
+assistant->common
+assistant->device
 assistant->domain
+assistant->infra.mapper
 assistant->locker
+assistant->servicedesk
+assistant->storage
 bff.admin->assistant
 bff.admin->common
 bff.admin->domain

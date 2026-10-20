@@ -1,5 +1,8 @@
 package com.wherelee.cabinet.locker.app;
 
+import com.wherelee.cabinet.locker.api.SlotAllocator;
+import com.wherelee.cabinet.locker.api.SlotAllocator.AllocatedSlot;
+
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.locker.domain.BizCompartment;

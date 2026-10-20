@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.locker.app;
+package com.wherelee.cabinet.locker.api;
 
 import com.wherelee.cabinet.locker.api.SizeType;
 

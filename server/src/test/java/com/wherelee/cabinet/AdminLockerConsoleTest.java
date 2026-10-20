@@ -26,7 +26,7 @@ import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.api.Presence;
 import com.wherelee.cabinet.locker.api.SizeType;
 import com.wherelee.cabinet.locker.api.SlotStatus;
-import com.wherelee.cabinet.infrastructure.ai.StubItemReviewPort;
+import com.wherelee.cabinet.assistant.infra.StubItemReviewPort;
 import com.wherelee.cabinet.device.infra.SimulatedCabinetChannel;
 import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
 import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;

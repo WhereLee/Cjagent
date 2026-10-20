@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.ai;
+package com.wherelee.cabinet.assistant.infra;
 
 import com.wherelee.cabinet.assistant.api.ItemReviewPort;
 import com.wherelee.cabinet.locker.api.Presence;

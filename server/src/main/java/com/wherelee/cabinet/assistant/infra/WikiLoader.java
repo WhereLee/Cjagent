@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.ai;
+package com.wherelee.cabinet.assistant.infra;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

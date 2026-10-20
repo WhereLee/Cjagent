@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.ai;
+package com.wherelee.cabinet.assistant.infra;
 
 import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import com.wherelee.cabinet.device.api.FaultType;

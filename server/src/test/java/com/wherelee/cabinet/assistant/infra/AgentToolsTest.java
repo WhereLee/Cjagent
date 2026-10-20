@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.ai;
+package com.wherelee.cabinet.assistant.infra;
 
 import com.wherelee.cabinet.application.storage.StorageOrderFacade;
 import com.wherelee.cabinet.application.storage.StorageQueryService;
