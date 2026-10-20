@@ -52,7 +52,7 @@ public class StorageOrderService {
     private final SlotAllocator allocator;
     private final SlotPreDeductionService preDeduction;
     private final com.wherelee.cabinet.device.api.CommandPort deviceCommands;
-    private final com.wherelee.cabinet.funds.app.OrderFundService funds;
+    private final com.wherelee.cabinet.storage.api.FundPort funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
     private final CompartmentStateService states;
     /** 定-21/定-23：预备开重试无效时要开一条设备故障工单（不然故障只活在日志里）。 */
@@ -122,7 +122,7 @@ public class StorageOrderService {
                                SlotAllocator allocator,
                                SlotPreDeductionService preDeduction,
                                com.wherelee.cabinet.device.api.CommandPort deviceCommands,
-                               com.wherelee.cabinet.funds.app.OrderFundService funds,
+                               com.wherelee.cabinet.storage.api.FundPort funds,
                                CompartmentStateService states,
                                com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
                                com.wherelee.cabinet.funds.app.PriceRuleService priceRules,

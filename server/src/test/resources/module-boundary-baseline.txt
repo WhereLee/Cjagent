@@ -33,6 +33,7 @@ domain->common
 funds->common
 funds->domain
 funds->infra.mapper
+funds->storage
 identity->boot
 identity->common
 identity->domain

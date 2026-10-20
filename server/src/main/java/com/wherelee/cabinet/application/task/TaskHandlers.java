@@ -2,7 +2,7 @@ package com.wherelee.cabinet.application.task;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
-import com.wherelee.cabinet.funds.app.OrderFundService;
+import com.wherelee.cabinet.storage.api.FundPort;
 import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
@@ -339,9 +339,9 @@ public final class TaskHandlers {
     public static class DepositRefundHandler implements TaskHandler {
 
         private final BizStorageOrderMapper orderMapper;
-        private final OrderFundService funds;
+        private final FundPort funds;
 
-        DepositRefundHandler(BizStorageOrderMapper orderMapper, OrderFundService funds) {
+        DepositRefundHandler(BizStorageOrderMapper orderMapper, FundPort funds) {
             this.orderMapper = orderMapper;
             this.funds = funds;
         }
