@@ -307,9 +307,9 @@ class DeviceFaultInjectionTest {
         String requestId = "idem-" + UUID.randomUUID();
 
         var first = TenantContext.callAs(TENANT,
-                () -> commandService.dispatch(cabinet, slotId, CommandAction.OPEN, order().getId(), requestId));
+                () -> commandService.dispatch(cabinet.getId(), slotId, CommandAction.OPEN, order().getId(), requestId));
         var second = TenantContext.callAs(TENANT,
-                () -> commandService.dispatch(cabinet, slotId, CommandAction.OPEN, order().getId(), requestId));
+                () -> commandService.dispatch(cabinet.getId(), slotId, CommandAction.OPEN, order().getId(), requestId));
 
         assertEquals(first.commandId(), second.commandId(), "同一 requestId 必须复用同一条指令");
         assertNotNull(commandByRequestId(requestId));

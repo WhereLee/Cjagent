@@ -1,7 +1,11 @@
 package com.wherelee.cabinet.device.app;
 
 import com.wherelee.cabinet.device.api.DeviceChannel;
+import com.wherelee.cabinet.device.api.CommandOutcome;
+import com.wherelee.cabinet.device.api.CommandPort;
+import com.wherelee.cabinet.device.api.CommandSnapshot;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.application.task.DelayTaskService;
@@ -53,7 +57,7 @@ import java.util.concurrent.TimeoutException;
  * 离线降级、连续失败停用。每种都有用例断言，不是"写了个 switch 就算支持"。
  */
 @Service
-public class DeviceCommandService {
+public class DeviceCommandService implements CommandPort {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceCommandService.class);
     private static final String FAIL_KEY_PREFIX = "cab:dev:fail:";
@@ -113,20 +117,41 @@ public class DeviceCommandService {
         this.taskScheduler = taskScheduler;
     }
 
-    /**
-     * @param stale    回执是重复/乱序的旧事件：已入库留证，但<b>不得改变业务状态</b>
-     * @param faultType 本次触发的故障类型（null 表示无故障）
-     */
-    public record CommandOutcome(Long commandId,
-                                 CommandState state,
-                                 boolean businessSuccess,
-                                 boolean stale,
-                                 FaultType faultType,
-                                 String message) {
+    @Override
+    public long countAttempts(String requestIdPrefix) {
+        if (requestIdPrefix == null || requestIdPrefix.isBlank()) {
+            return 0L;
+        }
+        return commandMapper.selectCount(Wrappers.<BizDeviceCommand>lambdaQuery()
+                .likeRight(BizDeviceCommand::getRequestId, requestIdPrefix));
     }
 
-    public CommandOutcome dispatch(BizCabinet cabinet, Long slotId, CommandAction action,
+    @Override
+    public java.util.List<CommandSnapshot> byOrder(Long orderId, int limit) {
+        if (orderId == null) {
+            return java.util.List.of();
+        }
+        int size = Math.max(1, Math.min(limit, 200));
+        return commandMapper.selectList(Wrappers.<BizDeviceCommand>lambdaQuery()
+                        .eq(BizDeviceCommand::getOrderId, orderId)
+                        .orderByDesc(BizDeviceCommand::getSentAt)
+                        .last("limit " + size))
+                .stream()
+                .map(c -> new CommandSnapshot(c.getId(), c.getRequestId(),
+                        c.getAction() == null ? null : c.getAction().name(),
+                        c.getStatus() == null ? null : c.getStatus().name(),
+                        c.getRetryCount() == null ? 0 : c.getRetryCount(),
+                        c.getSentAt(), c.getAckedAt(), c.getLastError()))
+                .toList();
+    }
+
+    @Override
+    public CommandOutcome dispatch(Long cabinetId, Long slotId, CommandAction action,
                                    Long orderId, String requestId) {
+        BizCabinet cabinet = cabinetId == null ? null : cabinetMapper.selectById(cabinetId);
+        if (cabinet == null) {
+            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "柜机不存在，无法下发指令 cabinetId=" + cabinetId);
+        }
         BizDeviceCommand existing = commandMapper.selectByRequestId(requestId);
         if (existing != null) {
             // 同一个 requestId 再来一次：绝不重复下发（设备可能被开两次）

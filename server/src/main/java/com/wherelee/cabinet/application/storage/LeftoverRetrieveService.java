@@ -1,7 +1,8 @@
 package com.wherelee.cabinet.application.storage;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.device.app.DeviceCommandService;
+import com.wherelee.cabinet.device.api.CommandPort;
+import com.wherelee.cabinet.device.api.CommandOutcome;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
@@ -15,7 +16,6 @@ import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.domain.enums.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,23 +46,21 @@ public class LeftoverRetrieveService {
     private final BizStorageOrderMapper orderMapper;
     private final BizCompartmentMapper slotMapper;
     private final BizCabinetMapper cabinetMapper;
-    private final DeviceCommandService deviceCommands;
-    private final BizDeviceCommandMapper commandMapper;
+    private final CommandPort deviceCommands;
     private final CompartmentStateService states;
     private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
     /** 收敛走显式短事务：探测（sense）是一次设备问答，绝不能握着数据库连接做。 */
     private final TransactionTemplate newTx;
 
     public LeftoverRetrieveService(BizStorageOrderMapper orderMapper, BizCompartmentMapper slotMapper,
-                                   BizCabinetMapper cabinetMapper, DeviceCommandService deviceCommands,
-                                   BizDeviceCommandMapper commandMapper, CompartmentStateService states,
+                                   BizCabinetMapper cabinetMapper, CommandPort deviceCommands,
+                                   CompartmentStateService states,
                                    com.wherelee.cabinet.application.workorder.WorkOrderService workOrders,
                                    TransactionTemplate txTemplate) {
         this.orderMapper = orderMapper;
         this.slotMapper = slotMapper;
         this.cabinetMapper = cabinetMapper;
         this.deviceCommands = deviceCommands;
-        this.commandMapper = commandMapper;
         this.states = states;
         this.workOrders = workOrders;
         // 与 StorageOrderService 同款：从容器里的 TransactionTemplate 取事务管理器，
@@ -96,9 +94,9 @@ public class LeftoverRetrieveService {
             throw new BizException(ResultCode.SYSTEM_ERROR, "柜机信息缺失，请联系客服处理");
         }
 
-        DeviceCommandService.CommandOutcome outcome;
+        CommandOutcome outcome;
         try {
-            outcome = deviceCommands.dispatch(cabinet, order.getSlotId(), CommandAction.OPEN,
+            outcome = deviceCommands.dispatch(cabinet.getId(), order.getSlotId(), CommandAction.OPEN,
                     order.getId(), orderNo + ":LEFTOVER:" + (countAttempts(orderNo) + 1));
         } catch (RuntimeException offline) {
             // 柜机离线/通道异常从 dispatch 抛出，这里转成人话；格口保持锁定
@@ -182,8 +180,7 @@ public class LeftoverRetrieveService {
     }
 
     private long countAttempts(String orderNo) {
-        return commandMapper.selectCount(Wrappers.<com.wherelee.cabinet.device.domain.BizDeviceCommand>lambdaQuery()
-                .likeRight(com.wherelee.cabinet.device.domain.BizDeviceCommand::getRequestId,
-                        orderNo + ":LEFTOVER:"));
+        // “第几次尝试”由设备侧按 requestId 前缀计数
+        return deviceCommands.countAttempts(orderNo + ":LEFTOVER:");
     }
 }

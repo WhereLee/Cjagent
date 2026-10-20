@@ -1,8 +1,10 @@
 package com.wherelee.cabinet.application.locker;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.device.app.DeviceCommandService;
+import com.wherelee.cabinet.device.api.CommandPort;
 import com.wherelee.cabinet.application.storage.CompartmentStateService;
+import com.wherelee.cabinet.device.api.EvidencePort;
+import com.wherelee.cabinet.device.api.EvidenceSnapshot;
 import com.wherelee.cabinet.storage.api.OrderQueryPort;
 import com.wherelee.cabinet.storage.api.OrderSnapshot;
 import com.wherelee.cabinet.platform.web.PageSupport;
@@ -12,12 +14,10 @@ import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizCabinet;
 import com.wherelee.cabinet.domain.entity.BizCompartment;
-import com.wherelee.cabinet.device.domain.BizItemEvidence;
 import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.domain.enums.Presence;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
-import com.wherelee.cabinet.device.infra.BizItemEvidenceMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,21 +56,21 @@ public class LockerConsoleService {
 
     private final BizLockerConsoleMapper consoleMapper;
     private final BizCompartmentMapper slotMapper;
-    private final BizItemEvidenceMapper evidenceMapper;
+    private final EvidencePort evidencePort;
     private final BizCabinetMapper cabinetMapper;
     private final OrderQueryPort orderQueries;
     private final com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper customerMapper;
     private final CompartmentStateService states;
-    private final DeviceCommandService deviceCommands;
+    private final CommandPort deviceCommands;
 
     public LockerConsoleService(BizLockerConsoleMapper consoleMapper, BizCompartmentMapper slotMapper,
-                                BizItemEvidenceMapper evidenceMapper, BizCabinetMapper cabinetMapper,
+                                EvidencePort evidencePort, BizCabinetMapper cabinetMapper,
                                 OrderQueryPort orderQueries, com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper customerMapper,
                                 CompartmentStateService states,
-                                DeviceCommandService deviceCommands) {
+                                CommandPort deviceCommands) {
         this.consoleMapper = consoleMapper;
         this.slotMapper = slotMapper;
-        this.evidenceMapper = evidenceMapper;
+        this.evidencePort = evidencePort;
         this.cabinetMapper = cabinetMapper;
         this.orderQueries = orderQueries;
         this.customerMapper = customerMapper;
@@ -118,7 +118,7 @@ public class LockerConsoleService {
         }
         OrderSnapshot current = slot.getCurrentOrderId() == null
                 ? null : orderQueries.byId(slot.getCurrentOrderId()).orElse(null);
-        return new Detail(slot, evidenceMapper.timelineOf(compartmentId, 30), current);
+        return new Detail(slot, evidencePort.timelineOfCompartment(compartmentId, 30), current);
     }
 
     /** 客户欠费合计：与下单拦截用<b>同一条 SQL</b>，避免"后台显示没欠、下单却被拒"这类两套口径。 */
@@ -185,7 +185,7 @@ public class LockerConsoleService {
             throw new BizException(ResultCode.SYSTEM_ERROR, "柜机不存在，无法强制开柜 cabinetId=" + slot.getCabinetId());
         }
         String requestId = "adm-" + adminId + "-" + compartmentId + "-" + java.util.UUID.randomUUID();
-        deviceCommands.dispatch(cabinet, compartmentId, CommandAction.FORCE_OPEN,
+        deviceCommands.dispatch(cabinet.getId(), compartmentId, CommandAction.FORCE_OPEN,
                 slot.getCurrentOrderId(), requestId);
         // 门真的被开了，所以按"门开着"记一笔：它因此自动不可分配，正是开柜期间想要的状态
         states.markForcedOpen(compartmentId, adminId, reason);
@@ -231,7 +231,7 @@ public class LockerConsoleService {
     }
 
     /** 格口详情出参。 */
-    public record Detail(BizCompartment compartment, List<BizItemEvidence> evidence, OrderSnapshot currentOrder) {
+    public record Detail(BizCompartment compartment, List<EvidenceSnapshot> evidence, OrderSnapshot currentOrder) {
     }
 
     /**

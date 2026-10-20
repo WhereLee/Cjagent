@@ -66,7 +66,7 @@ public class WorkOrderService {
     /** 19D：升级时同时生成“必须打电话”待办与给客户的站内消息。 */
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
     /** 19C：证据记录（四个采集点）随工单一起看，不然采集了也等于没人看到。 */
-    private final com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper;
+    private final com.wherelee.cabinet.device.api.EvidencePort evidencePort;
     /** 分诊事实之一：柜机在线快照（离线时门故障改按设备故障处置）。 */
     private final com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper;
     /** 关闭依据核验：事实恢复要看格口异常是否已解除。 */
@@ -84,7 +84,7 @@ public class WorkOrderService {
 
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                             com.wherelee.cabinet.notify.api.NoticePort notices,
-                            com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper,
+                            com.wherelee.cabinet.device.api.EvidencePort evidencePort,
                             com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper cabinetMapper,
                             com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper slotMapper,
                             WorkOrderTriageService triage,
@@ -93,7 +93,7 @@ public class WorkOrderService {
         this.orders = orders;
         this.events = events;
         this.notices = notices;
-        this.evidenceMapper = evidenceMapper;
+        this.evidencePort = evidencePort;
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.triage = triage;
@@ -118,16 +118,9 @@ public class WorkOrderService {
         if (order.getSlotId() == null) {
             return java.util.List.of();
         }
-        return evidenceMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
-                        .<com.wherelee.cabinet.device.domain.BizItemEvidence>lambdaQuery()
-                        .eq(com.wherelee.cabinet.device.domain.BizItemEvidence::getCompartmentId, order.getSlotId())
-                        .orderByAsc(com.wherelee.cabinet.device.domain.BizItemEvidence::getCreateTime)
-                        .last("limit 60"))
-                .stream()
-                .map(e -> new EvidenceView(e.getMoment() == null ? null : e.getMoment().name(),
-                        e.getSource() == null ? null : e.getSource().name(),
-                        e.getPresence() == null ? null : e.getPresence().name(),
-                        e.getConfidence(), e.getAiLabel(), e.getPhotoRef(), e.getNote(), e.getCreateTime()))
+        return evidencePort.byCompartment(order.getSlotId(), 60).stream()
+                .map(e -> new EvidenceView(e.moment(), e.source(), e.presence(),
+                        e.confidence(), e.aiLabel(), e.photoRef(), e.note(), e.at()))
                 .toList();
     }
 

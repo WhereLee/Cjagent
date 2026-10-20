@@ -51,8 +51,7 @@ public class StorageOrderService {
     private final BizStorageOrderMapper orderMapper;
     private final SlotAllocator allocator;
     private final SlotPreDeductionService preDeduction;
-    private final com.wherelee.cabinet.device.app.DeviceCommandService deviceCommands;
-    private final com.wherelee.cabinet.device.infra.BizDeviceCommandMapper deviceCommandMapper;
+    private final com.wherelee.cabinet.device.api.CommandPort deviceCommands;
     private final com.wherelee.cabinet.application.point.OrderFundService funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
     private final CompartmentStateService states;
@@ -122,8 +121,7 @@ public class StorageOrderService {
                                BizStorageOrderMapper orderMapper,
                                SlotAllocator allocator,
                                SlotPreDeductionService preDeduction,
-                               com.wherelee.cabinet.device.app.DeviceCommandService deviceCommands,
-                               com.wherelee.cabinet.device.infra.BizDeviceCommandMapper deviceCommandMapper,
+                               com.wherelee.cabinet.device.api.CommandPort deviceCommands,
                                com.wherelee.cabinet.application.point.OrderFundService funds,
                                CompartmentStateService states,
                                com.wherelee.cabinet.infrastructure.mapper.BizLockerConsoleMapper consoleMapper,
@@ -138,7 +136,6 @@ public class StorageOrderService {
         this.allocator = allocator;
         this.preDeduction = preDeduction;
         this.deviceCommands = deviceCommands;
-        this.deviceCommandMapper = deviceCommandMapper;
         this.funds = funds;
         this.states = states;
         this.intake = intake;
@@ -457,9 +454,9 @@ public class StorageOrderService {
         }
 
         long attempts = countAttempts(orderNo, com.wherelee.cabinet.device.api.CommandAction.OPEN);
-        com.wherelee.cabinet.device.app.DeviceCommandService.CommandOutcome outcome;
+        com.wherelee.cabinet.device.api.CommandOutcome outcome;
         try {
-            outcome = deviceCommands.dispatch(cabinet, order.getSlotId(),
+            outcome = deviceCommands.dispatch(cabinet.getId(), order.getSlotId(),
                     com.wherelee.cabinet.device.api.CommandAction.OPEN, order.getId(),
                     orderNo + ":PICKUP:" + (attempts + 1));
         } catch (RuntimeException offline) {
@@ -668,9 +665,9 @@ public class StorageOrderService {
 
         long attempts = countAttempts(orderNo, action);
         String requestId = orderNo + ":" + action.name() + ":" + (attempts + 1);
-        com.wherelee.cabinet.device.app.DeviceCommandService.CommandOutcome outcome;
+        com.wherelee.cabinet.device.api.CommandOutcome outcome;
         try {
-            outcome = deviceCommands.dispatch(cabinet, order.getSlotId(), action, order.getId(), requestId);
+            outcome = deviceCommands.dispatch(cabinet.getId(), order.getSlotId(), action, order.getId(), requestId);
         } catch (RuntimeException e) {
             // 上面已经把 RESERVED 推成 OPENING 并单独提交了（等回执不能开事务）。
             // 下发本身报错（柜机离线、通道异常）时若不退回，单就会卡在 OPENING：
@@ -818,7 +815,7 @@ public class StorageOrderService {
      */
     private PrepareResult prepareOnce(BizStorageOrder order, BizCabinet cabinet) {
         long seq = countAttempts(order.getOrderNo(), com.wherelee.cabinet.device.api.CommandAction.PREPARE);
-        var outcome = deviceCommands.dispatch(cabinet, order.getSlotId(),
+        var outcome = deviceCommands.dispatch(cabinet.getId(), order.getSlotId(),
                 com.wherelee.cabinet.device.api.CommandAction.PREPARE, order.getId(),
                 order.getOrderNo() + ":PREPARE:" + (seq + 1));
         if (outcome.faultType() == com.wherelee.cabinet.device.api.FaultType.OPEN_FAILED) {
@@ -891,7 +888,7 @@ public class StorageOrderService {
      */
     private void applyDeviceOutcome(BizStorageOrder order,
                                     com.wherelee.cabinet.device.api.CommandAction action,
-                                    com.wherelee.cabinet.device.app.DeviceCommandService.CommandOutcome outcome) {
+                                    com.wherelee.cabinet.device.api.CommandOutcome outcome) {
         if (outcome.stale()) {
             // 旧事件：什么都不改（设备重放不得把新状态覆盖成旧事件）
             return;
@@ -1163,7 +1160,7 @@ public class StorageOrderService {
      */
     @Transactional
     public void convergeDeviceOutcome(Long orderId, com.wherelee.cabinet.device.api.CommandAction action,
-                                      com.wherelee.cabinet.device.app.DeviceCommandService.CommandOutcome outcome) {
+                                      com.wherelee.cabinet.device.api.CommandOutcome outcome) {
         BizStorageOrder order = orderMapper.selectById(orderId);
         if (order == null || order.getStatus().isTerminal()) {
             log.info("回扫收敛跳过：单不存在或已终态 orderId={}", orderId);
@@ -1185,9 +1182,8 @@ public class StorageOrderService {
     }
 
     private long countAttempts(String orderNo, com.wherelee.cabinet.device.api.CommandAction action) {
-        return deviceCommandMapper.selectCount(Wrappers.<com.wherelee.cabinet.device.domain.BizDeviceCommand>lambdaQuery()
-                .likeRight(com.wherelee.cabinet.device.domain.BizDeviceCommand::getRequestId,
-                        orderNo + ":" + action.name() + ":"));
+        // “第几次尝试”是设备侧的账：由 CommandPort 按 requestId 前缀计数，订单侧不再查指令表。
+        return deviceCommands.countAttempts(orderNo + ":" + action.name() + ":");
     }
 
     private BizStorageOrder findOwned(Long customerId, String orderNo) {

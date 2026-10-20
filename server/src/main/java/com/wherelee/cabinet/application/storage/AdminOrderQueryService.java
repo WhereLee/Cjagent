@@ -20,8 +20,8 @@ import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.infrastructure.mapper.BizCabinetMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper;
-import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
-import com.wherelee.cabinet.device.infra.BizItemEvidenceMapper;
+import com.wherelee.cabinet.device.api.CommandPort;
+import com.wherelee.cabinet.device.api.EvidencePort;
 import com.wherelee.cabinet.infrastructure.mapper.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
@@ -65,8 +65,8 @@ public class AdminOrderQueryService {
     private final BizCabinetMapper cabinetMapper;
     private final BizCompartmentMapper slotMapper;
     private final BizSiteMapper siteMapper;
-    private final BizDeviceCommandMapper commandMapper;
-    private final BizItemEvidenceMapper evidenceMapper;
+    private final CommandPort commandPort;
+    private final EvidencePort evidencePort;
     private final BizWorkOrderMapper workOrderMapper;
     private final StorageQueryService storageQueries;
 
@@ -75,8 +75,8 @@ public class AdminOrderQueryService {
                                   BizCabinetMapper cabinetMapper,
                                   BizCompartmentMapper slotMapper,
                                   BizSiteMapper siteMapper,
-                                  BizDeviceCommandMapper commandMapper,
-                                  BizItemEvidenceMapper evidenceMapper,
+                                  CommandPort commandPort,
+                                  EvidencePort evidencePort,
                                   BizWorkOrderMapper workOrderMapper,
                                   StorageQueryService storageQueries) {
         this.orderMapper = orderMapper;
@@ -84,8 +84,8 @@ public class AdminOrderQueryService {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.siteMapper = siteMapper;
-        this.commandMapper = commandMapper;
-        this.evidenceMapper = evidenceMapper;
+        this.commandPort = commandPort;
+        this.evidencePort = evidencePort;
         this.workOrderMapper = workOrderMapper;
         this.storageQueries = storageQueries;
     }
@@ -186,22 +186,14 @@ public class AdminOrderQueryService {
         BizSite site = cabinet == null || cabinet.getSiteId() == null
                 ? null : siteMapper.selectById(cabinet.getSiteId());
 
-        List<CommandLine> commands = commandMapper.selectList(Wrappers.<BizDeviceCommand>lambdaQuery()
-                        .eq(BizDeviceCommand::getOrderId, order.getId())
-                        .orderByDesc(BizDeviceCommand::getSentAt)
-                        .last("limit " + COMMAND_LIMIT))
-                .stream()
-                .map(c -> new CommandLine(name(c.getAction()), name(c.getStatus()), nvl(c.getRetryCount()),
-                        c.getSentAt(), c.getAckedAt(), c.getLastError()))
+        List<CommandLine> commands = commandPort.byOrder(order.getId(), COMMAND_LIMIT).stream()
+                .map(c -> new CommandLine(c.action(), c.state(), c.retryCount(),
+                        c.sentAt(), c.ackedAt(), c.lastError()))
                 .toList();
 
-        List<EvidenceLine> evidence = evidenceMapper.selectList(Wrappers.<BizItemEvidence>lambdaQuery()
-                        .eq(BizItemEvidence::getOrderId, order.getId())
-                        .orderByAsc(BizItemEvidence::getCreateTime)
-                        .last("limit " + EVIDENCE_LIMIT))
-                .stream()
-                .map(e -> new EvidenceLine(name(e.getSource()), name(e.getPresence()), name(e.getMoment()),
-                        e.getConfidence(), e.getAiLabel(), e.getNote(), e.getCreateTime()))
+        List<EvidenceLine> evidence = evidencePort.byOrder(order.getId(), EVIDENCE_LIMIT).stream()
+                .map(e -> new EvidenceLine(e.source(), e.presence(), e.moment(),
+                        e.confidence(), e.aiLabel(), e.note(), e.at()))
                 .toList();
 
         List<WorkOrderLine> workOrders = workOrderMapper.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
