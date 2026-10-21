@@ -69,6 +69,12 @@ public class WorkOrderService implements WorkOrderConsolePort {
         sla.pause(workOrderId, operatorId);
     }
 
+    @Override
+    public void pauseSla(Long workOrderId, Long operatorId,
+                         com.wherelee.cabinet.servicedesk.api.SlaPauseReason reason) {
+        sla.pause(workOrderId, operatorId, reason);
+    }
+
     /** 恢复 SLA：把暂停时长补回响应/解决时限。 */
     public void resumeSla(Long workOrderId, Long operatorId) {
         sla.resume(workOrderId, operatorId);

@@ -13,6 +13,8 @@ import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderStatus;
 import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
 import com.wherelee.cabinet.servicedesk.domain.BizWorkOrderEvent;
+import com.wherelee.cabinet.servicedesk.domain.BizWorkOrderCsat;
+import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderCsatMapper;
 import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderEventMapper;
 import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.springframework.stereotype.Service;
@@ -40,13 +42,16 @@ public class WorkOrderQueryService {
     private final BizWorkOrderEventMapper events;
     private final EvidencePort evidencePort;
     private final WorkOrderJournal journal;
+    private final BizWorkOrderCsatMapper csats;
 
     public WorkOrderQueryService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
-                                 EvidencePort evidencePort, WorkOrderJournal journal) {
+                                 EvidencePort evidencePort, WorkOrderJournal journal,
+                                 BizWorkOrderCsatMapper csats) {
         this.orders = orders;
         this.events = events;
         this.evidencePort = evidencePort;
         this.journal = journal;
+        this.csats = csats;
     }
 
     /**
@@ -81,13 +86,13 @@ public class WorkOrderQueryService {
             BizWorkOrder parent = orders.selectById(order.getParentId());
             parentNote = parent == null ? null : parent.getResultNote();
         }
-        return toView(order, parentNote);
+        return toView(order, parentNote, csatOf(workOrderId));
     }
 
     /** 父子单关系：详情页要能双向跳转，且子单看得到父单结论。 */
     public WorkOrderConsolePort.Family family(Long workOrderId) {
         BizWorkOrder order = journal.require(workOrderId);
-        WorkOrderConsolePort.View self = toView(order, null);
+        WorkOrderConsolePort.View self = toView(order, null, csatOf(workOrderId));
         WorkOrderConsolePort.View parent = order.getParentId() == null ? null : one(order.getParentId());
         List<WorkOrderConsolePort.View> children = orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
                         .eq(BizWorkOrder::getParentId, workOrderId)
@@ -160,14 +165,23 @@ public class WorkOrderQueryService {
         if (customerId == null || !customerId.equals(order.getCustomerId())) {
             throw new BizException(ResultCode.FORBIDDEN, "这张工单不属于当前账号");
         }
-        return toCustomerView(order);
+        return toCustomerView(order, csatOf(workOrderId));
     }
 
     private WorkOrderConsolePort.View toView(BizWorkOrder o) {
         return toView(o, null);
     }
 
+    private BizWorkOrderCsat csatOf(Long workOrderId) {
+        return csats.selectOne(Wrappers.<BizWorkOrderCsat>lambdaQuery()
+                .eq(BizWorkOrderCsat::getWorkOrderId, workOrderId));
+    }
+
     private WorkOrderConsolePort.CustomerView toCustomerView(BizWorkOrder o) {
+        return toCustomerView(o, null);
+    }
+
+    private WorkOrderConsolePort.CustomerView toCustomerView(BizWorkOrder o, BizWorkOrderCsat csat) {
         return new WorkOrderConsolePort.CustomerView(o.getId(), o.getOrderNo(), o.getTitle(),
                 o.getStatus().name(),
                 o.getCategory() == null ? null : o.getCategory().name(),
@@ -176,10 +190,15 @@ public class WorkOrderQueryService {
                 o.getResultNote(), o.getSlotNo(), journal.readSnapshot(o, "cabinetNo"),
                 journal.readSnapshot(o, "siteAddress"), o.getResponseDueAt(), o.getResolveDueAt(),
                 o.getClosedAt(), o.getCreateTime(), o.getMergedIntoId(),
-                o.getReopenedCount() == null ? 0 : o.getReopenedCount());
+                o.getReopenedCount() == null ? 0 : o.getReopenedCount(),
+                csat == null ? null : csat.getScore());
     }
 
     private WorkOrderConsolePort.View toView(BizWorkOrder o, String parentResultNote) {
+        return toView(o, parentResultNote, null);
+    }
+
+    private WorkOrderConsolePort.View toView(BizWorkOrder o, String parentResultNote, BizWorkOrderCsat csat) {
         // 柜机编号/点位地址/检测值必须从快照带出来：业务员接了单要能凭这一行知道去哪、看什么，
         // 而不是只看到一句“格口 S12 门未关”就出发（这三个字段一直在快照里，只是以前没读）
         return new WorkOrderConsolePort.View(o.getId(),
@@ -200,6 +219,9 @@ public class WorkOrderQueryService {
                 o.getAssigneeId(), o.getParentId(), parentResultNote,
                 o.getDueAt(), o.getResponseDueAt(), o.getResolveDueAt(), o.getFirstResponseAt(),
                 o.getClosedAt(), o.getCreateTime(), o.getHandoffJson(),
-                o.getReopenedCount() == null ? 0 : o.getReopenedCount());
+                o.getReopenedCount() == null ? 0 : o.getReopenedCount(),
+                o.getSlaPauseReason(),
+                csat == null ? null : csat.getScore(),
+                csat == null ? null : csat.getComment());
     }
 }

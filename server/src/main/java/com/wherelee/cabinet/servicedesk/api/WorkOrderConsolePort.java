@@ -57,7 +57,8 @@ public interface WorkOrderConsolePort {
                 Long parentId, String parentResultNote, LocalDateTime dueAt,
                 LocalDateTime responseDueAt, LocalDateTime resolveDueAt,
                 LocalDateTime firstResponseAt, LocalDateTime closedAt, LocalDateTime createTime,
-                String handoffJson, int reopenedCount) {
+                String handoffJson, int reopenedCount,
+                String slaPauseReason, Integer csatScore, String csatComment) {
     }
 
     /** 留痕视图。 */
@@ -77,7 +78,7 @@ public interface WorkOrderConsolePort {
                         String priority, String closeReason, String resultNote, String slotNo,
                         String cabinetNo, String siteAddress, LocalDateTime responseDueAt,
                         LocalDateTime resolveDueAt, LocalDateTime closedAt, LocalDateTime createTime,
-                        Long mergedIntoId, int reopenedCount) {
+                        Long mergedIntoId, int reopenedCount, Integer csatScore) {
     }
 
     /** 一条相似案例：当初的标题、处理结论原文、完结日期。只引用，不改写。 */
@@ -116,6 +117,9 @@ public interface WorkOrderConsolePort {
     int remindedTimes(Long slotId, WorkOrderType type);
 
     void pauseSla(Long workOrderId, Long operatorId);
+
+    /** 暂停 SLA 并记录原因（等待用户）；恢复仍走手动 resume。 */
+    void pauseSla(Long workOrderId, Long operatorId, SlaPauseReason reason);
 
     void resumeSla(Long workOrderId, Long operatorId);
 

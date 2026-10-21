@@ -146,9 +146,15 @@ public class AdminWorkOrderController {
     @OperationLog(module = "workorder", operation = "暂停SLA")
     @PreAuthorize("hasAuthority('workorder:resolve')")
     @PostMapping("/{id}/sla/pause")
-    public R<Void> pauseSla(@AuthenticationPrincipal Caller current, @PathVariable Long id) {
-        workOrders.pauseSla(id, current.subjectId());
+    public R<Void> pauseSla(@AuthenticationPrincipal Caller current, @PathVariable Long id,
+                            @RequestBody(required = false) PauseRequest request) {
+        workOrders.pauseSla(id, current.subjectId(),
+                request == null ? null : request.reason());
         return R.ok();
+    }
+
+    /** 暂停原因；为空表示普通暂停（等配件等），与旧行为一致。 */
+    public record PauseRequest(com.wherelee.cabinet.servicedesk.api.SlaPauseReason reason) {
     }
 
     @Operation(summary = "恢复SLA", description = "把暂停时长补回响应/解决时限，并重新登记到点任务")

@@ -47,7 +47,8 @@ class BriefToolsTest {
                 "P1", "SINGLE", "HIGH", false, "PENDING", "ONLINE", "ONLINE",
                 "A-01", "CAB-1", "测试点位", "SO-1", "13900001234",
                 "格口 A-01 门未关：取件后未回关", "门=开着；柜内=有物；异常=DOOR_OPEN",
-                null, null, null, null, null, now, now, now, null, null, now, null, 0);
+                null, null, null, null, null, now, now, now, null, null, now, null, 0,
+                null, null, null);
     }
 
     @Test

@@ -1,12 +1,16 @@
 package com.wherelee.cabinet.bff.mini.workorder;
 
 import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderCsatPort;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.platform.security.Caller;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -35,9 +39,11 @@ import java.util.List;
 public class MiniWorkOrderController {
 
     private final WorkOrderConsolePort workOrders;
+    private final WorkOrderCsatPort csat;
 
-    public MiniWorkOrderController(WorkOrderConsolePort workOrders) {
+    public MiniWorkOrderController(WorkOrderConsolePort workOrders, WorkOrderCsatPort csat) {
         this.workOrders = workOrders;
+        this.csat = csat;
     }
 
     @Operation(summary = "我的工单", description = "最近若干张；默认 20 张，上限 50")
@@ -75,5 +81,19 @@ public class MiniWorkOrderController {
 
     /** solved 必填：同一入口两种相反动作，缺省值会悄悄替用户选一个。 */
     public record ConfirmCommand(boolean solved, @Size(max = 300) String note) {
+    }
+
+    @Operation(summary = "提交满意度", description = "确认解决后一次性评价：1–5 星，备注选填，不填不影响流程")
+    @RateLimit(limit = 10, windowSeconds = 60)
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @PostMapping("/{id}/csat")
+    public R<WorkOrderCsatPort.CsatView> csat(@AuthenticationPrincipal Caller current,
+                                              @PathVariable Long id,
+                                              @Valid @RequestBody CsatCommand cmd) {
+        return R.ok(csat.submit(current.subjectId(), id, cmd.score(), cmd.comment()));
+    }
+
+    public record CsatCommand(@NotNull @Min(1) @Max(5) Integer score,
+                              @Size(max = 300) String comment) {
     }
 }

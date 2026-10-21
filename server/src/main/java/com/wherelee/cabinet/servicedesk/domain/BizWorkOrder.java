@@ -90,6 +90,8 @@ public class BizWorkOrder extends BaseEntity {
     private java.time.LocalDateTime slaPausedAt;
     /** 累计暂停分钟数：恢复时把同长度补回两个时限，暂停时间不计入 SLA。 */
     private Integer slaPausedMinutes;
+    /** 暂停原因：WAITING_CUSTOMER=等待用户；NULL=普通暂停（等配件等）。 */
+    private String slaPauseReason;
     private java.time.LocalDateTime closedAt;
     /** 用户确认“还没解决”后的重开次数。 */
     private Integer reopenedCount;

@@ -56,6 +56,15 @@ public class WorkOrderSlaService {
      */
     @Transactional
     public void pause(Long workOrderId, Long operatorId) {
+        pause(workOrderId, operatorId, null);
+    }
+
+    /**
+     * 暂停 SLA 并记录原因。{@code reason=null} 表示普通暂停（等配件等），与旧行为一致；
+     * {@code WAITING_CUSTOMER} 表示等待用户回应，恢复仍由业务员手动操作。
+     */
+    @Transactional
+    public void pause(Long workOrderId, Long operatorId, com.wherelee.cabinet.servicedesk.api.SlaPauseReason reason) {
         BizWorkOrder order = journal.require(workOrderId);
         if (!journal.isOpen(order)) {
             throw new BizException(ResultCode.BIZ_ERROR, "工单已关闭，不能暂停 SLA");
@@ -66,9 +75,11 @@ public class WorkOrderSlaService {
         orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
                 .eq(BizWorkOrder::getId, workOrderId)
                 .isNull(BizWorkOrder::getSlaPausedAt)
-                .set(BizWorkOrder::getSlaPausedAt, LocalDateTime.now()));
+                .set(BizWorkOrder::getSlaPausedAt, LocalDateTime.now())
+                .set(BizWorkOrder::getSlaPauseReason, reason == null ? null : reason.name()));
         cancel(order);
-        journal.note(order, "SLA_PAUSED", operatorId, "SLA 已暂停（暂停时长不计入时限）");
+        journal.note(order, "SLA_PAUSED", operatorId,
+                "SLA 已暂停（暂停时长不计入时限）" + (reason == null ? "" : "；原因：等待用户"));
     }
 
     /** 恢复 SLA：把暂停时长补回响应/解决时限，并重新登记到点任务。 */
@@ -89,12 +100,14 @@ public class WorkOrderSlaService {
         orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
                 .eq(BizWorkOrder::getId, workOrderId)
                 .set(BizWorkOrder::getSlaPausedAt, null)
+                .set(BizWorkOrder::getSlaPauseReason, null)
                 .set(BizWorkOrder::getSlaPausedMinutes, accumulated)
                 .set(BizWorkOrder::getResponseDueAt, responseDue)
                 .set(BizWorkOrder::getResolveDueAt, resolveDue)
                 .set(BizWorkOrder::getDueAt, resolveDue));
         // 取消时任务落成 DONE，register 会把它当作新一轮重新排上。
         order.setSlaPausedAt(null);
+        order.setSlaPauseReason(null);
         order.setResponseDueAt(responseDue);
         order.setResolveDueAt(resolveDue);
         schedule(order);

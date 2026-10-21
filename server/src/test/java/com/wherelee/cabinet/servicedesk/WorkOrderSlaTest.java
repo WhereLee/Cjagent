@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.servicedesk;
 
 import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
+import com.wherelee.cabinet.servicedesk.api.SlaPauseReason;
 import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.api.PageQuery;
@@ -33,6 +34,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -170,6 +172,28 @@ class WorkOrderSlaTest {
         LocalDateTime fireAt = (LocalDateTime) responseTask.get("fire_at");
         assertTrue(fireAt.isAfter(LocalDateTime.now()), "恢复后的到点时间必须落在未来：" + fireAt);
         assertEquals(2, taskCount(id));
+    }
+
+    @Test
+    @DisplayName("等待用户：暂停记录原因，恢复后清空，详情可见")
+    void waitingCustomerPauseKeepsReason() {
+        Long id = openRequest(WorkOrderType.DEVICE_FAULT, WorkOrderPriority.P2,
+                LocalDateTime.now().plusMinutes(30), LocalDateTime.now().plusMinutes(480));
+
+        TenantContext.runAs(TENANT, () -> workOrders.pauseSla(id, OPERATOR, SlaPauseReason.WAITING_CUSTOMER));
+        assertEquals("WAITING_CUSTOMER", jdbc.queryForObject(
+                "select sla_pause_reason from biz_work_order where id = ?", String.class, id));
+        WorkOrderConsolePort.View waiting = TenantContext.callAs(TENANT, () -> workOrders.one(id));
+        assertEquals("WAITING_CUSTOMER", waiting.slaPauseReason(), "详情要能显示为什么暂停");
+        String detail = jdbc.queryForObject("select detail from biz_work_order_event "
+                        + "where tenant_id = ? and work_order_id = ? and event_type = 'SLA_PAUSED'",
+                String.class, TENANT, id);
+        assertTrue(detail.contains("等待用户"), "事件要写清原因：" + detail);
+
+        TenantContext.runAs(TENANT, () -> workOrders.resumeSla(id, OPERATOR));
+        assertNull(jdbc.queryForObject(
+                "select sla_pause_reason from biz_work_order where id = ?", String.class, id),
+                "恢复后不得继续挂着等待标记");
     }
 
     @Test
