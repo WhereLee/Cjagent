@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onLoad, onPullDownRefresh, onShow } from '@dcloudio/uni-app'
-import { confirmWorkOrder, fetchMyWorkOrders, fetchWorkOrder } from '@/api'
+import { confirmWorkOrder, fetchMyWorkOrders, fetchWorkOrder, submitWorkOrderCsat } from '@/api'
 import type { WorkOrderCustomerView } from '@/api/contracts'
 import { isLoggedIn } from '@/stores/auth'
 import {
@@ -22,10 +22,23 @@ const loading = ref(false)
 const error = ref('')
 const acting = ref(false)
 const note = ref('')
+const csatScore = ref(0)
+const csatComment = ref('')
+const csatSubmitting = ref(false)
+const csatDismissed = ref(false)
 
 const open = computed(() => isWorkOrderOpen(workOrder.value?.status))
 const reopenable = computed(() => canReopenWorkOrder(workOrder.value?.status))
 const mergedInto = computed(() => workOrder.value?.mergedIntoId)
+
+/** 只有“用户确认解决”的单才邀请评价；一单一次，已评过不再展示。 */
+const canRate = computed(
+  () =>
+    !!workOrder.value &&
+    workOrder.value.status === 'RESOLVED' &&
+    workOrder.value.closeReason === 'USER_CONFIRMED' &&
+    !workOrder.value.csatScore,
+)
 
 onLoad((query) => {
   workOrderId.value = String(query?.id ?? '')
@@ -125,6 +138,28 @@ function onReopen(): void {
     },
   })
 }
+
+async function onSubmitCsat(): Promise<void> {
+  if (!workOrderId.value || csatSubmitting.value) return
+  if (csatScore.value < 1) {
+    uni.showToast({ title: '请先选择星级', icon: 'none' })
+    return
+  }
+  csatSubmitting.value = true
+  try {
+    await submitWorkOrderCsat(workOrderId.value, {
+      score: csatScore.value,
+      comment: csatComment.value.trim() || undefined,
+    })
+    uni.showToast({ title: '感谢评价', icon: 'success' })
+    csatDismissed.value = true
+    await load()
+  } catch (e) {
+    toastError(e)
+  } finally {
+    csatSubmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -216,6 +251,36 @@ function onReopen(): void {
         </view>
         <view v-if="workOrder.reopenedCount" class="faint reopened">
           这张工单你已反馈过 {{ workOrder.reopenedCount }} 次“还没解决”
+        </view>
+        <view v-if="workOrder.csatScore" class="faint reopened">
+          感谢你的评价：{{ workOrder.csatScore }} 星
+        </view>
+        <view v-if="canRate && !csatDismissed" class="csat">
+          <text class="csat-title">这次处理得怎么样？</text>
+          <view class="stars">
+            <text
+              v-for="n in 5"
+              :key="n"
+              class="star"
+              :class="{ active: n <= csatScore }"
+              @click="csatScore = n"
+            >
+              ★
+            </text>
+          </view>
+          <textarea
+            v-model="csatComment"
+            class="textarea note"
+            maxlength="300"
+            placeholder="补充一句（可选）"
+            placeholder-class="input-placeholder"
+          />
+          <view class="csat-actions">
+            <button class="btn btn-primary" :loading="csatSubmitting" @click="onSubmitCsat">
+              提交评价
+            </button>
+            <text class="faint link" @click="csatDismissed = true">暂不评价</text>
+          </view>
         </view>
         <view v-if="mergedInto" class="merged" @click="goMerged">
           这张单已并入工单 #{{ mergedInto }}，点此查看 ›
@@ -328,6 +393,43 @@ function onReopen(): void {
 .reopened {
   display: block;
   margin-top: 14rpx;
+}
+
+.csat {
+  margin-top: 24rpx;
+  padding: 20rpx 22rpx;
+  background: #f7f8fa;
+  border-radius: 12rpx;
+}
+
+.csat-title {
+  display: block;
+  color: #1f2733;
+  font-size: 26rpx;
+}
+
+.stars {
+  margin-top: 12rpx;
+  display: flex;
+  flex-direction: row;
+}
+
+.star {
+  margin-right: 14rpx;
+  color: #d0d5dd;
+  font-size: 44rpx;
+  line-height: 1;
+}
+
+.star.active {
+  color: #f5a623;
+}
+
+.csat-actions {
+  margin-top: 8rpx;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
 }
 
 .merged {

@@ -11,7 +11,9 @@ import {
   fetchTimeline,
   fetchWorkOrderFamily,
   phoneNote,
+  pauseWorkOrder,
   resolveWorkOrder,
+  resumeWorkOrder,
 } from '@/api'
 import type { Brief, EventView, EvidenceView } from '@/api/schema-admin'
 import type { WorkOrderFamily, WorkOrderRow } from '@/api/contracts'
@@ -53,6 +55,14 @@ function sideAllowed(side: 'ONLINE' | 'FIELD'): boolean {
 
 function canClaimRow(row: WorkOrderRow): boolean {
   return canClaim.value && row.status === 'PENDING'
+}
+
+function isOpenRow(row?: WorkOrderRow | null): boolean {
+  return !!row && !['RESOLVED', 'AUTO_CLOSED', 'CANCELLED'].includes(row.status ?? '')
+}
+
+function isWaiting(row?: WorkOrderRow | null): boolean {
+  return row?.slaPauseReason === 'WAITING_CUSTOMER'
 }
 
 async function load(): Promise<void> {
@@ -163,6 +173,29 @@ async function onClaim(row: WorkOrderRow): Promise<void> {
     await load()
   } catch (e) {
     ElMessage.error(e instanceof ApiError ? e.message : '认领失败')
+  }
+}
+
+/** 等待用户：暂停 SLA 并记录原因；恢复仍需业务员手动点。 */
+async function onWaitCustomer(row: WorkOrderRow): Promise<void> {
+  try {
+    await pauseWorkOrder(String(row.id), 'WAITING_CUSTOMER')
+    ElMessage.success('已标记为等待用户，SLA 已暂停')
+    await load()
+    if (drawerOpen.value && current.value?.id === row.id) await openDetail(row)
+  } catch (e) {
+    ElMessage.error(e instanceof ApiError ? e.message : '标记失败')
+  }
+}
+
+async function onResumeSla(row: WorkOrderRow): Promise<void> {
+  try {
+    await resumeWorkOrder(String(row.id))
+    ElMessage.success('SLA 已恢复，暂停时长已补回时限')
+    await load()
+    if (drawerOpen.value && current.value?.id === row.id) await openDetail(row)
+  } catch (e) {
+    ElMessage.error(e instanceof ApiError ? e.message : '恢复失败')
   }
 }
 
@@ -304,6 +337,9 @@ onMounted(() => {
           <el-tag :type="workOrderStatusTag(row.status)" size="small">
             {{ workOrderStatusText(row.status) }}
           </el-tag>
+          <el-tag v-if="isWaiting(row)" type="warning" size="small" class="waiting-tag">
+            等待用户
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="解决时限" width="150">
@@ -312,7 +348,7 @@ onMounted(() => {
       <el-table-column label="开单时间" width="150">
         <template #default="{ row }">{{ fmtTime(row.createTime) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="230" fixed="right">
+      <el-table-column label="操作" width="320" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="canClaimRow(row)"
@@ -327,6 +363,22 @@ onMounted(() => {
           </el-button>
           <el-button v-if="canResolve" link type="primary" @click.stop="openPhoneNote(row)">
             电话留痕
+          </el-button>
+          <el-button
+            v-if="canResolve && isOpenRow(row) && !isWaiting(row)"
+            link
+            type="warning"
+            @click.stop="onWaitCustomer(row)"
+          >
+            等待用户
+          </el-button>
+          <el-button
+            v-if="canResolve && isWaiting(row)"
+            link
+            type="success"
+            @click.stop="onResumeSla(row)"
+          >
+            恢复SLA
           </el-button>
           <span v-if="!canClaimRow(row) && !canResolve" class="muted">—</span>
         </template>
@@ -383,6 +435,13 @@ onMounted(() => {
           {{ current?.detection ?? '—' }}
         </el-descriptions-item>
         <el-descriptions-item label="关闭依据">{{ closeReasonText(current?.closeReason) }}</el-descriptions-item>
+        <el-descriptions-item v-if="isWaiting(current)" label="SLA">
+          <el-tag type="warning" size="small">等待用户（已暂停）</el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item v-if="current?.csatScore" label="满意度" :span="2">
+          {{ current.csatScore }} 星
+          <span v-if="current.csatComment" class="muted">（{{ current.csatComment }}）</span>
+        </el-descriptions-item>
         <el-descriptions-item label="处理结论" :span="2">
           {{ current?.resultNote ?? '—' }}
         </el-descriptions-item>
@@ -484,6 +543,15 @@ onMounted(() => {
           处理
         </el-button>
         <el-button v-if="canResolve && current" @click="openPhoneNote(current)">电话留痕</el-button>
+        <el-button
+          v-if="canResolve && current && isOpenRow(current) && !isWaiting(current)"
+          @click="onWaitCustomer(current)"
+        >
+          等待用户
+        </el-button>
+        <el-button v-if="canResolve && current && isWaiting(current)" @click="onResumeSla(current)">
+          恢复SLA
+        </el-button>
       </div>
     </div>
   </el-drawer>
@@ -585,6 +653,10 @@ onMounted(() => {
 .muted {
   color: var(--el-text-color-secondary);
   font-size: 13px;
+}
+
+.waiting-tag {
+  margin-left: 6px;
 }
 
 .drawer-actions {

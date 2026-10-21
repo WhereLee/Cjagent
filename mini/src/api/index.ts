@@ -142,3 +142,11 @@ export const fetchWorkOrder = (id: string) =>
 /** solved=true 确认已解决；false 反馈还没解决（重开本人已关闭的单） */
 export const confirmWorkOrder = (id: string, body: WorkOrderConfirmRequest) =>
   request<string>({ url: `/api/mini/work-orders/${id}/confirm`, method: 'POST', data: body })
+
+/** 确认解决后的一次性满意度评价（1–5 星，备注选填） */
+export const submitWorkOrderCsat = (id: string, body: { score: number; comment?: string }) =>
+  request<{ workOrderId?: string; score?: number; comment?: string; at?: string }>({
+    url: `/api/mini/work-orders/${id}/csat`,
+    method: 'POST',
+    data: body,
+  })

@@ -50,6 +50,11 @@ export interface WorkOrderRow {
   createTime?: string
   handoffJson?: string
   reopenedCount?: number
+  /** WAITING_CUSTOMER=等待用户；空=未暂停或普通暂停 */
+  slaPauseReason?: string
+  /** 用户确认解决后的一次性评价（1–5 星） */
+  csatScore?: number
+  csatComment?: string
 }
 
 /** 父子单关系（application/workorder/WorkOrderService.Family）。 */

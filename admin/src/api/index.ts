@@ -66,6 +66,18 @@ export const fetchEvidence = (id: string) =>
 export const claimWorkOrder = (id: string) =>
   request<void>({ url: `/api/admin/work-orders/${id}/claim`, method: 'post' })
 
+/** 暂停 SLA：reason=WAITING_CUSTOMER 表示等待用户；不传为普通暂停（等配件等） */
+export const pauseWorkOrder = (id: string, reason?: 'WAITING_CUSTOMER') =>
+  request<void>({
+    url: `/api/admin/work-orders/${id}/sla/pause`,
+    method: 'post',
+    data: reason ? { reason } : {},
+  })
+
+/** 恢复 SLA：把暂停时长补回响应/解决时限 */
+export const resumeWorkOrder = (id: string) =>
+  request<void>({ url: `/api/admin/work-orders/${id}/sla/resume`, method: 'post' })
+
 /** requestId 由前端生成（同一"处理意图"复用同一个）；返回派生子单 ID */
 export const resolveWorkOrder = (id: string, body: ResolveCommand) =>
   request<string>({ url: `/api/admin/work-orders/${id}/resolve`, method: 'post', data: body })

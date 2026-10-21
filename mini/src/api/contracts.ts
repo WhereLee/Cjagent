@@ -31,6 +31,8 @@ export interface WorkOrderCustomerView {
   createTime?: string
   mergedIntoId?: string
   reopenedCount?: number
+  /** 用户确认解决后的一次性评价（1–5 星）；空=未评价 */
+  csatScore?: number
 }
 
 /** solved=true 确认已解决；false 反馈还没解决（重开） */
