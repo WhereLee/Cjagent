@@ -41,13 +41,26 @@ class ModuleBoundaryTest {
      * <p>条目形如 {@code app.storage->domain}。P1 起只减不增：每搜完一个服务，
      * 就删掉对应的一批行；这个块清空那天，8 个业务服务的边界才算真的成立。
      */
-    private static final Set<String> BASELINE = loadBaseline();
+    private static final Set<String> BASELINE = loadBaseline("/module-boundary-baseline.txt");
 
-    private static Set<String> loadBaseline() {
-        try (java.io.InputStream in = ModuleBoundaryTest.class
-                .getResourceAsStream("/module-boundary-baseline.txt")) {
+    /**
+     * 跨服务“只能靠 api”的基线：与上面的模块基线同一套“只减不增”规则。
+     *
+     * <p>两个基线分开的原因：模块基线回答“这两个服务还认不认识”，层级基线回答
+     * “认识得规不规范”。前者做到零不现实（storage 必然要用 locker 的端口），
+     * 后者才是“服务能不能拆开”的硬条件。
+     */
+    private static final Set<String> LAYER_BASELINE = loadBaseline("/module-layer-baseline.txt");
+
+    private static final Set<String> SERVICES =
+            Set.of("identity", "locker", "storage", "funds", "device", "servicedesk", "notify", "assistant");
+
+    private static final Set<String> LAYERS = Set.of("api", "app", "domain", "infra");
+
+    private static Set<String> loadBaseline(String resource) {
+        try (java.io.InputStream in = ModuleBoundaryTest.class.getResourceAsStream(resource)) {
             if (in == null) {
-                throw new IllegalStateException("缺少模块边界基线文件 module-boundary-baseline.txt");
+                throw new IllegalStateException("缺少模块边界基线文件 " + resource);
             }
             String text = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
             // Windows 下用 PowerShell 维护基线文件时会带 BOM，去掉后再按行读
@@ -87,6 +100,72 @@ class ModuleBoundaryTest {
             }
         }
         return edges;
+    }
+
+    /**
+     * 跨服务只能靠 api：直接碰别人的 app/domain/infra 一律算越界。
+     *
+     * <p>为什么单独一条：模块基线只能回答“还认不认识”，而真正拔不开的是
+     * “认识的方式”——订单直接读locker的 Mapper、工单直接拿订单实体。
+     * 那些必须逐个换端口，这条规则让“换了几个”变成一个可数的数。
+     */
+    @Test
+    @DisplayName("跨服务只能依赖对方的 api：不得直接碰 app/domain/infra")
+    void crossServiceMustGoThroughApi() {
+        Set<String> actual = layerViolations();
+        Set<String> added = new TreeSet<>(actual);
+        added.removeAll(LAYER_BASELINE);
+        assertTrue(added.isEmpty(),
+                "新增了跨服务非 api 依赖（请改走端口）：" + added
+                        + "\n当前全部越界：" + actual);
+    }
+
+    private static Set<String> layerViolations() {
+        Set<String> out = new TreeSet<>();
+        for (JavaClass clazz : PRODUCTION_CLASSES) {
+            Module from = moduleAndLayer(clazz.getPackageName());
+            if (from == null || !callerParticipates(from.name())) {
+                continue;
+            }
+            for (Dependency dependency : clazz.getDirectDependenciesFromSelf()) {
+                Module to = moduleAndLayer(dependency.getTargetClass().getPackageName());
+                if (to == null || !SERVICES.contains(to.name()) || to.name().equals(from.name())) {
+                    continue;
+                }
+                // 对方的 api 是契约，允许；剩下的都是“拆不开”的地方
+                if ("api".equals(to.layer())) {
+                    continue;
+                }
+                out.add(from.name() + "->" + to.name() + ":" + to.layer());
+            }
+        }
+        return out;
+    }
+
+    /** 服务、以及两个 BFF（它们也只能碰 api），都要受这一条约束。 */
+    private static boolean callerParticipates(String module) {
+        return SERVICES.contains(module) || module.startsWith("bff.");
+    }
+
+    /** 包名 → （模块名，层级）；不是服务包则返回 null。 */
+    private static Module moduleAndLayer(String packageName) {
+        if (!packageName.startsWith(ROOT)) {
+            return null;
+        }
+        String rest = packageName.substring(ROOT.length()).replaceFirst("^\\.", "");
+        String[] parts = rest.split("\\.");
+        String head = parts[0];
+        if ("interfaces".equals(head) && parts.length > 1) {
+            return new Module("bff." + parts[1], "");
+        }
+        if (SERVICES.contains(head)) {
+            String layer = parts.length > 1 && LAYERS.contains(parts[1]) ? parts[1] : "";
+            return new Module(head, layer);
+        }
+        return null;
+    }
+
+    private record Module(String name, String layer) {
     }
 
     /**
