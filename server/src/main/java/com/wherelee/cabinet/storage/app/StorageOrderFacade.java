@@ -1,5 +1,5 @@
 package com.wherelee.cabinet.storage.app;
-import com.wherelee.cabinet.locker.app.CabinetLockGuard;
+import com.wherelee.cabinet.locker.api.CabinetLockPort;
 
 import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.storage.api.StorageOrderView;
@@ -30,17 +30,17 @@ public class StorageOrderFacade {
 
     private final StorageOrderService syncService;
     private final AsyncStorageOrderAppService asyncService;
-    /** 只有 redisson 策略会注册这个 bean；其他策略下为空。 */
-    private final ObjectProvider<CabinetLockGuard> lockGuardProvider;
+    /** 只有 redisson 策略会真的加锁；其他策略下 active() 为 false。 */
+    private final CabinetLockPort cabinetLock;
     private final String strategy;
 
     public StorageOrderFacade(StorageOrderService syncService,
                               AsyncStorageOrderAppService asyncService,
-                              ObjectProvider<CabinetLockGuard> lockGuardProvider,
+                              CabinetLockPort cabinetLock,
                               @Value("${cabinet.alloc.strategy:pessimistic}") String strategy) {
         this.syncService = syncService;
         this.asyncService = asyncService;
-        this.lockGuardProvider = lockGuardProvider;
+        this.cabinetLock = cabinetLock;
         this.strategy = strategy;
     }
 
@@ -48,12 +48,11 @@ public class StorageOrderFacade {
         if (STRATEGY_PREALLOC.equalsIgnoreCase(strategy)) {
             return asyncService.createAsync(customerId, command);
         }
-        CabinetLockGuard guard = lockGuardProvider.getIfAvailable();
-        if (guard == null) {
+        if (!cabinetLock.active()) {
             return syncService.create(customerId, command);
         }
-        // 锁必须包住整个事务（而不是在事务里加锁）：原因见 CabinetLockGuard
-        return guard.aroundCabinet(command.cabinetNo(), () -> syncService.create(customerId, command));
+        // 锁必须包住整个事务（而不是在事务里加锁）：原因见 CabinetLockPort
+        return cabinetLock.aroundCabinet(command.cabinetNo(), () -> syncService.create(customerId, command));
     }
 
     /**

@@ -1,9 +1,12 @@
 package com.wherelee.cabinet.storage.app;
+import com.wherelee.cabinet.locker.api.CabinetSnapshot;
 import com.wherelee.cabinet.locker.api.SlotAllocator;
-import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.locker.api.Sensing;
+import com.wherelee.cabinet.locker.api.SlotPoolPort;
 import com.wherelee.cabinet.locker.api.SlotPort;
-import com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper;
+import com.wherelee.cabinet.locker.api.SlotQueryPort;
+import com.wherelee.cabinet.locker.api.SlotSnapshot;
+import com.wherelee.cabinet.locker.api.SlotSwapPort;
 import com.wherelee.cabinet.locker.api.Presence;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
@@ -13,16 +16,11 @@ import com.wherelee.cabinet.storage.api.StorageOrderView;
 import com.wherelee.cabinet.storage.api.VoucherView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.locker.domain.BizCabinet;
-import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.locker.api.CabinetStatus;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.api.SizeType;
-import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
-import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,11 +50,14 @@ public class StorageOrderService {
 
     private static final Logger log = LoggerFactory.getLogger(StorageOrderService.class);
 
-    private final BizCabinetMapper cabinetMapper;
-    private final BizCompartmentMapper slotMapper;
+    /** 格口/柜机/点位的只读查询：订单不直接读 locker 的表。 */
+    private final SlotQueryPort slotQueries;
+    /** 空闲集合回写：格口空出来后由 locker 维护可分配集合。 */
+    private final SlotPoolPort slotPool;
     private final BizStorageOrderMapper orderMapper;
     private final SlotAllocator allocator;
-    private final SlotPreDeductionService preDeduction;
+    /** 设备明确回报打不开时换同尺寸空格（候选与预占都在 locker 内）。 */
+    private final SlotSwapPort slotSwap;
     private final com.wherelee.cabinet.device.api.CommandPort deviceCommands;
     private final com.wherelee.cabinet.storage.api.FundPort funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
@@ -120,11 +121,11 @@ public class StorageOrderService {
     @org.springframework.beans.factory.annotation.Value("${cabinet.door-watch.first-remind-minutes:3}")
     private long firstRemindMinutes;
 
-    public StorageOrderService(BizCabinetMapper cabinetMapper,
-                               BizCompartmentMapper slotMapper,
+    public StorageOrderService(SlotQueryPort slotQueries,
+                               SlotPoolPort slotPool,
                                BizStorageOrderMapper orderMapper,
                                SlotAllocator allocator,
-                               SlotPreDeductionService preDeduction,
+                               SlotSwapPort slotSwap,
                                com.wherelee.cabinet.device.api.CommandPort deviceCommands,
                                com.wherelee.cabinet.storage.api.FundPort funds,
                                SlotPort states,
@@ -133,11 +134,11 @@ public class StorageOrderService {
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
                                com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort,
                                com.wherelee.cabinet.notify.api.NoticePort notices) {
-        this.cabinetMapper = cabinetMapper;
-        this.slotMapper = slotMapper;
+        this.slotQueries = slotQueries;
+        this.slotPool = slotPool;
         this.orderMapper = orderMapper;
         this.allocator = allocator;
-        this.preDeduction = preDeduction;
+        this.slotSwap = slotSwap;
         this.deviceCommands = deviceCommands;
         this.funds = funds;
         this.states = states;
@@ -153,13 +154,12 @@ public class StorageOrderService {
 
     @Transactional
     public StorageOrderView create(Long customerId, CreateOrderCommand command) {
-        BizCabinet cabinet = cabinetMapper.selectOne(Wrappers.<BizCabinet>lambdaQuery()
-                .eq(BizCabinet::getCabinetNo, command.cabinetNo()));
+        CabinetSnapshot cabinet = slotQueries.cabinetByNo(command.cabinetNo()).orElse(null);
         if (cabinet == null) {
             throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "柜机不存在：" + command.cabinetNo());
         }
         // 停用/故障的柜机不接受新寄存；但"离线"不在这里挡——离线仍可取件（降级方向见 S-09）
-        if (cabinet.getCabinetStatus() != CabinetStatus.ENABLED) {
+        if (!CabinetStatus.ENABLED.name().equals(cabinet.cabinetStatus())) {
             throw new BizException(ResultCode.BIZ_ERROR, "该柜机暂停服务，请选择邻近柜机");
         }
 
@@ -184,13 +184,13 @@ public class StorageOrderService {
                     "你还有未结束的寄存单：同一时间只能用一个格口，请先取件结束再开新单");
         }
         Long orderId = IdWorker.getId();
-        SlotAllocator.AllocatedSlot allocated = allocator.allocate(cabinet.getId(), required, orderId);
+        SlotAllocator.AllocatedSlot allocated = allocator.allocate(cabinet.id(), required, orderId);
 
         BizStorageOrder order = new BizStorageOrder();
         order.setId(orderId);
         order.setOrderNo("SO" + orderId);
-        order.setSiteId(cabinet.getSiteId());
-        order.setCabinetId(cabinet.getId());
+        order.setSiteId(cabinet.siteId());
+        order.setCabinetId(cabinet.id());
         order.setSlotId(allocated.slotId());
         order.setSizeType(allocated.actualSize());
         order.setCustomerId(customerId);
@@ -237,12 +237,12 @@ public class StorageOrderService {
         // 码在此之前只活在数据库里——校验、计数、锁定全都有，就是没人能把码交给用户，
         // 柜机屏那条凭码路径事实上不可达（"有锁没钥匙"）。
         String createdSlotNo = slotNoOf(allocated.slotId());
-        notices.emit(cabinet.getTenantId(),
+        notices.emit(cabinet.tenantId(),
                 com.wherelee.cabinet.notify.api.NoticePort.CHANNEL_MESSAGE,
                 "PICKUP_VOUCHER", order.getOrderNo() + ":voucher",
                 credentialNote(order.getVoucherCode(), createdSlotNo),
                 order.getCustomerId(), null, order.getOrderNo());
-        return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), createdSlotNo,
+        return new StorageOrderView(order.getOrderNo(), cabinet.cabinetNo(), createdSlotNo,
                 allocated.actualSize().name(), order.getStatus().name(), order.getEstimateMinutes(),
                 allocated.triedSlots(), allocator.strategy(),
                 voucherNote(order.getVoucherCode(), createdSlotNo));
@@ -299,7 +299,7 @@ public class StorageOrderService {
         // 失败只影响准入精度（少卖），不影响正确性，所以这里只告警不阻断取消。
         if ("prealloc".equals(allocator.strategy())) {
             try {
-                preDeduction.addFree(order.getCabinetId(), order.getSizeType(), order.getSlotId());
+                slotPool.addFree(order.getCabinetId(), order.getSizeType(), order.getSlotId());
             } catch (RuntimeException e) {
                 log.warn("格口已回 FREE 但 Redis 空闲集合同步失败（等校准修复）slotId={}", order.getSlotId(), e);
             }
@@ -359,13 +359,11 @@ public class StorageOrderService {
     }
 
     private String slotNoOf(Long slotId) {
-        BizCompartment slot = slotMapper.selectById(slotId);
-        return slot == null ? "-" : slot.getSlotNo();
+        return slotQueries.slot(slotId).map(SlotSnapshot::slotNo).orElse("-");
     }
 
     private String cabinetNoOf(Long cabinetId) {
-        BizCabinet cabinet = cabinetMapper.selectById(cabinetId);
-        return cabinet == null ? "-" : cabinet.getCabinetNo();
+        return slotQueries.cabinet(cabinetId).map(CabinetSnapshot::cabinetNo).orElse("-");
     }
 
     /** 供测试与指标读取当前生效策略。 */
@@ -435,8 +433,8 @@ public class StorageOrderService {
      */
     private StorageOrderView openForPickup(Long customerId, String orderNo, StorageOrderView settled) {
         BizStorageOrder order = findOwned(customerId, orderNo);
-        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
-        BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        CabinetSnapshot cabinet = slotQueries.cabinet(order.getCabinetId()).orElse(null);
+        SlotSnapshot slot = slotQueries.slot(order.getSlotId()).orElse(null);
         if (cabinet == null || slot == null) {
             log.error("结算后取物开门缺少柜机或格口信息 orderNo={} cabinetId={} slotId={}",
                     orderNo, order.getCabinetId(), order.getSlotId());
@@ -458,7 +456,7 @@ public class StorageOrderService {
         long attempts = countAttempts(orderNo, com.wherelee.cabinet.device.api.CommandAction.OPEN);
         com.wherelee.cabinet.device.api.CommandOutcome outcome;
         try {
-            outcome = deviceCommands.dispatch(cabinet.getId(), order.getSlotId(),
+            outcome = deviceCommands.dispatch(cabinet.id(), order.getSlotId(),
                     com.wherelee.cabinet.device.api.CommandAction.OPEN, order.getId(),
                     orderNo + ":PICKUP:" + (attempts + 1));
         } catch (RuntimeException offline) {
@@ -490,7 +488,7 @@ public class StorageOrderService {
         // 门开了（或柜机应答正常但未回明细）：登记门态与证据，取物期间这一格不会被分给别人。
         // 不再在这里顺手标“门未关”台账：door_open_at 本身就是超时回扫的输入，
         // 而“结束后门一直没关”属于取完东西不收尾的现场，由回扫与对账接手，不在这里刷一张单
-        states.afterDoorOpened(slot.getId(), customerId);
+        states.afterDoorOpened(slot.id(), customerId);
         return settled.withMessage(outcome.businessSuccess()
                 ? "柜门已打开，请取走物品并随手关好柜门"
                 : "已下发开门，请确认柜门已开；若没反应请联系现场工作人员");
@@ -606,8 +604,8 @@ public class StorageOrderService {
                 : Math.max(0L, Duration.between(order.getStartedAt(), settleEnd).toMinutes());
         funds.settle(order, actualMinutes, reason);
 
-        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
-        return new StorageOrderView(order.getOrderNo(), cabinet == null ? "-" : cabinet.getCabinetNo(),
+        CabinetSnapshot cabinet = slotQueries.cabinet(order.getCabinetId()).orElse(null);
+        return new StorageOrderView(order.getOrderNo(), cabinet == null ? "-" : cabinet.cabinetNo(),
                 slotNoOf(order.getSlotId()), order.getSizeType().name(), order.getStatus().name(),
                 order.getEstimateMinutes(), 0, allocator.strategy(), null);
     }
@@ -632,7 +630,7 @@ public class StorageOrderService {
         if (action != com.wherelee.cabinet.device.api.CommandAction.CLOSE_VERIFY) {
             requireNotVoucherLocked(order);
         }
-        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
+        CabinetSnapshot cabinet = slotQueries.cabinet(order.getCabinetId()).orElse(null);
         if (cabinet == null) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "柜机不存在，需人工核对 orderNo=" + orderNo);
         }
@@ -669,7 +667,7 @@ public class StorageOrderService {
         String requestId = orderNo + ":" + action.name() + ":" + (attempts + 1);
         com.wherelee.cabinet.device.api.CommandOutcome outcome;
         try {
-            outcome = deviceCommands.dispatch(cabinet.getId(), order.getSlotId(), action, order.getId(), requestId);
+            outcome = deviceCommands.dispatch(cabinet.id(), order.getSlotId(), action, order.getId(), requestId);
         } catch (RuntimeException e) {
             // 上面已经把 RESERVED 推成 OPENING 并单独提交了（等回执不能开事务）。
             // 下发本身报错（柜机离线、通道异常）时若不退回，单就会卡在 OPENING：
@@ -707,7 +705,7 @@ public class StorageOrderService {
         } else {
             note = "指令已下发，但未收到柜机明确回执；请到柜前确认柜门是否弹开。";
         }
-        return new StorageOrderView(order.getOrderNo(), cabinet.getCabinetNo(), openSlotNo,
+        return new StorageOrderView(order.getOrderNo(), cabinet.cabinetNo(), openSlotNo,
                 order.getSizeType().name(), order.getStatus().name(), order.getEstimateMinutes(),
                 0, allocator.strategy(), note);
     }
@@ -776,7 +774,7 @@ public class StorageOrderService {
      * <p>柜机离线与通道异常从 {@code dispatch} 直接抛出，不在这里吃掉：吃掉它就等于把
      * “整柜离线”好成了“这个格口坏了”，后面的换格与退单都是错的判决，也会丢掉 50100 这个已有契约。
      */
-    private void prepareHandshake(Long customerId, BizStorageOrder order, BizCabinet cabinet) {
+    private void prepareHandshake(Long customerId, BizStorageOrder order, CabinetSnapshot cabinet) {
         int tries = 1 + (int) openRetries;
         for (int i = 0; i < tries; i++) {
             if (prepareOnce(order, cabinet) != PrepareResult.FAILED) {
@@ -815,9 +813,9 @@ public class StorageOrderService {
      * 离线（OFFLINE）、连续失败（CONSECUTIVE_FAIL）都不是对这个格口的死刑判决，
      * 把它们当“坏了”就会误退单、误判故障（本轮实测：一次就把 4 条既有设备用例打红）。
      */
-    private PrepareResult prepareOnce(BizStorageOrder order, BizCabinet cabinet) {
+    private PrepareResult prepareOnce(BizStorageOrder order, CabinetSnapshot cabinet) {
         long seq = countAttempts(order.getOrderNo(), com.wherelee.cabinet.device.api.CommandAction.PREPARE);
-        var outcome = deviceCommands.dispatch(cabinet.getId(), order.getSlotId(),
+        var outcome = deviceCommands.dispatch(cabinet.id(), order.getSlotId(),
                 com.wherelee.cabinet.device.api.CommandAction.PREPARE, order.getId(),
                 order.getOrderNo() + ":PREPARE:" + (seq + 1));
         if (outcome.faultType() == com.wherelee.cabinet.device.api.FaultType.OPEN_FAILED) {
@@ -837,27 +835,20 @@ public class StorageOrderService {
      * 两人同时换也不会换到同一个；抢不到就试下一个而不是直接报失败。
      */
     private boolean swapToFreeSlot(BizStorageOrder order) {
-        java.util.List<BizCompartment> candidates = slotMapper.selectList(
-                SlotCandidateQuery.assignable(order.getCabinetId(), java.util.List.of(order.getSizeType())));
-        for (BizCompartment slot : candidates) {
-            if (slot.getId().equals(order.getSlotId())) {
-                continue;
-            }
-            if (slotMapper.reserveSlot(slot.getId(), order.getId()) == 0) {
-                continue;
-            }
-            Long oldSlotId = order.getSlotId();
-            slotMapper.markFaulty(oldSlotId);
-            order.setSlotId(slot.getId());
-            orderMapper.updateById(order);
-            log.warn("预备开失败判定格口故障并换格 old={} new={} orderNo={}",
-                    oldSlotId, slot.getId(), order.getOrderNo());
-            workOrderPort.openDeviceFault(order,
-                    true, "预备开自动重试 " + (1 + (int) openRetries) + " 次柜机均回报开不了，旧格口已摘出可分配池",
-                    "格口打不开，已改用格口 " + slot.getSlotNo(), LocalDateTime.now().plusHours(2));
-            return true;
+        SlotSnapshot swapped = slotSwap.swapIn(order.getCabinetId(), order.getSizeType(),
+                order.getId(), order.getSlotId()).orElse(null);
+        if (swapped == null) {
+            return false;
         }
-        return false;
+        Long oldSlotId = order.getSlotId();
+        order.setSlotId(swapped.id());
+        orderMapper.updateById(order);
+        log.warn("预备开失败判定格口故障并换格 old={} new={} orderNo={}",
+                oldSlotId, swapped.id(), order.getOrderNo());
+        workOrderPort.openDeviceFault(order,
+                true, "预备开自动重试 " + (1 + (int) openRetries) + " 次柜机均回报开不了，旧格口已摘出可分配池",
+                "格口打不开，已改用格口 " + swapped.slotNo(), LocalDateTime.now().plusHours(2));
+        return true;
     }
 
     /**
@@ -978,7 +969,7 @@ public class StorageOrderService {
             order.transitTo(OrderStatus.ACTIVE);
         } else if (order.getStatus() == OrderStatus.OPENING || order.getStatus() == OrderStatus.RESERVED) {
             // 容错期满已被巡检推进成 ACTIVE 时走不到这里；走到这里说明这是正常的投件关门
-            if (slotMapper.markOccupied(order.getSlotId(), order.getId()) == 0) {
+            if (!states.occupy(order.getSlotId(), order.getId())) {
                 throw new BizException(ResultCode.SYSTEM_ERROR,
                         "格口状态与订单不一致，需人工核对 slotId=" + order.getSlotId());
             }
@@ -1031,7 +1022,7 @@ public class StorageOrderService {
             return true;
         }
         // 已在计费但门还开着：该让他关上（关上后才能结束）
-        BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        SlotSnapshot slot = slotQueries.slot(order.getSlotId()).orElse(null);
         return order.getStatus() == OrderStatus.ACTIVE && slot != null && slot.doorOpen();
     }
 

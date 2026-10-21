@@ -1,5 +1,4 @@
 package com.wherelee.cabinet.storage.app;
-import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 
 import java.util.concurrent.ThreadLocalRandom;
 

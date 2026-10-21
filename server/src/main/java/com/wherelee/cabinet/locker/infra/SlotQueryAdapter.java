@@ -72,6 +72,51 @@ public class SlotQueryAdapter implements SlotQueryPort {
     }
 
     @Override
+    public List<CabinetSnapshot> cabinets(Collection<Long> cabinetIds) {
+        if (cabinetIds == null || cabinetIds.isEmpty()) {
+            return List.of();
+        }
+        return cabinetMapper.selectByIds(cabinetIds).stream().map(SlotQueryAdapter::toCabinet).toList();
+    }
+
+    @Override
+    public List<CabinetSnapshot> cabinets() {
+        return cabinetMapper.selectList(null).stream().map(SlotQueryAdapter::toCabinet).toList();
+    }
+
+    @Override
+    public List<CabinetSnapshot> cabinetsOfSite(Long siteId) {
+        if (siteId == null) {
+            return List.of();
+        }
+        return cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
+                        .eq(BizCabinet::getSiteId, siteId)
+                        .orderByAsc(BizCabinet::getCabinetNo)).stream()
+                .map(SlotQueryAdapter::toCabinet).toList();
+    }
+
+    @Override
+    public Optional<SiteSnapshot> siteByCode(String siteCode) {
+        if (siteCode == null || siteCode.isBlank()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(siteMapper.selectOne(Wrappers.<BizSite>lambdaQuery()
+                .eq(BizSite::getSiteCode, siteCode).last("limit 1"))).map(SlotQueryAdapter::toSite);
+    }
+
+    @Override
+    public List<SiteSnapshot> sites() {
+        return siteMapper.selectList(Wrappers.<BizSite>lambdaQuery().orderByAsc(BizSite::getSiteCode)).stream()
+                .map(SlotQueryAdapter::toSite).toList();
+    }
+
+    @Override
+    public List<SlotSnapshot> assignableSlots() {
+        return slotMapper.selectList(SlotCandidateQuery.assignable(java.util.Arrays.asList(SizeType.values())))
+                .stream().map(SlotQueryAdapter::toSlot).toList();
+    }
+
+    @Override
     public Optional<SiteSnapshot> site(Long siteId) {
         if (siteId == null) {
             return Optional.empty();

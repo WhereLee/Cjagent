@@ -8,20 +8,18 @@ import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.locker.domain.BizCabinet;
-import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.CabinetSnapshot;
+import com.wherelee.cabinet.locker.api.SiteSnapshot;
+import com.wherelee.cabinet.locker.api.SlotQueryPort;
+import com.wherelee.cabinet.locker.api.SlotSnapshot;
 import com.wherelee.cabinet.identity.api.CustomerQueryPort;
 import com.wherelee.cabinet.identity.api.CustomerSnapshot;
 import com.wherelee.cabinet.device.domain.BizDeviceCommand;
 import com.wherelee.cabinet.device.domain.BizItemEvidence;
-import com.wherelee.cabinet.locker.domain.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.device.api.CommandPort;
 import com.wherelee.cabinet.device.api.EvidencePort;
-import com.wherelee.cabinet.locker.infra.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -60,9 +58,7 @@ public class AdminOrderQueryService {
 
     private final BizStorageOrderMapper orderMapper;
     private final CustomerQueryPort customers;
-    private final BizCabinetMapper cabinetMapper;
-    private final BizCompartmentMapper slotMapper;
-    private final BizSiteMapper siteMapper;
+    private final SlotQueryPort slotQueries;
     private final CommandPort commandPort;
     private final EvidencePort evidencePort;
     private final com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort;
@@ -70,18 +66,14 @@ public class AdminOrderQueryService {
 
     public AdminOrderQueryService(BizStorageOrderMapper orderMapper,
                                   CustomerQueryPort customers,
-                                  BizCabinetMapper cabinetMapper,
-                                  BizCompartmentMapper slotMapper,
-                                  BizSiteMapper siteMapper,
+                                  SlotQueryPort slotQueries,
                                   CommandPort commandPort,
                                   EvidencePort evidencePort,
                                   com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort,
                                   StorageQueryService storageQueries) {
         this.orderMapper = orderMapper;
         this.customers = customers;
-        this.cabinetMapper = cabinetMapper;
-        this.slotMapper = slotMapper;
-        this.siteMapper = siteMapper;
+        this.slotQueries = slotQueries;
         this.commandPort = commandPort;
         this.evidencePort = evidencePort;
         this.workOrderPort = workOrderPort;
@@ -174,12 +166,12 @@ public class AdminOrderQueryService {
         }
         CustomerSnapshot customer = order.getCustomerId() == null
                 ? null : customers.byId(order.getCustomerId()).orElse(null);
-        BizCabinet cabinet = order.getCabinetId() == null
-                ? null : cabinetMapper.selectById(order.getCabinetId());
-        BizCompartment slot = order.getSlotId() == null
-                ? null : slotMapper.selectById(order.getSlotId());
-        BizSite site = cabinet == null || cabinet.getSiteId() == null
-                ? null : siteMapper.selectById(cabinet.getSiteId());
+        CabinetSnapshot cabinet = order.getCabinetId() == null
+                ? null : slotQueries.cabinet(order.getCabinetId()).orElse(null);
+        SlotSnapshot slot = order.getSlotId() == null
+                ? null : slotQueries.slot(order.getSlotId()).orElse(null);
+        SiteSnapshot site = cabinet == null || cabinet.siteId() == null
+                ? null : slotQueries.site(cabinet.siteId()).orElse(null);
 
         List<CommandLine> commands = commandPort.byOrder(order.getId(), COMMAND_LIMIT).stream()
                 .map(c -> new CommandLine(c.action(), c.state(), c.retryCount(),
@@ -224,40 +216,37 @@ public class AdminOrderQueryService {
         Map<Long, CustomerSnapshot> customersById = customerIds.isEmpty() ? Map.of()
                 : customers.byIds(customerIds).stream()
                 .collect(Collectors.toMap(CustomerSnapshot::id, c -> c));
-        Map<Long, BizCabinet> cabinets = cabinetIds.isEmpty() ? Map.of()
-                : cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
-                        .in(BizCabinet::getId, cabinetIds))
-                .stream().collect(Collectors.toMap(BizCabinet::getId, c -> c));
-        Map<Long, BizCompartment> slots = slotIds.isEmpty() ? Map.of()
-                : slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                        .in(BizCompartment::getId, slotIds))
-                .stream().collect(Collectors.toMap(BizCompartment::getId, s -> s));
-        Set<Long> siteIds = cabinets.values().stream().map(BizCabinet::getSiteId)
+        Map<Long, CabinetSnapshot> cabinets = cabinetIds.isEmpty() ? Map.of()
+                : slotQueries.cabinets(cabinetIds).stream()
+                .collect(Collectors.toMap(CabinetSnapshot::id, c -> c));
+        Map<Long, SlotSnapshot> slots = slotIds.isEmpty() ? Map.of()
+                : slotQueries.slots(slotIds).stream()
+                .collect(Collectors.toMap(SlotSnapshot::id, s -> s));
+        Set<Long> siteIds = cabinets.values().stream().map(CabinetSnapshot::siteId)
                 .filter(Objects::nonNull).collect(Collectors.toSet());
-        Map<Long, BizSite> sites = siteIds.isEmpty() ? Map.of()
-                : siteMapper.selectList(Wrappers.<BizSite>lambdaQuery()
-                        .in(BizSite::getId, siteIds))
-                .stream().collect(Collectors.toMap(BizSite::getId, s -> s));
+        Map<Long, SiteSnapshot> sites = siteIds.isEmpty() ? Map.of()
+                : slotQueries.sites().stream().filter(s -> siteIds.contains(s.id()))
+                .collect(Collectors.toMap(SiteSnapshot::id, s -> s));
 
         return orders.stream()
                 .map(o -> {
-                    BizCabinet cabinet = cabinets.get(o.getCabinetId());
-                    BizSite site = cabinet == null || cabinet.getSiteId() == null
-                            ? null : sites.get(cabinet.getSiteId());
+                    CabinetSnapshot cabinet = cabinets.get(o.getCabinetId());
+                    SiteSnapshot site = cabinet == null || cabinet.siteId() == null
+                            ? null : sites.get(cabinet.siteId());
                     return toRow(o, customersById.get(o.getCustomerId()), cabinet,
                             slots.get(o.getSlotId()), site);
                 })
                 .toList();
     }
 
-    private static OrderRow toRow(BizStorageOrder order, CustomerSnapshot customer, BizCabinet cabinet,
-                                  BizCompartment slot, BizSite site) {
+    private static OrderRow toRow(BizStorageOrder order, CustomerSnapshot customer, CabinetSnapshot cabinet,
+                                  SlotSnapshot slot, SiteSnapshot site) {
         return new OrderRow(order.getId(), order.getOrderNo(),
                 name(order.getStatus()), name(order.getSizeType()),
                 order.getCustomerId(), customer == null ? null : customer.nickname(),
-                site == null ? null : site.getName(),
-                cabinet == null ? null : cabinet.getCabinetNo(),
-                slot == null ? null : slot.getSlotNo(),
+                site == null ? null : site.name(),
+                cabinet == null ? null : cabinet.cabinetNo(),
+                slot == null ? null : slot.slotNo(),
                 nvl(order.getPrepayPoints()), nvl(order.getSettledPoints()), nvl(order.getArrearsPoints()),
                 order.getCreateTime(), order.getStartedAt(), order.getFinishedAt());
     }

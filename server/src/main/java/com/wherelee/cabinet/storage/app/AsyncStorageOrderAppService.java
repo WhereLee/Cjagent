@@ -1,5 +1,4 @@
 package com.wherelee.cabinet.storage.app;
-import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
@@ -10,15 +9,15 @@ import com.wherelee.cabinet.platform.mq.ConsumeIdempotencyGuard;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.locker.domain.BizCabinet;
-import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.CabinetSnapshot;
+import com.wherelee.cabinet.locker.api.SlotHoldPort;
+import com.wherelee.cabinet.locker.api.SlotPort;
+import com.wherelee.cabinet.locker.api.SlotQueryPort;
+import com.wherelee.cabinet.locker.api.SlotSnapshot;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.locker.api.CabinetStatus;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.api.SizeType;
-import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
-import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,10 +57,10 @@ public class AsyncStorageOrderAppService {
     /** 尚未落库的中间态，只出现在响应里，<b>不是</b> OrderStatus 的成员（DB 里此时没有行）。 */
     public static final String STATUS_QUEUED = "PERSIST_QUEUED";
 
-    private final BizCabinetMapper cabinetMapper;
-    private final BizCompartmentMapper slotMapper;
+    private final SlotQueryPort slotQueries;
+    private final SlotPort slotStates;
     private final BizStorageOrderMapper orderMapper;
-    private final SlotPreDeductionService preDeduction;
+    private final SlotHoldPort slotHold;
     private final OrderPersistPublisher publisher;
     private final ConsumeIdempotencyGuard guard;
     private final com.wherelee.cabinet.storage.api.FundPort funds;
@@ -72,29 +71,28 @@ public class AsyncStorageOrderAppService {
     @Value("${cabinet.mq.order-persist-topic:" + OrderPersistMessage.TOPIC_DEFAULT + "}")
     private String topic;
 
-    public AsyncStorageOrderAppService(BizCabinetMapper cabinetMapper,
-                                       BizCompartmentMapper slotMapper,
+    public AsyncStorageOrderAppService(SlotQueryPort slotQueries,
+                                       SlotPort slotStates,
                                        BizStorageOrderMapper orderMapper,
-                                       SlotPreDeductionService preDeduction,
+                                       SlotHoldPort slotHold,
                                        OrderPersistPublisher publisher,
                                        ConsumeIdempotencyGuard guard,
                                        com.wherelee.cabinet.storage.api.FundPort funds) {
-        this.cabinetMapper = cabinetMapper;
-        this.slotMapper = slotMapper;
+        this.slotQueries = slotQueries;
+        this.slotStates = slotStates;
         this.orderMapper = orderMapper;
-        this.preDeduction = preDeduction;
+        this.slotHold = slotHold;
         this.publisher = publisher;
         this.guard = guard;
         this.funds = funds;
     }
 
     public StorageOrderView createAsync(Long customerId, CreateOrderCommand command) {
-        BizCabinet cabinet = cabinetMapper.selectOne(Wrappers.<BizCabinet>lambdaQuery()
-                .eq(BizCabinet::getCabinetNo, command.cabinetNo()));
+        CabinetSnapshot cabinet = slotQueries.cabinetByNo(command.cabinetNo()).orElse(null);
         if (cabinet == null) {
             throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "柜机不存在：" + command.cabinetNo());
         }
-        if (cabinet.getCabinetStatus() != CabinetStatus.ENABLED) {
+        if (!CabinetStatus.ENABLED.name().equals(cabinet.cabinetStatus())) {
             throw new BizException(ResultCode.BIZ_ERROR, "该柜机暂停服务，请选择邻近柜机");
         }
 
@@ -104,8 +102,8 @@ public class AsyncStorageOrderAppService {
         Long orderId = IdWorker.getId();
         String orderNo = "SO" + orderId;
 
-        SlotPreDeductionService.PreDeduct deducted =
-                preDeduction.tryPreDeduct(cabinet.getId(), preference, orderNo, holdTtl, customerId);
+        SlotHoldPort.Hold deducted = slotHold.tryHold(cabinet.id(),
+                required, orderNo, holdTtl, customerId);
         if (deducted == null) {
             // 预扣拿不到就不落任何 DB 写：这条路径的意义正是让 DB 不在关键路径上
             throw new BizException(ResultCode.SLOT_UNAVAILABLE, "该柜机没有可用格口");
@@ -114,19 +112,19 @@ public class AsyncStorageOrderAppService {
         String pricingSnapshot = "{\"strategy\":\"placeholder\",\"estimateMinutes\":"
                 + command.estimateMinutes() + ",\"sizeType\":\"" + deducted.size() + "\"}";
         String voucher = VoucherCodes.newVoucher();
-        OrderPersistMessage message = new OrderPersistMessage(orderNo, orderId, cabinet.getTenantId(),
-                customerId, cabinet.getId(), deducted.slotId(), deducted.size().name(), voucher,
+        OrderPersistMessage message = new OrderPersistMessage(orderNo, orderId, cabinet.tenantId(),
+                customerId, cabinet.id(), deducted.slotId(), deducted.size().name(), voucher,
                 command.estimateMinutes(), pricingSnapshot, command.requestId(), MDC.get("traceId"));
 
         try {
             publisher.publish(message);
         } catch (RuntimeException e) {
             // 发送失败必须当场归还：否则这个格口对谁都不开放，而用户手里没有任何单号
-            preDeduction.release(deducted, orderNo);
+            slotHold.release(deducted, orderNo);
             throw e;
         }
 
-        return new StorageOrderView(orderNo, cabinet.getCabinetNo(), slotNoOf(deducted.slotId()),
+        return new StorageOrderView(orderNo, cabinet.cabinetNo(), slotNoOf(deducted.slotId()),
                 deducted.size().name(), STATUS_QUEUED, command.estimateMinutes(), 1, "prealloc", null);
     }
 
@@ -171,29 +169,30 @@ public class AsyncStorageOrderAppService {
 
     private void doPersist(OrderPersistMessage message) {
         // 占位标记不在 = 已被取消或已悬空过期：此时落库会造出一张“格口已放回自由集合”的孤儿单
-        if (!preDeduction.hasHold(message.orderNo())) {
+        if (!slotHold.stillHeld(message.orderNo())) {
             log.info("占位已释放，不落库 orderNo={}（取消先于落库或租约到期）", message.orderNo());
             return;
         }
-        BizCabinet cabinet = cabinetMapper.selectById(message.cabinetId());
+        CabinetSnapshot cabinet = slotQueries.cabinet(message.cabinetId()).orElse(null);
         if (cabinet == null) {
             throw new BizException(ResultCode.SYSTEM_ERROR,
                     "预扣指向的柜机不存在 cabinetId=" + message.cabinetId());
         }
-        BizCompartment slot = slotMapper.selectById(message.slotId());
-        if (slot == null || !slot.getCabinetId().equals(message.cabinetId())) {
+        SlotSnapshot slot = slotQueries.slot(message.slotId()).orElse(null);
+        if (slot == null || !message.cabinetId().equals(slot.cabinetId())) {
             throw new BizException(ResultCode.SYSTEM_ERROR,
                     "预扣指向的格口不存在或归属不符 slotId=" + message.slotId());
         }
 
-        int hit = slotMapper.reserveSlot(slot.getId(), message.orderId());
-        if (hit == 0) {
+        boolean reserved = slotStates.reserve(slot.id(), message.orderId());
+        if (!reserved) {
             // 影响 0 行有两种可能：已经被自己占过（重投，幂等放行），或被别人占了（必须失败让人看）
-            boolean mine = message.orderId().equals(slot.getCurrentOrderId());
+            SlotSnapshot latest = slotQueries.slot(slot.id()).orElse(null);
+            boolean mine = latest != null && message.orderId().equals(latest.currentOrderId());
             if (!mine) {
                 // 别人已占：把这笔预扣就此 terminate（删标记不回集合，因为格口确实已不空闲），
                 // 然后报错让人看——静默改写 slotId 会把用户领到另一个格口，那比失败更糟
-                preDeduction.commit(preDeduction.rehydrate(message.cabinetId(),
+                slotHold.commit(slotHold.rehydrate(message.cabinetId(),
                         SizeType.of(message.sizeType()), message.slotId()), message.orderNo());
                 throw new BizException(ResultCode.SYSTEM_ERROR,
                         "格口已被占用，需要人工核对 slotId=" + message.slotId() + " orderNo=" + message.orderNo());
@@ -210,7 +209,7 @@ public class AsyncStorageOrderAppService {
             log.info("订单已存在，视为重复投递 orderNo={}", message.orderNo());
         }
 
-        preDeduction.commit(preDeduction.rehydrate(message.cabinetId(),
+        slotHold.commit(slotHold.rehydrate(message.cabinetId(),
                 SizeType.of(message.sizeType()), message.slotId()), message.orderNo());
     }
 
@@ -223,22 +222,14 @@ public class AsyncStorageOrderAppService {
      * @return true 表示确实把占位归还了；false 表示没有占位标记（已落库或已过期）
      */
     public boolean cancelQueued(String orderNo, Long customerId) {
-        Map<String, String> hold = preDeduction.holdOf(orderNo);
-        if (hold.isEmpty()) {
-            return false;
-        }
-        if (!String.valueOf(customerId).equals(hold.get("cust"))) {
-            // 不区分“不是你的单”与“单不存在”，避免用返回差值枚举他人单号
-            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "寄存单不存在");
-        }
-        return preDeduction.releaseByKey(hold.get("key"), orderNo, Long.valueOf(hold.get("slot")));
+        return slotHold.releaseQueued(orderNo, customerId);
     }
 
-    private BizStorageOrder buildOrder(OrderPersistMessage message, BizCabinet cabinet) {
+    private BizStorageOrder buildOrder(OrderPersistMessage message, CabinetSnapshot cabinet) {
         BizStorageOrder order = new BizStorageOrder();
         order.setId(message.orderId());
         order.setOrderNo(message.orderNo());
-        order.setSiteId(cabinet.getSiteId());
+        order.setSiteId(cabinet.siteId());
         order.setCabinetId(message.cabinetId());
         order.setSlotId(message.slotId());
         order.setSizeType(SizeType.of(message.sizeType()));
@@ -268,8 +259,7 @@ public class AsyncStorageOrderAppService {
     // 与主路径的 8 位是两个口径、撞码率差一百倍，凭据形态不许有第二处定义。
 
     private String slotNoOf(Long slotId) {
-        BizCompartment slot = slotMapper.selectById(slotId);
-        return slot == null ? "-" : slot.getSlotNo();
+        return slotQueries.slot(slotId).map(SlotSnapshot::slotNo).orElse("-");
     }
 
     /**
@@ -281,9 +271,7 @@ public class AsyncStorageOrderAppService {
      */
     public void syncFreeSets(Long cabinetId) {
         for (SizeType size : SizeType.values()) {
-            List<Long> freeIds = slotMapper.selectList(SlotCandidateQuery.assignable(cabinetId, size))
-                    .stream().map(BizCompartment::getId).toList();
-            preDeduction.replaceFreeSet(cabinetId, size, freeIds);
+            slotHold.syncFreeSet(cabinetId, size);
         }
         log.info("空闲格口集合已同步 cabinetId={}", cabinetId);
     }

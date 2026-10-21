@@ -15,6 +15,3 @@ bff.mini->locker:app
 bff.mini->servicedesk:app
 bff.mini->storage:app
 bff.mq->storage:app
-storage->locker:app
-storage->locker:domain
-storage->locker:infra

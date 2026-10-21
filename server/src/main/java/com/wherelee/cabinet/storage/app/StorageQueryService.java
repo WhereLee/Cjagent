@@ -1,5 +1,8 @@
 package com.wherelee.cabinet.storage.app;
-import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
+import com.wherelee.cabinet.locker.api.CabinetSnapshot;
+import com.wherelee.cabinet.locker.api.SiteSnapshot;
+import com.wherelee.cabinet.locker.api.SlotQueryPort;
+import com.wherelee.cabinet.locker.api.SlotSnapshot;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
@@ -50,19 +53,14 @@ public class StorageQueryService {
     private static final List<OrderStatus> ACTIVE_STATES =
             List.of(OrderStatus.RESERVED, OrderStatus.OPENING, OrderStatus.ACTIVE);
 
-    private final BizSiteMapper siteMapper;
-    private final BizCabinetMapper cabinetMapper;
-    private final BizCompartmentMapper slotMapper;
+    private final SlotQueryPort slotQueries;
     private final BizStorageOrderMapper orderMapper;
     /** 账单口径的资金能力（流水、快照参数、算价）从这里取。 */
     private final com.wherelee.cabinet.storage.api.FundPort funds;
 
-    public StorageQueryService(BizSiteMapper siteMapper, BizCabinetMapper cabinetMapper,
-                               BizCompartmentMapper slotMapper, BizStorageOrderMapper orderMapper,
+    public StorageQueryService(SlotQueryPort slotQueries, BizStorageOrderMapper orderMapper,
                                com.wherelee.cabinet.storage.api.FundPort funds) {
-        this.siteMapper = siteMapper;
-        this.cabinetMapper = cabinetMapper;
-        this.slotMapper = slotMapper;
+        this.slotQueries = slotQueries;
         this.orderMapper = orderMapper;
         this.funds = funds;
     }
@@ -83,11 +81,11 @@ public class StorageQueryService {
         if (order.getStatus().isTerminal()) {
             throw new BizException(ResultCode.BIZ_ERROR, "该单已结束，取件码已失效");
         }
-        BizCabinet cabinet = cabinetMapper.selectById(order.getCabinetId());
-        BizCompartment slot = slotMapper.selectById(order.getSlotId());
+        CabinetSnapshot cabinet = slotQueries.cabinet(order.getCabinetId()).orElse(null);
+        SlotSnapshot slot = slotQueries.slot(order.getSlotId()).orElse(null);
         return new com.wherelee.cabinet.storage.api.VoucherView(order.getOrderNo(),
-                cabinet == null ? "-" : cabinet.getCabinetNo(),
-                slot == null ? "-" : slot.getSlotNo(),
+                cabinet == null ? "-" : cabinet.cabinetNo(),
+                slot == null ? "-" : slot.slotNo(),
                 order.getSizeType().name(), order.getStatus().name(),
                 order.getVoucherCode(), order.getVoucherLockedAt() != null);
     }
@@ -117,7 +115,7 @@ public class StorageQueryService {
     }
 
     public List<SiteView> sites() {
-        List<BizSite> all = siteMapper.selectList(Wrappers.<BizSite>lambdaQuery().orderByAsc(BizSite::getSiteCode));
+        List<SiteSnapshot> all = slotQueries.sites();
         if (all.isEmpty()) {
             return List.of();
         }
@@ -125,26 +123,24 @@ public class StorageQueryService {
         // 每台柜机每个尺寸各发一次查询就是 180×3 次，那是把用户端的列表页当压测现场跑
         Map<Long, Long> cabinetSite = new java.util.HashMap<>();
         Map<Long, Long> perSite = new java.util.HashMap<>();
-        for (BizCabinet cabinet : cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
-                .select(BizCabinet::getId, BizCabinet::getSiteId))) {
-            cabinetSite.put(cabinet.getId(), cabinet.getSiteId());
-            perSite.merge(cabinet.getSiteId(), 1L, Long::sum);
+        for (CabinetSnapshot cabinet : slotQueries.cabinets()) {
+            cabinetSite.put(cabinet.id(), cabinet.siteId());
+            perSite.merge(cabinet.siteId(), 1L, Long::sum);
         }
         Map<Long, Map<SizeType, Long>> freeBySite = new java.util.HashMap<>();
-        for (BizCompartment slot : slotMapper.selectList(
-                SlotCandidateQuery.assignable(java.util.Arrays.asList(SizeType.values())))) {
-            Long siteId = cabinetSite.get(slot.getCabinetId());
-            if (siteId == null || slot.getSizeType() == null) {
+        for (SlotSnapshot slot : slotQueries.assignableSlots()) {
+            Long siteId = cabinetSite.get(slot.cabinetId());
+            if (siteId == null || slot.sizeType() == null) {
                 continue;
             }
             freeBySite.computeIfAbsent(siteId, key -> new java.util.EnumMap<>(SizeType.class))
-                    .merge(slot.getSizeType(), 1L, Long::sum);
+                    .merge(SizeType.of(slot.sizeType()), 1L, Long::sum);
         }
         return all.stream()
                 .map(site -> {
-                    Map<SizeType, Long> free = freeBySite.getOrDefault(site.getId(), Map.of());
-                    return new SiteView(site.getSiteCode(), site.getName(), site.getCategory(), site.getAddress(),
-                            perSite.getOrDefault(site.getId(), 0L),
+                    Map<SizeType, Long> free = freeBySite.getOrDefault(site.id(), Map.of());
+                    return new SiteView(site.siteCode(), site.name(), site.category(), site.address(),
+                            perSite.getOrDefault(site.id(), 0L),
                             free.getOrDefault(SizeType.SMALL, 0L),
                             free.getOrDefault(SizeType.MEDIUM, 0L),
                             free.getOrDefault(SizeType.LARGE, 0L));
@@ -153,17 +149,13 @@ public class StorageQueryService {
     }
 
     public List<CabinetView> cabinets(String siteCode) {
-        BizSite site = siteMapper.selectOne(Wrappers.<BizSite>lambdaQuery().eq(BizSite::getSiteCode, siteCode));
+        SiteSnapshot site = slotQueries.siteByCode(siteCode).orElse(null);
         if (site == null) {
             throw new BizException(ResultCode.DATA_NOT_FOUND, "点位不存在：" + siteCode);
         }
-        return cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
-                        .eq(BizCabinet::getSiteId, site.getId())
-                        .orderByAsc(BizCabinet::getCabinetNo))
-                .stream()
-                .map(cabinet -> new CabinetView(cabinet.getCabinetNo(), cabinet.getName(),
-                        cabinet.getCabinetStatus() == null ? null : cabinet.getCabinetStatus().name(),
-                        cabinet.getOnlineState() == null ? null : cabinet.getOnlineState().name()))
+        return slotQueries.cabinetsOfSite(site.id()).stream()
+                .map(cabinet -> new CabinetView(cabinet.cabinetNo(), cabinet.name(),
+                        cabinet.cabinetStatus(), cabinet.onlineState()))
                 .toList();
     }
 
@@ -186,28 +178,23 @@ public class StorageQueryService {
         Set<Long> cabinetIds = orders.stream().map(BizStorageOrder::getCabinetId).filter(java.util.Objects::nonNull)
                 .collect(Collectors.toSet());
         // 格口取全列：除了编号，“待取回”标记要读 anomaly 与 currentOrderId（第 21 刀取回闭环的入口）
-        Map<Long, BizCompartment> slots = slotIds.isEmpty() ? Map.of()
-                : slotMapper.selectList(Wrappers.<BizCompartment>lambdaQuery()
-                        .select(BizCompartment::getId, BizCompartment::getSlotNo,
-                                BizCompartment::getAnomaly, BizCompartment::getCurrentOrderId)
-                        .in(BizCompartment::getId, slotIds))
-                .stream().collect(Collectors.toMap(BizCompartment::getId, s -> s));
+        Map<Long, SlotSnapshot> slots = slotIds.isEmpty() ? Map.of()
+                : slotQueries.slots(slotIds).stream()
+                .collect(Collectors.toMap(SlotSnapshot::id, s -> s));
         Map<Long, String> slotNos = slots.entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getSlotNo()));
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().slotNo()));
         Map<Long, String> cabinetNos = cabinetIds.isEmpty() ? Map.of()
-                : cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
-                        .select(BizCabinet::getId, BizCabinet::getCabinetNo)
-                        .in(BizCabinet::getId, cabinetIds))
-                .stream().collect(Collectors.toMap(BizCabinet::getId, BizCabinet::getCabinetNo));
+                : slotQueries.cabinets(cabinetIds).stream()
+                .collect(Collectors.toMap(CabinetSnapshot::id, CabinetSnapshot::cabinetNo));
 
         return orders.stream()
                 .map(order -> {
-                    BizCompartment slot = order.getSlotId() == null ? null : slots.get(order.getSlotId());
+                    SlotSnapshot slot = order.getSlotId() == null ? null : slots.get(order.getSlotId());
                     // “待取回” = 单已终态 且 它的格口正是遗留物状态且没人占用：
                     // 三个条件与 LeftoverRetrieveService 的开门校验同一判据，列表亮了按钮点进去才不会扑空
                     boolean retrievable = order.getStatus() != null && order.getStatus().isTerminal()
-                            && slot != null && slot.getAnomaly() == CompartmentAnomaly.CONTENT_LEFT
-                            && slot.getCurrentOrderId() == null;
+                            && slot != null && CompartmentAnomaly.CONTENT_LEFT.name().equals(slot.anomaly())
+                            && slot.currentOrderId() == null;
                     return new OrderView(order.getOrderNo(),
                             cabinetNos.get(order.getCabinetId()), slotNos.get(order.getSlotId()),
                             order.getSizeType() == null ? null : order.getSizeType().name(),
