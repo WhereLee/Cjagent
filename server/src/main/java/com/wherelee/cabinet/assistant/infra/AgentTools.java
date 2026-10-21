@@ -1,19 +1,19 @@
 package com.wherelee.cabinet.assistant.infra;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.storage.StorageOrderFacade;
-import com.wherelee.cabinet.application.storage.StorageQueryService;
+import com.wherelee.cabinet.storage.app.StorageOrderFacade;
+import com.wherelee.cabinet.storage.app.StorageQueryService;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
-import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.domain.entity.BizWorkOrder;
+import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
 import com.wherelee.cabinet.device.api.CommandAction;
-import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
-import com.wherelee.cabinet.domain.enums.WorkOrderKind;
-import com.wherelee.cabinet.domain.enums.WorkOrderSource;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
+import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
@@ -56,12 +56,12 @@ public class AgentTools {
     private String lastAttemptSummary;
     private boolean escalated;
     private String ticketNo;
-    private final com.wherelee.cabinet.application.workorder.WorkOrderHandoffService handoffs;
+    private final com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService handoffs;
 
     public AgentTools(StorageQueryService queries, StorageOrderFacade doors,
                       WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
                       BizWorkOrderMapper workOrderMapper,
-                      com.wherelee.cabinet.application.workorder.WorkOrderHandoffService handoffs,
+                      com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService handoffs,
                       SupportAgentPort.SupportSession session) {
         this.queries = queries;
         this.doors = doors;

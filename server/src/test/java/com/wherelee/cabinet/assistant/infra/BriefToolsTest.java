@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

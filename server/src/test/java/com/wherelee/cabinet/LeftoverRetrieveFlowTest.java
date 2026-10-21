@@ -2,14 +2,14 @@ package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.locker.app.LockerConsoleService;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
-import com.wherelee.cabinet.application.storage.LeftoverRetrieveService;
-import com.wherelee.cabinet.application.storage.StorageQueryService;
-import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.storage.app.LeftoverRetrieveService;
+import com.wherelee.cabinet.storage.app.StorageQueryService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.device.infra.SimulatedCabinetChannel;
 import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderEventMapper;
+import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderEventMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -193,8 +193,8 @@ class LeftoverRetrieveFlowTest {
                 "解除动作要进台账：谁取的、复检结果是什么");
         assertEquals(1, com.wherelee.cabinet.common.context.TenantContext.callAs(TENANT,
                 () -> eventMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
-                        .<com.wherelee.cabinet.domain.entity.BizWorkOrderEvent>lambdaQuery()
-                        .eq(com.wherelee.cabinet.domain.entity.BizWorkOrderEvent::getEventType,
+                        .<com.wherelee.cabinet.servicedesk.domain.BizWorkOrderEvent>lambdaQuery()
+                        .eq(com.wherelee.cabinet.servicedesk.domain.BizWorkOrderEvent::getEventType,
                                 "RETRIEVED_BY_OWNER"))).size(),
                 "工单流水要记一笔物主取回：业务员回填结论时看得到");
         assertTrue(com.wherelee.cabinet.common.context.TenantContext.callAs(TENANT,
@@ -275,9 +275,9 @@ class LeftoverRetrieveFlowTest {
                 () -> workOrders.notePhoneCall(workOrderId, 777L, "已联系物主，约定明天上午来柜取回"));
         assertEquals(1, com.wherelee.cabinet.common.context.TenantContext.callAs(TENANT,
                 () -> eventMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
-                        .<com.wherelee.cabinet.domain.entity.BizWorkOrderEvent>lambdaQuery()
-                        .eq(com.wherelee.cabinet.domain.entity.BizWorkOrderEvent::getWorkOrderId, workOrderId)
-                        .eq(com.wherelee.cabinet.domain.entity.BizWorkOrderEvent::getEventType, "PHONE_CALLED"))).size(),
+                        .<com.wherelee.cabinet.servicedesk.domain.BizWorkOrderEvent>lambdaQuery()
+                        .eq(com.wherelee.cabinet.servicedesk.domain.BizWorkOrderEvent::getWorkOrderId, workOrderId)
+                        .eq(com.wherelee.cabinet.servicedesk.domain.BizWorkOrderEvent::getEventType, "PHONE_CALLED"))).size(),
                 "电话记录进事件流水：谁打的、结果是什么");
     }
 }

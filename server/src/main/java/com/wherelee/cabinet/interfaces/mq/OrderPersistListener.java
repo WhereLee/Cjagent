@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.interfaces.mq;
 
-import com.wherelee.cabinet.application.storage.AsyncStorageOrderAppService;
-import com.wherelee.cabinet.application.storage.message.OrderPersistMessage;
+import com.wherelee.cabinet.storage.app.AsyncStorageOrderAppService;
+import com.wherelee.cabinet.storage.api.OrderPersistMessage;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.slf4j.Logger;

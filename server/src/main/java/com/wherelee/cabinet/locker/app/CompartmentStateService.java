@@ -16,7 +16,7 @@ import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.api.Presence;
-import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
@@ -50,9 +50,9 @@ public class CompartmentStateService implements SlotPort {
      * 开单入口（19B）。挂在“标异常的唯一出口”上而不是各业务分支里：
      * 分散调用一定漏路径，而漏的往往是异常那一条。
      */
-    private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
+    private final com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake;
     /** 工单流转（19B）：门关上时把“门未关”工单自动转化留底。 */
-    private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
+    private final com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders;
     /**
      * 证据留底（19C）：四个采集点各一条。
      *
@@ -86,8 +86,8 @@ public class CompartmentStateService implements SlotPort {
 
     public CompartmentStateService(BizCompartmentMapper slotMapper, BizFaultEventMapper faultMapper,
                                    DeviceChannel channel,
-                                   com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
-                                   com.wherelee.cabinet.application.workorder.WorkOrderService workOrders,
+                                   com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake,
+                                   com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders,
                                    com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper,
                                    NoticePort notices,
                                    BizStorageOrderMapper orderMapper) {
@@ -202,7 +202,7 @@ public class CompartmentStateService implements SlotPort {
             return "门已关上，但柜内检测到有物品，已转人工处理，谢谢你";
         }
         tryAutoRecover(slotId, sensing);
-        workOrders.noteStep(slotId, com.wherelee.cabinet.domain.enums.WorkOrderType.DOOR_NOT_CLOSED,
+        workOrders.noteStep(slotId, com.wherelee.cabinet.servicedesk.api.WorkOrderType.DOOR_NOT_CLOSED,
                 "HELPER_CLOSED", "由另一位用户（id=" + helperCustomerId + "）代关，检测无物：异常已解除");
         return "格口已恢复正常，谢谢你顺手关上";
     }
@@ -250,7 +250,7 @@ public class CompartmentStateService implements SlotPort {
         if (slot == null || slot.getAnomaly() != CompartmentAnomaly.DOOR_OPEN) {
             return;
         }
-        var type = com.wherelee.cabinet.domain.enums.WorkOrderType.DOOR_NOT_CLOSED;
+        var type = com.wherelee.cabinet.servicedesk.api.WorkOrderType.DOOR_NOT_CLOSED;
         int already = workOrders.remindedTimes(slotId, type);
         // 看管期间每次检测都留一条（“5 分钟检测到有物时再来一张”就落在这里）
         recordEvidence(BizItemEvidence.Moment.WATCH_DETECT, slot,
@@ -353,7 +353,7 @@ public class CompartmentStateService implements SlotPort {
         // 只记开始不记结束的事故记录没法用来优化任何事
         logFault(slot, FaultType.Action.RECOVER, "门已关闭，异常自动解除：" + slot.getAnomalyReason());
         // 19B：“事实自己消失了”不等于“人处理过了”：工单转 AUTO_CLOSED 留底而不删除、不记成结论
-        workOrders.autoClose(slotId, com.wherelee.cabinet.domain.enums.WorkOrderType.DOOR_NOT_CLOSED);
+        workOrders.autoClose(slotId, com.wherelee.cabinet.servicedesk.api.WorkOrderType.DOOR_NOT_CLOSED);
     }
 
     /**

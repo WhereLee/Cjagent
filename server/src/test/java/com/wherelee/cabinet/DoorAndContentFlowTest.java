@@ -5,8 +5,8 @@ import com.wherelee.cabinet.funds.app.PointAccountService;
 import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
-import com.wherelee.cabinet.application.storage.StorageOrderService;
-import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
+import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.locker.domain.BizCabinet;
@@ -100,7 +100,7 @@ class DoorAndContentFlowTest {
     @Autowired
     private com.wherelee.cabinet.locker.app.CompartmentStateService compartmentStates;
     @Autowired
-    private com.wherelee.cabinet.application.storage.StorageQueryService queries;
+    private com.wherelee.cabinet.storage.app.StorageQueryService queries;
 
     private JdbcTemplate jdbc;
     private String cabinetNo;
@@ -437,7 +437,7 @@ class DoorAndContentFlowTest {
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
 
-        com.wherelee.cabinet.application.storage.dto.StorageOrderView view =
+        com.wherelee.cabinet.storage.api.StorageOrderView view =
                 TenantContext.callAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
 
         assertTrue(view.message() != null && view.message().contains("柜门已打开"),
@@ -462,7 +462,7 @@ class DoorAndContentFlowTest {
 
         // 前面两次开门是好的，到结束这一步柜机才开始“自己说开不了”
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.EXEC_FAIL);
-        com.wherelee.cabinet.application.storage.dto.StorageOrderView view =
+        com.wherelee.cabinet.storage.api.StorageOrderView view =
                 TenantContext.callAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
 
         BizStorageOrder closed = order(order.getOrderNo());
@@ -584,7 +584,7 @@ class DoorAndContentFlowTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
 
-        java.util.List<com.wherelee.cabinet.application.storage.StorageQueryService.OrderView> mine =
+        java.util.List<com.wherelee.cabinet.storage.app.StorageQueryService.OrderView> mine =
                 TenantContext.callAs(TENANT, () -> queries.myOrders(customerId, 20));
         assertTrue(mine.stream().anyMatch(v -> v.orderNo().equals(order.getOrderNo())),
                 "刚下的单必须出现在我的列表里：" + mine);
@@ -684,7 +684,7 @@ class DoorAndContentFlowTest {
     private long siteFreeSmall(String siteCode) {
         return TenantContext.callAs(TENANT, () -> queries.sites()).stream()
                 .filter(v -> v.siteCode().equals(siteCode))
-                .mapToLong(com.wherelee.cabinet.application.storage.StorageQueryService.SiteView::freeSmall)
+                .mapToLong(com.wherelee.cabinet.storage.app.StorageQueryService.SiteView::freeSmall)
                 .findFirst().orElse(-1L);
     }
 

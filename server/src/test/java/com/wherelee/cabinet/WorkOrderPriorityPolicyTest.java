@@ -1,9 +1,9 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.workorder.WorkOrderPriorityPolicy;
-import com.wherelee.cabinet.domain.enums.WorkOrderImpact;
-import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
-import com.wherelee.cabinet.domain.enums.WorkOrderUrgency;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderPriorityPolicy;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderImpact;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderUrgency;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

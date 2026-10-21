@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.infrastructure.mq;
 
-import com.wherelee.cabinet.application.storage.OrderPersistPublisher;
-import com.wherelee.cabinet.application.storage.message.OrderPersistMessage;
+import com.wherelee.cabinet.storage.app.OrderPersistPublisher;
+import com.wherelee.cabinet.storage.api.OrderPersistMessage;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import org.apache.rocketmq.client.producer.SendResult;

@@ -1,12 +1,12 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.wherelee.cabinet.application.storage.StorageOrderFacade;
-import com.wherelee.cabinet.application.storage.StorageQueryService;
+import com.wherelee.cabinet.storage.app.StorageOrderFacade;
+import com.wherelee.cabinet.storage.app.StorageQueryService;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
-import com.wherelee.cabinet.application.workorder.WorkOrderHandoffService;
-import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
+import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;

@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.interfaces.mini.support;
 
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
-import com.wherelee.cabinet.application.workorder.WorkOrderMetrics;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderMetrics;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;

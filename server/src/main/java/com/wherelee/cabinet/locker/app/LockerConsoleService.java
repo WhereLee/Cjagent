@@ -59,13 +59,12 @@ public class LockerConsoleService {
     private final EvidencePort evidencePort;
     private final BizCabinetMapper cabinetMapper;
     private final OrderQueryPort orderQueries;
-    private final com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper customerMapper;
     private final CompartmentStateService states;
     private final CommandPort deviceCommands;
 
     public LockerConsoleService(BizLockerConsoleMapper consoleMapper, BizCompartmentMapper slotMapper,
                                 EvidencePort evidencePort, BizCabinetMapper cabinetMapper,
-                                OrderQueryPort orderQueries, com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper customerMapper,
+                                OrderQueryPort orderQueries,
                                 CompartmentStateService states,
                                 CommandPort deviceCommands) {
         this.consoleMapper = consoleMapper;
@@ -73,7 +72,6 @@ public class LockerConsoleService {
         this.evidencePort = evidencePort;
         this.cabinetMapper = cabinetMapper;
         this.orderQueries = orderQueries;
-        this.customerMapper = customerMapper;
         this.states = states;
         this.deviceCommands = deviceCommands;
     }
@@ -197,38 +195,6 @@ public class LockerConsoleService {
     // 它要免的那笔钱随着 19A“结束不拦人”一起消失了：不存在“平台等判定期间”这回事。
     // 原来四道前置里的三条（独立权限点、已终态不可重复、全程审计）仍然是通用做法，
     // 下一切后台动钱的动作都得照它们办。
-
-    /**
-     * 禁用 / 启用客户。
-     *
-     * <p>它只改一个状态位：<b>拦下登录与下单的是底座已有的机制</b>（status=0 时权限装载为空集合
-     * → 403），不在这里再造一份检查。这也是为什么这里不需要任何“禁用阈值”。
-     *
-     * <p>与欠费拦截分工不同，不能合并：欠费拦截是<b>系统自动、补缴即自愈</b>；
-     * 禁用是<b>人工判定、人工解除</b>，针对的是拒付与反复恶意行为。取件两边都不拦。
-     */
-    @Transactional
-    public void changeCustomerStatus(Long customerId, Integer status, String reason) {
-        if (status == null || (status != 0 && status != 1)) {
-            throw new BizException(ResultCode.PARAM_INVALID, "状态只能是 1（正常）或 0（禁用）");
-        }
-        if (reason == null || reason.isBlank()) {
-            throw new BizException(ResultCode.PARAM_INVALID, "禁用或启用必须写明事由（它会进审计）");
-        }
-        var customer = customerMapper.selectById(customerId);
-        if (customer == null) {
-            throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "客户不存在");
-        }
-        if (java.util.Objects.equals(customer.getStatus(), status)) {
-            log.info("客户状态本就是该值，幂等返回 customerId={} status={}", customerId, status);
-            return;
-        }
-        customer.setStatus(status);
-        if (customerMapper.updateById(customer) == 0) {
-            throw new BizException(ResultCode.SYSTEM_ERROR, "客户信息已被并发修改，请重试 customerId=" + customerId);
-        }
-        log.warn("客户状态变更 customerId={} status={} 事由={}", customerId, status, reason);
-    }
 
     /** 格口详情出参。 */
     public record Detail(BizCompartment compartment, List<EvidenceSnapshot> evidence, OrderSnapshot currentOrder) {

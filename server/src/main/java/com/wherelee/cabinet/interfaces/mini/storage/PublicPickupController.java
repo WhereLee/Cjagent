@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.interfaces.mini.storage;
 
-import com.wherelee.cabinet.application.storage.PublicPickupService;
-import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
+import com.wherelee.cabinet.storage.app.PublicPickupService;
+import com.wherelee.cabinet.storage.api.StorageOrderView;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
 import io.swagger.v3.oas.annotations.Operation;

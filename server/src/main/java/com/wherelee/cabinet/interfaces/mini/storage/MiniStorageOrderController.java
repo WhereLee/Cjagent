@@ -1,9 +1,9 @@
 package com.wherelee.cabinet.interfaces.mini.storage;
 
-import com.wherelee.cabinet.application.storage.StorageOrderFacade;
+import com.wherelee.cabinet.storage.app.StorageOrderFacade;
 import org.springframework.web.bind.annotation.RequestParam;
-import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
-import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
+import com.wherelee.cabinet.storage.api.CreateOrderCommand;
+import com.wherelee.cabinet.storage.api.StorageOrderView;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
@@ -126,7 +126,7 @@ public class MiniStorageOrderController {
     @Idempotent(message = "重置处理中，请勿重复提交")
     @PreAuthorize("hasRole('CUSTOMER')")
     @PostMapping("/{orderNo}/voucher/reset")
-    public R<com.wherelee.cabinet.application.storage.dto.VoucherView> resetVoucher(
+    public R<com.wherelee.cabinet.storage.api.VoucherView> resetVoucher(
             @AuthenticationPrincipal Caller current,
             @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(storageOrderFacade.resetVoucher(current.subjectId(), orderNo));

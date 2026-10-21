@@ -8,7 +8,7 @@ import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
 import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
-import com.wherelee.cabinet.application.storage.StorageOrderService;
+import com.wherelee.cabinet.storage.app.StorageOrderService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -231,16 +231,16 @@ public final class TaskHandlers {
         private final BizStorageOrderMapper orderMapper;
         private final PricingPolicy pricing;
         private final MeterRegistry meterRegistry;
-        private final com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
-        private final com.wherelee.cabinet.application.workorder.WorkOrderService workOrders;
+        private final com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake;
+        private final com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders;
 
         @Value("${cabinet.scheduler.stranded-days:7}")
         private long strandedDays;
 
         OverduePickupHandler(BizStorageOrderMapper orderMapper, PricingPolicy pricing,
                              MeterRegistry meterRegistry,
-                             com.wherelee.cabinet.application.workorder.WorkOrderIntake intake,
-                             com.wherelee.cabinet.application.workorder.WorkOrderService workOrders) {
+                             com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake,
+                             com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders) {
             this.orderMapper = orderMapper;
             this.pricing = pricing;
             this.meterRegistry = meterRegistry;
@@ -311,17 +311,17 @@ public final class TaskHandlers {
          */
         private void openLongRunning(BizStorageOrder order, long heldMinutes) {
             try {
-                intake.onOrderEvent(order, com.wherelee.cabinet.domain.enums.WorkOrderType.LONG_RUNNING,
+                intake.onOrderEvent(order, com.wherelee.cabinet.servicedesk.api.WorkOrderType.LONG_RUNNING,
                         false, "计费已到封顶（最多 20 小时单价），需联系用户取件",
                         "超 48 小时未结束：需联系客户", java.time.LocalDateTime.now().plusHours(2));
                 Long woId = workOrders.openIdOf(order.getSlotId(),
-                        com.wherelee.cabinet.domain.enums.WorkOrderType.LONG_RUNNING);
+                        com.wherelee.cabinet.servicedesk.api.WorkOrderType.LONG_RUNNING);
                 if (woId == null) {
                     return;
                 }
                 // 升级：进“必须处理”并产出电话任务与站内消息（去重靠 dedup_key）
                 workOrders.escalate(order.getSlotId(),
-                        com.wherelee.cabinet.domain.enums.WorkOrderType.LONG_RUNNING,
+                        com.wherelee.cabinet.servicedesk.api.WorkOrderType.LONG_RUNNING,
                         "订单超 48 小时未结束：必须联系客户取件或结单");
                 if (heldMinutes >= 72L * 60L) {
                     // 72 小时：自动派线下，但不动线上父单的状态（机器不能替人下结论）

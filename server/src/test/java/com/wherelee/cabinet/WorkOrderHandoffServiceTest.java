@@ -1,8 +1,8 @@
 package com.wherelee.cabinet;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.wherelee.cabinet.application.workorder.WorkOrderHandoffService;
-import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 

@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.workorder.WorkOrderMetrics;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;

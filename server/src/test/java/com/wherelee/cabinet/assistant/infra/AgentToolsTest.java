@@ -1,23 +1,23 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.wherelee.cabinet.application.storage.StorageOrderFacade;
-import com.wherelee.cabinet.application.storage.StorageQueryService;
-import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
+import com.wherelee.cabinet.storage.app.StorageOrderFacade;
+import com.wherelee.cabinet.storage.app.StorageQueryService;
+import com.wherelee.cabinet.storage.api.StorageOrderView;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort.SupportSession;
-import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.domain.entity.BizWorkOrder;
+import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
 import com.wherelee.cabinet.device.api.CommandAction;
-import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
-import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
-import com.wherelee.cabinet.domain.enums.WorkOrderKind;
-import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
-import com.wherelee.cabinet.domain.enums.WorkOrderSource;
-import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
-import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderCategory;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderStatus;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
+import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -70,7 +70,7 @@ class AgentToolsTest {
 
     private AgentTools tools(String orderNo) {
         return new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
-                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
+                new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportSession(CUSTOMER, orderNo, "帮我看看"));
     }
 

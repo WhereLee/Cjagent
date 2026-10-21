@@ -1,8 +1,8 @@
 package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.common.context.TenantContext;
-import com.wherelee.cabinet.domain.entity.BizCustomer;
-import com.wherelee.cabinet.infrastructure.mapper.BizCustomerMapper;
+import com.wherelee.cabinet.identity.domain.BizCustomer;
+import com.wherelee.cabinet.identity.infra.BizCustomerMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;

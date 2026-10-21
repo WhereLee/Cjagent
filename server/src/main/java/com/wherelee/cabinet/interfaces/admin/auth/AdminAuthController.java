@@ -1,8 +1,8 @@
 package com.wherelee.cabinet.interfaces.admin.auth;
 
-import com.wherelee.cabinet.application.auth.AdminAuthService;
-import com.wherelee.cabinet.application.auth.dto.AdminLoginRequest;
-import com.wherelee.cabinet.application.auth.dto.CurrentAccountView;
+import com.wherelee.cabinet.identity.app.AdminAuthService;
+import com.wherelee.cabinet.identity.api.AdminLoginRequest;
+import com.wherelee.cabinet.identity.api.CurrentAccountView;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.platform.security.TokenPair;

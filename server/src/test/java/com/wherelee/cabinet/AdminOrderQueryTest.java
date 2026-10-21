@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.storage.AdminOrderQueryService;
+import com.wherelee.cabinet.storage.app.AdminOrderQueryService;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.context.TenantContext;

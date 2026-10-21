@@ -41,8 +41,8 @@ class PessimisticAllocationTest extends AbstractAllocationBehaviourTest {
         }
 
         var views = results.stream()
-                .filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView)
-                .map(r -> (com.wherelee.cabinet.application.storage.dto.StorageOrderView) r)
+                .filter(r -> r instanceof com.wherelee.cabinet.storage.api.StorageOrderView)
+                .map(r -> (com.wherelee.cabinet.storage.api.StorageOrderView) r)
                 .toList();
         assertEquals(2, views.size(), "8 个 MEDIUM 全空闲，2 个请求都该成功");
         assertTrue(views.stream().allMatch(v -> "MEDIUM".equals(v.allocatedSize())),

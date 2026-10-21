@@ -1,7 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
-import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.context.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;

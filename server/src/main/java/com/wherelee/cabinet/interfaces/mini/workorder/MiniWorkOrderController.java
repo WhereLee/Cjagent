@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.mini.workorder;
 
-import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.platform.security.Caller;

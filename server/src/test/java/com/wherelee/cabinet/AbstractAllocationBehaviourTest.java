@@ -2,9 +2,9 @@ package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.locker.api.SlotAllocator;
-import com.wherelee.cabinet.application.storage.StorageOrderFacade;
-import com.wherelee.cabinet.application.storage.StorageOrderService;
-import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
+import com.wherelee.cabinet.storage.app.StorageOrderFacade;
+import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.locker.domain.BizCabinet;
@@ -196,7 +196,7 @@ abstract class AbstractAllocationBehaviourTest {
         List<Object> results = runConcurrentRequests(THREADS, SizeType.LARGE);
 
         long success = results.stream()
-                .filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView).count();
+                .filter(r -> r instanceof com.wherelee.cabinet.storage.api.StorageOrderView).count();
         List<BizException> failures = results.stream()
                 .filter(r -> r instanceof BizException)
                 .map(r -> (BizException) r)
@@ -224,7 +224,7 @@ abstract class AbstractAllocationBehaviourTest {
     void allocationAtCapacityAllSucceed() throws Exception {
         List<Object> results = runConcurrentRequests(LARGE_SLOTS, SizeType.LARGE);
         long success = results.stream()
-                .filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView).count();
+                .filter(r -> r instanceof com.wherelee.cabinet.storage.api.StorageOrderView).count();
         assertEquals(LARGE_SLOTS, success,
                 "容量内无竞争，不应有任何请求失败（策略=" + allocator.strategy() + "）：" + results);
         assertNoOversell();

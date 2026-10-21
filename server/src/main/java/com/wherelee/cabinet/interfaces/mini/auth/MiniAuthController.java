@@ -1,9 +1,9 @@
 package com.wherelee.cabinet.interfaces.mini.auth;
 
-import com.wherelee.cabinet.application.auth.CustomerAuthService;
-import com.wherelee.cabinet.application.auth.dto.CustomerLoginRequest;
-import com.wherelee.cabinet.application.auth.dto.CustomerLoginView;
-import com.wherelee.cabinet.application.auth.dto.CustomerView;
+import com.wherelee.cabinet.identity.app.CustomerAuthService;
+import com.wherelee.cabinet.identity.api.CustomerLoginRequest;
+import com.wherelee.cabinet.identity.api.CustomerLoginView;
+import com.wherelee.cabinet.identity.api.CustomerView;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.platform.security.Caller;

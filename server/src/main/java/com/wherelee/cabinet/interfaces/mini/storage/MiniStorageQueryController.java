@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.mini.storage;
 
-import com.wherelee.cabinet.application.storage.StorageQueryService;
+import com.wherelee.cabinet.storage.app.StorageQueryService;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.platform.security.Caller;
@@ -79,7 +79,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 30, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/orders/{orderNo}/voucher")
-    public R<com.wherelee.cabinet.application.storage.dto.VoucherView> voucher(
+    public R<com.wherelee.cabinet.storage.api.VoucherView> voucher(
             @AuthenticationPrincipal Caller current,
             @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(queries.voucher(current.subjectId(), orderNo));

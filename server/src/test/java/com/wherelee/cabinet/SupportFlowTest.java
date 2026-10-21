@@ -1,13 +1,13 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.storage.StorageOrderFacade;
-import com.wherelee.cabinet.application.storage.StorageQueryService;
+import com.wherelee.cabinet.storage.app.StorageOrderFacade;
+import com.wherelee.cabinet.storage.app.StorageQueryService;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
-import com.wherelee.cabinet.application.workorder.WorkOrderIntake;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.assistant.infra.AgentTools;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
+import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -131,7 +131,7 @@ class SupportFlowTest {
     @DisplayName("AI 转报走统一开单入口：快照补齐、类型落库正确；重复转报幂等合并")
     void raiseTicketGoesThroughIntakeAndMergesIdempotently() {
         AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
-                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
+                new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "取件时门打不开"));
         String attempt = TenantContext.callAs(TENANT, tools::retryMyDoor);
         assertTrue(attempt.contains("开门"), attempt);
@@ -170,7 +170,7 @@ class SupportFlowTest {
 
         // 再转一次：幂等合并到同一张，记 REPEATED，不重复建
         AgentTools again = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
-                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
+                new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "还是打不开"));
         TenantContext.runAs(TENANT, again::retryMyDoor);
         String merged = TenantContext.callAs(TENANT, () ->
@@ -185,7 +185,7 @@ class SupportFlowTest {
     @DisplayName("归属守卫：别人的单转报一律“未找到”，一张单都不建")
     void raiseTicketRejectsForeignOrder() {
         AgentTools intruder = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
-                new com.wherelee.cabinet.application.workorder.WorkOrderHandoffService(),
+                new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(FOREIGN, orderNo, "这是我的柜子"));
 
         String out = TenantContext.callAs(TENANT, () -> intruder.raiseTicket("DEVICE_FAULT", "门坏了"));

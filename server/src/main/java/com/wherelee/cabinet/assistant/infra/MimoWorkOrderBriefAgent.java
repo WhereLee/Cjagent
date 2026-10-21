@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.assistant.infra;
 
 import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
-import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;

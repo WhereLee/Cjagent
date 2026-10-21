@@ -35,13 +35,13 @@ class CasAllocationTest extends AbstractAllocationBehaviourTest {
         var results = runConcurrentRequests(THREADS, com.wherelee.cabinet.locker.api.SizeType.LARGE);
 
         var views = results.stream()
-                .filter(r -> r instanceof com.wherelee.cabinet.application.storage.dto.StorageOrderView)
-                .map(r -> (com.wherelee.cabinet.application.storage.dto.StorageOrderView) r)
+                .filter(r -> r instanceof com.wherelee.cabinet.storage.api.StorageOrderView)
+                .map(r -> (com.wherelee.cabinet.storage.api.StorageOrderView) r)
                 .toList();
         assertEquals(LARGE_SLOTS, views.size());
 
         double avgTried = views.stream().mapToInt(
-                com.wherelee.cabinet.application.storage.dto.StorageOrderView::triedSlots).average().orElse(0);
+                com.wherelee.cabinet.storage.api.StorageOrderView::triedSlots).average().orElse(0);
         // 悲观锁恒为 1；CAS 在 20 抢 6 的场景下必然出现“第一个候选已被抢走”
         Assertions.assertAll(
                 () -> assertTrue(avgTried > 1.0, "CAS 平均尝试次数应大于 1，实际 " + avgTried),

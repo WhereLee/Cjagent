@@ -2,13 +2,13 @@ package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.notify.api.NoticePort;
-import com.wherelee.cabinet.application.storage.PublicPickupService;
-import com.wherelee.cabinet.application.storage.StorageOrderService;
-import com.wherelee.cabinet.application.storage.StorageQueryService;
-import com.wherelee.cabinet.application.storage.VoucherCodes;
-import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
-import com.wherelee.cabinet.application.storage.dto.StorageOrderView;
-import com.wherelee.cabinet.application.storage.dto.VoucherView;
+import com.wherelee.cabinet.storage.app.PublicPickupService;
+import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.storage.app.StorageQueryService;
+import com.wherelee.cabinet.storage.app.VoucherCodes;
+import com.wherelee.cabinet.storage.api.CreateOrderCommand;
+import com.wherelee.cabinet.storage.api.StorageOrderView;
+import com.wherelee.cabinet.storage.api.VoucherView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -85,7 +85,7 @@ class VoucherDeliveryTest {
     @Autowired
     private StorageOrderService orderService;
     @Autowired
-    private com.wherelee.cabinet.application.storage.StorageOrderFacade orderFacade;
+    private com.wherelee.cabinet.storage.app.StorageOrderFacade orderFacade;
     @Autowired
     private StorageQueryService queries;
     @Autowired

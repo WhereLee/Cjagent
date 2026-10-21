@@ -5,8 +5,8 @@ import com.wherelee.cabinet.locker.app.LockerConsoleService;
 import com.wherelee.cabinet.funds.app.PointAccountService;
 import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
-import com.wherelee.cabinet.application.storage.StorageOrderService;
-import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
+import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -105,6 +105,9 @@ class AdminLockerConsoleTest {
     private CompartmentStateService states;
     @Autowired
     private LockerConsoleService console;
+    /** 客户禁用/启用已归 identity，控制台不再改客户表。 */
+    @Autowired
+    private com.wherelee.cabinet.identity.app.CustomerAdminService customers;
     @Autowired
     private SimulatedCabinetChannel simulator;
     @Autowired
@@ -340,15 +343,15 @@ class AdminLockerConsoleTest {
     void customerStatusNeedsReason() {
         Long customerId = newCustomer();
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
-                () -> console.changeCustomerStatus(customerId, 0, "")), "无因的状态变更不给做");
+                () -> customers.changeCustomerStatus(customerId, 0, "")), "无因的状态变更不给做");
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
-                () -> console.changeCustomerStatus(customerId, 5, "非法状态")));
+                () -> customers.changeCustomerStatus(customerId, 5, "非法状态")));
 
-        TenantContext.runAs(TENANT, () -> console.changeCustomerStatus(customerId, 0, "反复拒付，客服核验后禁用"));
+        TenantContext.runAs(TENANT, () -> customers.changeCustomerStatus(customerId, 0, "反复拒付，客服核验后禁用"));
         assertEquals(0, jdbc.queryForObject("select status from biz_customer where id = ?", Integer.class, customerId));
         // 再点一次同样值不该报错（运营重复提交是常态）
-        TenantContext.runAs(TENANT, () -> console.changeCustomerStatus(customerId, 0, "重复提交"));
-        TenantContext.runAs(TENANT, () -> console.changeCustomerStatus(customerId, 1, "已补缴，恢复使用"));
+        TenantContext.runAs(TENANT, () -> customers.changeCustomerStatus(customerId, 0, "重复提交"));
+        TenantContext.runAs(TENANT, () -> customers.changeCustomerStatus(customerId, 1, "已补缴，恢复使用"));
         assertEquals(1, jdbc.queryForObject("select status from biz_customer where id = ?", Integer.class, customerId));
     }
 

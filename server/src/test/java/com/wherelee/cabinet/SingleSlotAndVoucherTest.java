@@ -2,8 +2,8 @@ package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PointAccountService;
-import com.wherelee.cabinet.application.storage.StorageOrderService;
-import com.wherelee.cabinet.application.storage.dto.CreateOrderCommand;
+import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.locker.domain.BizCabinet;
@@ -79,7 +79,7 @@ class SingleSlotAndVoucherTest {
     @Autowired
     private StorageOrderService orderService;
     @Autowired
-    private com.wherelee.cabinet.application.storage.PublicPickupService publicPickup;
+    private com.wherelee.cabinet.storage.app.PublicPickupService publicPickup;
 
     /** 夹具里写下的客户手机号，双因子用例要拿它的后四位。 */
     private final java.util.Map<Long, String> phoneOf = new java.util.concurrent.ConcurrentHashMap<>();
@@ -310,7 +310,7 @@ class SingleSlotAndVoucherTest {
         assertEquals(wrongTail.getMessage(), noOrder.getMessage(), "两种失败必须同一句话");
 
         // 两个都对了：结单、取物开门、错次归零
-        com.wherelee.cabinet.application.storage.dto.StorageOrderView view =
+        com.wherelee.cabinet.storage.api.StorageOrderView view =
                 TenantContext.callAs(TENANT, () -> publicPickup.pickup(code, tail));
         BizStorageOrder done = order(orderNo);
         assertEquals("CLOSED", done.getStatus().name(), "双因子过了就必须能当场结单");

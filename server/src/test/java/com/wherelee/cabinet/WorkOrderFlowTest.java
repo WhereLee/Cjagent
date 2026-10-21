@@ -2,7 +2,7 @@ package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
-import com.wherelee.cabinet.application.workorder.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.context.TenantContext;
@@ -11,13 +11,13 @@ import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
 import com.wherelee.cabinet.locker.api.Presence;
-import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
-import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
-import com.wherelee.cabinet.domain.enums.WorkOrderKind;
-import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
-import com.wherelee.cabinet.domain.enums.WorkOrderSource;
-import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
-import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderCategory;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderStatus;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import com.wherelee.cabinet.interfaces.admin.workorder.AdminWorkOrderController;
 import org.junit.jupiter.api.AfterEach;
@@ -70,11 +70,11 @@ class WorkOrderFlowTest {
     @Autowired
     private com.wherelee.cabinet.notify.api.NoticePort notices;
     @Autowired
-    private com.wherelee.cabinet.application.workorder.WorkOrderIntake intake;
+    private com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake;
     @Autowired
     private BizStorageOrderMapper orderMapper;
     @Autowired
-    private com.wherelee.cabinet.application.workorder.WorkOrderTriageService triage;
+    private com.wherelee.cabinet.servicedesk.app.WorkOrderTriageService triage;
 
     private JdbcTemplate jdbc;
     private Long cabinetId;
@@ -366,10 +366,10 @@ class WorkOrderFlowTest {
         assertEquals(WorkOrderIntent.DOOR_NOT_CLOSE.name(), device.get("intent"),
                 "巡检把“门开着”记成门未关，和用户在客服里说的是同一个现象");
 
-        com.wherelee.cabinet.application.workorder.WorkOrderTriageService.Result ai =
+        com.wherelee.cabinet.servicedesk.app.WorkOrderTriageService.Result ai =
                 TenantContext.callAs(TENANT, () -> triage.triage(
                         WorkOrderIntent.DOOR_NOT_CLOSE,
-                        com.wherelee.cabinet.application.workorder.WorkOrderTriageService.Facts.none()));
+                        com.wherelee.cabinet.servicedesk.app.WorkOrderTriageService.Facts.none()));
 
         assertEquals(device.get("category"), ai.category().name(),
                 "同一现象不能因为来源不同（设备/客服）落到不同处置分类");

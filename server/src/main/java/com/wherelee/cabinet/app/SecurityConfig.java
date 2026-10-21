@@ -8,7 +8,7 @@ import com.wherelee.cabinet.platform.security.AdminPermissionService;
 import com.wherelee.cabinet.platform.security.AuthRedisService;
 import com.wherelee.cabinet.platform.security.JwtAuthenticationFilter;
 import com.wherelee.cabinet.platform.security.JwtTokenService;
-import com.wherelee.cabinet.platform.security.CustomerAuthoritiesResolver;
+import com.wherelee.cabinet.identity.app.CustomerAuthoritiesResolver;
 import com.wherelee.cabinet.platform.security.AdminUserDetailsService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

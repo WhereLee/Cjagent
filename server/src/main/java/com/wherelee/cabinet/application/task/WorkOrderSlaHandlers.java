@@ -2,10 +2,10 @@ package com.wherelee.cabinet.application.task;
 
 import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
-import com.wherelee.cabinet.domain.entity.BizWorkOrder;
+import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
 import com.wherelee.cabinet.domain.enums.TaskType;
-import com.wherelee.cabinet.domain.enums.WorkOrderStatus;
-import com.wherelee.cabinet.infrastructure.mapper.BizWorkOrderMapper;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderStatus;
+import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;

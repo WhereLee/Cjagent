@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.interfaces.admin.user;
 
-import com.wherelee.cabinet.application.user.UserQueryService;
-import com.wherelee.cabinet.application.user.dto.UserView;
+import com.wherelee.cabinet.identity.app.UserQueryService;
+import com.wherelee.cabinet.identity.api.UserView;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.R;

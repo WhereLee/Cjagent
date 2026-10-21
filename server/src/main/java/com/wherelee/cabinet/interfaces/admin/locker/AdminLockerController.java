@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.interfaces.admin.locker;
 
 import com.wherelee.cabinet.locker.app.LockerConsoleService;
-import com.wherelee.cabinet.application.storage.AsyncStorageOrderAppService;
+import com.wherelee.cabinet.storage.app.AsyncStorageOrderAppService;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.PageQuery;
@@ -46,10 +46,14 @@ public class AdminLockerController {
 
     private final LockerConsoleService console;
     private final AsyncStorageOrderAppService asyncOrders;
+    /** 客户禁用/启用是身份的事：控制器只转发，不在柜机服务里改客户表。 */
+    private final com.wherelee.cabinet.identity.app.CustomerAdminService customers;
 
-    public AdminLockerController(LockerConsoleService console, AsyncStorageOrderAppService asyncOrders) {
+    public AdminLockerController(LockerConsoleService console, AsyncStorageOrderAppService asyncOrders,
+                                 com.wherelee.cabinet.identity.app.CustomerAdminService customers) {
         this.console = console;
         this.asyncOrders = asyncOrders;
+        this.customers = customers;
     }
 
     // ------------------------------------------------------------------ 只读
@@ -144,7 +148,7 @@ public class AdminLockerController {
     @PostMapping("/customers/{customerId}/status")
     public R<Void> changeCustomerStatus(@PathVariable Long customerId,
                                         @Valid @RequestBody CustomerStatusRequest request) {
-        console.changeCustomerStatus(customerId, request.status(), request.reason());
+        customers.changeCustomerStatus(customerId, request.status(), request.reason());
         return R.ok();
     }
 

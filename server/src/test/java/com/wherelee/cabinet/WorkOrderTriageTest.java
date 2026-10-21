@@ -1,12 +1,12 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.workorder.WorkOrderTriageService;
+import com.wherelee.cabinet.servicedesk.app.WorkOrderTriageService;
 import com.wherelee.cabinet.common.context.TenantContext;
-import com.wherelee.cabinet.domain.enums.WorkOrderCategory;
-import com.wherelee.cabinet.domain.enums.WorkOrderImpact;
-import com.wherelee.cabinet.domain.enums.WorkOrderIntent;
-import com.wherelee.cabinet.domain.enums.WorkOrderPriority;
-import com.wherelee.cabinet.domain.enums.WorkOrderType;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderCategory;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderImpact;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

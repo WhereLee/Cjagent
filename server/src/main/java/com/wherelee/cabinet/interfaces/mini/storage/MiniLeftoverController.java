@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.interfaces.mini.storage;
 
-import com.wherelee.cabinet.application.storage.LeftoverRetrieveService;
+import com.wherelee.cabinet.storage.app.LeftoverRetrieveService;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;

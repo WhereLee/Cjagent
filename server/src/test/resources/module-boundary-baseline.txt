@@ -18,7 +18,6 @@ bff.admin->storage
 bff.mini->assistant
 bff.mini->common
 bff.mini->device
-bff.mini->domain
 bff.mini->funds
 bff.mini->identity
 bff.mini->locker
@@ -29,12 +28,12 @@ bff.mini->storage
 bff.mq->storage
 boot->common
 boot->domain
+boot->identity
 boot->infra.mapper
 boot->platform
 boot->task
 device->common
 device->domain
-device->infra.mapper
 device->locker
 device->task
 domain->common
@@ -50,17 +49,6 @@ identity->domain
 identity->infra.mapper
 identity->infra.wechat
 identity->platform
-infra.ai->assistant
-infra.ai->common
-infra.ai->device
-infra.ai->domain
-infra.ai->infra.mapper
-infra.ai->locker
-infra.ai->servicedesk
-infra.ai->storage
-infra.alloc->domain
-infra.device->device
-infra.device->domain
 infra.mapper->domain
 infra.mq->common
 infra.mq->storage
@@ -87,6 +75,7 @@ servicedesk->assistant
 servicedesk->common
 servicedesk->device
 servicedesk->domain
+servicedesk->identity
 servicedesk->infra.mapper
 servicedesk->locker
 servicedesk->notify
@@ -96,7 +85,7 @@ storage->common
 storage->device
 storage->domain
 storage->funds
-storage->infra.alloc
+storage->identity
 storage->infra.mapper
 storage->locker
 storage->notify
@@ -107,7 +96,6 @@ task->common
 task->device
 task->domain
 task->funds
-task->infra.alloc
 task->infra.mapper
 task->locker
 task->notify
