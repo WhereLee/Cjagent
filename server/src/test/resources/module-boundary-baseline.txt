@@ -1,4 +1,4 @@
-assistant->common
+﻿assistant->common
 assistant->device
 assistant->domain
 assistant->infra.mapper
@@ -92,19 +92,8 @@ storage->notify
 storage->platform
 storage->servicedesk
 storage->task
-task->common
-task->device
-task->domain
-task->funds
-task->infra.mapper
-task->locker
-task->notify
-task->servicedesk
-task->storage
 device->platform
 infra.task->infra.mapper
-task->infra.task
-task->platform
 device->storage
 funds->infra.task
 funds->platform
