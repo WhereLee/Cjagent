@@ -73,6 +73,16 @@ public interface BizCompartmentMapper extends BaseMapper<BizCompartment> {
             """)
     int markFaulty(@Param("slotId") Long slotId);
 
+    /**
+     * 设备连续失败：把格口直接标为硬件故障。
+     *
+     * <p>与 {@link #markFaulty} 的区别：这条不按 RESERVED/OCCUPIED 限定、也不抹订单绑定——
+     * 它表达的是“这一格已经打不开了”，与格口当时被谁占着无关。
+     */
+    @Update("update biz_compartment set status = 'FAULT', update_time = NOW(3) "
+            + "where id = #{slotId} and deleted = 0")
+    int markSlotFault(@Param("slotId") Long slotId);
+
     // ------------------------------------------------------------------
     // 门态与物检（docs/门态与物品争议设计.md）
     //

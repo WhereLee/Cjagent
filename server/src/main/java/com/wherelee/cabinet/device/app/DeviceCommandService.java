@@ -12,21 +12,18 @@ import com.wherelee.cabinet.application.task.DelayTaskService;
 import com.wherelee.cabinet.domain.enums.TaskType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.wherelee.cabinet.locker.domain.BizCabinet;
-import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.CabinetSnapshot;
+import com.wherelee.cabinet.locker.api.SlotPort;
+import com.wherelee.cabinet.locker.api.SlotQueryPort;
 import com.wherelee.cabinet.device.domain.BizDeviceCommand;
 import com.wherelee.cabinet.device.domain.BizDeviceReport;
 import com.wherelee.cabinet.device.domain.BizFaultEvent;
-import com.wherelee.cabinet.locker.api.CabinetStatus;
 import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.device.api.CommandState;
 import com.wherelee.cabinet.device.api.FaultType;
-import com.wherelee.cabinet.locker.api.SlotStatus;
-import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
-import com.wherelee.cabinet.device.infra.BizDeviceReportMapper;
 import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
+import com.wherelee.cabinet.device.infra.BizDeviceReportMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -71,8 +68,8 @@ public class DeviceCommandService implements CommandPort {
     private final BizDeviceCommandMapper commandMapper;
     private final BizDeviceReportMapper reportMapper;
     private final BizFaultEventMapper faultMapper;
-    private final BizCompartmentMapper slotMapper;
-    private final BizCabinetMapper cabinetMapper;
+    private final SlotQueryPort slotQueries;
+    private final SlotPort slotStates;
     private final DeviceChannel channel;
     private final StringRedisTemplate redis;
     private final TransactionTemplate txTemplate;
@@ -100,8 +97,8 @@ public class DeviceCommandService implements CommandPort {
     public DeviceCommandService(BizDeviceCommandMapper commandMapper,
                                 BizDeviceReportMapper reportMapper,
                                 BizFaultEventMapper faultMapper,
-                                BizCompartmentMapper slotMapper,
-                                BizCabinetMapper cabinetMapper,
+                                SlotQueryPort slotQueries,
+                                SlotPort slotStates,
                                 DeviceChannel channel,
                                 StringRedisTemplate redis,
                                 TransactionTemplate txTemplate,
@@ -109,8 +106,8 @@ public class DeviceCommandService implements CommandPort {
         this.commandMapper = commandMapper;
         this.reportMapper = reportMapper;
         this.faultMapper = faultMapper;
-        this.slotMapper = slotMapper;
-        this.cabinetMapper = cabinetMapper;
+        this.slotQueries = slotQueries;
+        this.slotStates = slotStates;
         this.channel = channel;
         this.redis = redis;
         this.txTemplate = txTemplate;
@@ -148,7 +145,7 @@ public class DeviceCommandService implements CommandPort {
     @Override
     public CommandOutcome dispatch(Long cabinetId, Long slotId, CommandAction action,
                                    Long orderId, String requestId) {
-        BizCabinet cabinet = cabinetId == null ? null : cabinetMapper.selectById(cabinetId);
+        CabinetSnapshot cabinet = cabinetId == null ? null : slotQueries.cabinet(cabinetId).orElse(null);
         if (cabinet == null) {
             throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "柜机不存在，无法下发指令 cabinetId=" + cabinetId);
         }
@@ -160,7 +157,7 @@ public class DeviceCommandService implements CommandPort {
                     existing.getStatus() == CommandState.SUCCEEDED, false, null, "重复请求，返回首次结果");
         }
 
-        if (!channel.available(cabinet.getId())) {
+        if (!channel.available(cabinet.id())) {
             return offlineOutcome(cabinet, slotId, action, requestId);
         }
 
@@ -173,7 +170,7 @@ public class DeviceCommandService implements CommandPort {
             return command.getId();
         });
 
-        DeviceChannel.CommandReceipt receipt = awaitReceipt(cabinet.getId(), slotId, action, requestId);
+        DeviceChannel.CommandReceipt receipt = awaitReceipt(cabinet.id(), slotId, action, requestId);
 
         final Long cmdId = commandId;
         return txTemplate.execute(status -> applyReceipt(cmdId, cabinet, slotId, receipt));
@@ -197,7 +194,7 @@ public class DeviceCommandService implements CommandPort {
         }
     }
 
-    private CommandOutcome applyReceipt(Long commandId, BizCabinet cabinet, Long slotId,
+    private CommandOutcome applyReceipt(Long commandId, CabinetSnapshot cabinet, Long slotId,
                                         DeviceChannel.CommandReceipt receipt) {
         BizDeviceCommand command = commandMapper.selectById(commandId);
         if (command == null) {
@@ -208,11 +205,11 @@ public class DeviceCommandService implements CommandPort {
             transit(command, CommandState.TIMEOUT);
             command.setLastError("回执超时");
             commandMapper.updateById(command);
-            recordFault(cabinet.getId(), slotId, FaultType.NO_REPORT, FaultType.Action.ALARM,
-                    failureCount(cabinet.getId()) + 1, "回执超时，等待重试或人工");
-            int fails = countFailure(cabinet.getId());
+            recordFault(cabinet.id(), slotId, FaultType.NO_REPORT, FaultType.Action.ALARM,
+                    failureCount(cabinet.id()) + 1, "回执超时，等待重试或人工");
+            int fails = countFailure(cabinet.id());
             // 登记回扫：此刻用户已经拿到“请重试”的回复走了，但现场必须有人收
-            scheduleRescan(cabinet.getTenantId(), command.getRequestId());
+            scheduleRescan(cabinet.tenantId(), command.getRequestId());
             return maybeDisable(cabinet, slotId, fails, command.getId(), CommandState.TIMEOUT, FaultType.NO_REPORT,
                     "开柜超时，请稍后重试或联系工作人员");
         }
@@ -236,7 +233,7 @@ public class DeviceCommandService implements CommandPort {
      *
      * <p>调用前提：回执已经过幂等/乱序判定（不在这里写流水），本方法只改指令与故障。
      */
-    private CommandOutcome converge(BizDeviceCommand command, BizCabinet cabinet,
+    private CommandOutcome converge(BizDeviceCommand command, CabinetSnapshot cabinet,
                                     DeviceChannel.CommandReceipt receipt) {
         Long slotId = command.getSlotId();
 
@@ -244,10 +241,10 @@ public class DeviceCommandService implements CommandPort {
             transit(command, CommandState.FAILED);
             command.setLastError("回执格口与指令不符");
             commandMapper.updateById(command);
-            recordFault(cabinet.getId(), slotId, FaultType.TARGET_MISMATCH, FaultType.Action.MARK_UNAVAILABLE,
-                    failureCount(cabinet.getId()) + 1,
+            recordFault(cabinet.id(), slotId, FaultType.TARGET_MISMATCH, FaultType.Action.MARK_UNAVAILABLE,
+                    failureCount(cabinet.id()) + 1,
                     "设备操作了 slot " + receipt.executedSlotId() + " 而非指令目标 " + slotId);
-            int fails = countFailure(cabinet.getId());
+            int fails = countFailure(cabinet.id());
             return maybeDisable(cabinet, slotId, fails, command.getId(), CommandState.FAILED, FaultType.TARGET_MISMATCH,
                     "柜机响应异常，请联系工作人员");
         }
@@ -262,13 +259,13 @@ public class DeviceCommandService implements CommandPort {
                 // 预备开只是问一句话、柜机什么都没动，用它去触发“连续失败停用整台柜机”
                 // 会把一次通信抖动放大成停一台柜。现场留在指令表（FAILED + last_error）与日志里。
                 log.warn("预备开失败，不计入停用柜机计数 cabinetId={} slotId={} detail={}",
-                        cabinet.getId(), slotId, receipt.detail());
+                        cabinet.id(), slotId, receipt.detail());
                 return new CommandOutcome(command.getId(), CommandState.FAILED, false, false,
                         FaultType.OPEN_FAILED, "柜机回报无法准备开柜，请重试或换一台柜机");
             }
-            recordFault(cabinet.getId(), slotId, FaultType.OPEN_FAILED, FaultType.Action.ALARM,
-                    failureCount(cabinet.getId()) + 1, receipt.detail());
-            int fails = countFailure(cabinet.getId());
+            recordFault(cabinet.id(), slotId, FaultType.OPEN_FAILED, FaultType.Action.ALARM,
+                    failureCount(cabinet.id()) + 1, receipt.detail());
+            int fails = countFailure(cabinet.id());
             return maybeDisable(cabinet, slotId, fails, command.getId(), CommandState.FAILED, FaultType.OPEN_FAILED,
                     "开柜失败，请重试或换一台柜机");
         }
@@ -278,9 +275,9 @@ public class DeviceCommandService implements CommandPort {
         if (!receipt.sensorConfirmed()) {
             transit(command, CommandState.SUCCEEDED);
             commandMapper.updateById(command);
-            clearFailure(cabinet.getId());
-            recordFault(cabinet.getId(), slotId, FaultType.DOOR_NOT_CLOSED, FaultType.Action.ALARM,
-                    failureCount(cabinet.getId()), "设备称已关门，传感器未确认");
+            clearFailure(cabinet.id());
+            recordFault(cabinet.id(), slotId, FaultType.DOOR_NOT_CLOSED, FaultType.Action.ALARM,
+                    failureCount(cabinet.id()), "设备称已关门，传感器未确认");
             return new CommandOutcome(command.getId(), CommandState.SUCCEEDED, false, false,
                     FaultType.DOOR_NOT_CLOSED, "柜门状态未确认，需要核验");
         }
@@ -293,9 +290,9 @@ public class DeviceCommandService implements CommandPort {
             // “不计入”的另一半（用户 2026-10-11 定）：预备开成功**也不清**连续失败计数。
             // 它只是柜机应了一句“我能动”，既不该给停用计数加一笔，也不该把别人攻下的账抹掉：
             // 抹掉就会出现“每次真开都不回话，却永远停用不了这台坑人的柜机”（用例实测到的就是这个）。
-            log.debug("预备开成功，不重置停用计数 cabinetId={} slotId={}", cabinet.getId(), slotId);
+            log.debug("预备开成功，不重置停用计数 cabinetId={} slotId={}", cabinet.id(), slotId);
         } else {
-            clearFailure(cabinet.getId());
+            clearFailure(cabinet.id());
         }
         return new CommandOutcome(command.getId(), CommandState.SUCCEEDED, true, false, null, null);
     }
@@ -343,7 +340,7 @@ public class DeviceCommandService implements CommandPort {
         if (command.getStatus().isTerminal()) {
             return new RescanResult(requestId, command.getId(), RescanAction.SETTLED, null);
         }
-        BizCabinet cabinet = cabinetMapper.selectById(command.getCabinetId());
+        CabinetSnapshot cabinet = slotQueries.cabinet(command.getCabinetId()).orElse(null);
         if (cabinet == null) {
             log.error("回扫无法进行：柜机不存在 cabinetId={} requestId={}", command.getCabinetId(), requestId);
             return new RescanResult(requestId, command.getId(), RescanAction.SETTLED, null);
@@ -375,7 +372,7 @@ public class DeviceCommandService implements CommandPort {
             return new RescanResult(requestId, command.getId(), RescanAction.SETTLED, null);
         }
 
-        DeviceChannel.CommandReceipt receipt = awaitReceipt(cabinet.getId(), command.getSlotId(),
+        DeviceChannel.CommandReceipt receipt = awaitReceipt(cabinet.id(), command.getSlotId(),
                 command.getAction(), requestId);
         final Long commandId = command.getId();
         CommandOutcome outcome = txTemplate.execute(status ->
@@ -384,15 +381,15 @@ public class DeviceCommandService implements CommandPort {
     }
 
     /** 重试耗尽：不再自动流转，但要把“为什么停”写清楚（没这条记录，事后就是一个无人知道的黑洞）。 */
-    private CommandOutcome giveUp(BizDeviceCommand command, BizCabinet cabinet, int retries) {
+    private CommandOutcome giveUp(BizDeviceCommand command, CabinetSnapshot cabinet, int retries) {
         command.setLastError("重试 " + retries + " 次仍无回执，转人工");
         if (commandMapper.updateById(command) == 0) {
             throw new BizException(ResultCode.SYSTEM_ERROR, "指令已被并发修改，回扫下一轮重试 id=" + command.getId());
         }
-        recordFault(cabinet.getId(), command.getSlotId(), FaultType.NO_REPORT, FaultType.Action.ALARM,
-                failureCount(cabinet.getId()), "重试 " + retries + " 次仍无回执，需人工核验现场");
+        recordFault(cabinet.id(), command.getSlotId(), FaultType.NO_REPORT, FaultType.Action.ALARM,
+                failureCount(cabinet.id()), "重试 " + retries + " 次仍无回执，需人工核验现场");
         log.error("指令判死需人工处理 requestId={} cabinetId={} slotId={} action={} 重试次数={}",
-                command.getRequestId(), cabinet.getId(), command.getSlotId(), command.getAction(), retries);
+                command.getRequestId(), cabinet.id(), command.getSlotId(), command.getAction(), retries);
         return new CommandOutcome(command.getId(), command.getStatus(), false, false, FaultType.NO_REPORT,
                 "开柜结果未能确认，已转人工处理");
     }
@@ -445,9 +442,9 @@ public class DeviceCommandService implements CommandPort {
     }
 
     /** 离线时的处置：存件方向直接拒，取件方向判异常留人工出口（降级方向"不可存、可取"）。 */
-    private CommandOutcome offlineOutcome(BizCabinet cabinet, Long slotId, CommandAction action, String requestId) {
-        recordFault(cabinet.getId(), slotId, FaultType.OFFLINE, FaultType.Action.ALARM,
-                failureCount(cabinet.getId()), "柜机离线");
+    private CommandOutcome offlineOutcome(CabinetSnapshot cabinet, Long slotId, CommandAction action, String requestId) {
+        recordFault(cabinet.id(), slotId, FaultType.OFFLINE, FaultType.Action.ALARM,
+                failureCount(cabinet.id()), "柜机离线");
         if (action.isRetrieveLike()) {
             return new CommandOutcome(null, CommandState.PENDING, false, false, FaultType.OFFLINE,
                     "柜机离线，取件已转人工处理，请勿离开现场");
@@ -464,12 +461,12 @@ public class DeviceCommandService implements CommandPort {
      * 真实设备一定会重启，所以这条规则在生产上必然发火。
      * （本缺陷由 dev 环境端到端验证发现；集成测试每个用例新建柜机，恰好盖不到。）
      */
-    private boolean writeReport(BizCabinet cabinet, Long slotId, BizDeviceCommand command,
+    private boolean writeReport(CabinetSnapshot cabinet, Long slotId, BizDeviceCommand command,
                                 DeviceChannel.CommandReceipt receipt) {
         LocalDateTime now = LocalDateTime.now();
         BizDeviceReport report = new BizDeviceReport();
-        report.setTenantId(cabinet.getTenantId());
-        report.setCabinetId(cabinet.getId());
+        report.setTenantId(cabinet.tenantId());
+        report.setCabinetId(cabinet.id());
         report.setSlotId(slotId);
         report.setOrderId(command.getOrderId());
         report.setSeq(receipt.seq());
@@ -491,7 +488,7 @@ public class DeviceCommandService implements CommandPort {
 
         // 序号对比不能短路：设备重启后 seq 从 0 或 1 重放是真实场景，
         // “seq 很小”本身就是旧事件的信号（这里曾写过一个 `seq > 0` 的“优化”，恰好把最该判旧的样本放过了）
-        Long maxSeq = reportMapper.selectMaxSeq(cabinet.getId(), slotId);
+        Long maxSeq = reportMapper.selectMaxSeq(cabinet.id(), slotId);
         if (maxSeq != null && receipt.seq() <= maxSeq) {
             // 序号较旧不再拦截业务：设备重启后 seq 会归零，旧≠重复；仅留证据供对账
             log.info("回执序号不高于已记录（可能为设备重启重发），仍按本指令处理 requestId={} seq={} maxSeq={}",
@@ -507,24 +504,18 @@ public class DeviceCommandService implements CommandPort {
     }
 
     /** 阈值到了就把格口标故障、柜机停用：别再往坏柜机里放新单。 */
-    private CommandOutcome maybeDisable(BizCabinet cabinet, Long slotId, int fails, Long commandId,
+    private CommandOutcome maybeDisable(CabinetSnapshot cabinet, Long slotId, int fails, Long commandId,
                                         CommandState state, FaultType fault, String message) {
         if (fails < failThreshold) {
             return new CommandOutcome(commandId, state, false, false, fault, message);
         }
         if (slotId != null) {
-            BizCompartment slot = new BizCompartment();
-            slot.setId(slotId);
-            slot.setStatus(SlotStatus.FAULT);
-            slotMapper.updateById(slot);
+            slotStates.markSlotFault(slotId);
         }
-        BizCabinet disabled = new BizCabinet();
-        disabled.setId(cabinet.getId());
-        disabled.setCabinetStatus(CabinetStatus.DISABLED);
-        cabinetMapper.updateById(disabled);
-        recordFault(cabinet.getId(), slotId, FaultType.CONSECUTIVE_FAIL, FaultType.Action.MARK_UNAVAILABLE,
+        slotStates.disableCabinet(cabinet.id());
+        recordFault(cabinet.id(), slotId, FaultType.CONSECUTIVE_FAIL, FaultType.Action.MARK_UNAVAILABLE,
                 fails, "连续失败达阈值 " + failThreshold + "，格口标故障、柜机停用");
-        log.warn("柜机停用 cabinetId={} 连续失败={} 阈值={}", cabinet.getId(), fails, failThreshold);
+        log.warn("柜机停用 cabinetId={} 连续失败={} 阈值={}", cabinet.id(), fails, failThreshold);
         return new CommandOutcome(commandId, state, false, false, FaultType.CONSECUTIVE_FAIL,
                 "该柜机已停用，请换一台柜机");
     }
@@ -536,12 +527,12 @@ public class DeviceCommandService implements CommandPort {
         command.transitTo(target);
     }
 
-    private BizDeviceCommand newCommand(BizCabinet cabinet, Long slotId, CommandAction action,
+    private BizDeviceCommand newCommand(CabinetSnapshot cabinet, Long slotId, CommandAction action,
                                         Long orderId, String requestId) {
         BizDeviceCommand command = new BizDeviceCommand();
-        command.setTenantId(cabinet.getTenantId());
+        command.setTenantId(cabinet.tenantId());
         command.setOrderId(orderId);
-        command.setCabinetId(cabinet.getId());
+        command.setCabinetId(cabinet.id());
         command.setSlotId(slotId);
         command.setRequestId(requestId);
         command.setAction(action);

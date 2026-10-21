@@ -61,6 +61,17 @@ public interface SlotPort {
 
     void markFaulty(Long slotId);
 
+    /**
+     * 设备连续失败：把格口直接标为硬件故障。
+     *
+     * <p>与 {@link #markFaulty} 分开：那条只摘 RESERVED/OCCUPIED 的格并抹订单绑定，
+     * 这条表达“这一格已经打不开了”，与格口当时被谁占着无关。
+     */
+    void markSlotFault(Long slotId);
+
+    /** 连续失败达阈值时停用整台柜机（不再往坏柜机里放新单）。 */
+    void disableCabinet(Long cabinetId);
+
     /** 清柜：解除异常。@return 是否真的清掉（重复点第二次为 false） */
     boolean clearAnomaly(Long slotId);
 }

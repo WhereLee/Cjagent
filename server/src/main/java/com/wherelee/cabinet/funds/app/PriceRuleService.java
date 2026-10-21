@@ -4,10 +4,10 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.funds.domain.BizPriceRule;
-import com.wherelee.cabinet.locker.domain.BizSite;
+import com.wherelee.cabinet.locker.api.SlotQueryPort;
 import com.wherelee.cabinet.locker.api.SizeType;
 import com.wherelee.cabinet.funds.infra.BizPriceRuleMapper;
-import com.wherelee.cabinet.locker.infra.BizSiteMapper;
+import com.wherelee.cabinet.locker.api.SizeType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -39,12 +39,12 @@ public class PriceRuleService {
     private static final Logger log = LoggerFactory.getLogger(PriceRuleService.class);
 
     private final BizPriceRuleMapper ruleMapper;
-    private final BizSiteMapper siteMapper;
+    private final SlotQueryPort slotQueries;
     private final PricingPolicy pricing;
 
-    public PriceRuleService(BizPriceRuleMapper ruleMapper, BizSiteMapper siteMapper, PricingPolicy pricing) {
+    public PriceRuleService(BizPriceRuleMapper ruleMapper, SlotQueryPort slotQueries, PricingPolicy pricing) {
         this.ruleMapper = ruleMapper;
-        this.siteMapper = siteMapper;
+        this.slotQueries = slotQueries;
         this.pricing = pricing;
     }
 
@@ -162,7 +162,7 @@ public class PriceRuleService {
         if (reason == null || reason.isBlank()) {
             throw new BizException(ResultCode.PARAM_INVALID, "发布计价策略必须写明事由（改价依据与灰度范围）");
         }
-        if (siteId != null && siteMapper.selectById(siteId) == null) {
+        if (siteId != null && slotQueries.site(siteId).isEmpty()) {
             throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "点位不存在，无法为其发布策略");
         }
         validate(draft);

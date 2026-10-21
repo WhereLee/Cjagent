@@ -89,13 +89,14 @@ public class SlotQueryAdapter implements SlotQueryPort {
     }
 
     private static SlotSnapshot toSlot(BizCompartment slot) {
-        return new SlotSnapshot(slot.getId(), slot.getCabinetId(), slot.getSlotNo(),
+        return new SlotSnapshot(slot.getId(), slot.getTenantId(), slot.getCabinetId(), slot.getSlotNo(),
                 nameOf(slot.getSizeType()), nameOf(slot.getStatus()), nameOf(slot.getAnomaly()),
-                slot.getCurrentOrderId(), slot.getDoorOpenAt(), slot.getDoorClosedAt());
+                slot.getCurrentOrderId(), slot.getDoorOpenedBy(), nameOf(slot.getPresence()),
+                slot.getDoorOpenAt(), slot.getDoorClosedAt());
     }
 
     private static CabinetSnapshot toCabinet(BizCabinet cabinet) {
-        return new CabinetSnapshot(cabinet.getId(), cabinet.getSiteId(), cabinet.getCabinetNo(),
+        return new CabinetSnapshot(cabinet.getId(), cabinet.getTenantId(), cabinet.getSiteId(), cabinet.getCabinetNo(),
                 cabinet.getName(), nameOf(cabinet.getCabinetStatus()), nameOf(cabinet.getOnlineState()));
     }
 

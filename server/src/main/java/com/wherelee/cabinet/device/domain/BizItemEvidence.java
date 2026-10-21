@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.device.domain;
 
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.wherelee.cabinet.device.api.EvidenceMoment;
 import com.wherelee.cabinet.device.api.EvidenceSource;
 import com.wherelee.cabinet.domain.entity.BaseEntity;
 import com.wherelee.cabinet.locker.api.Presence;
@@ -38,23 +39,10 @@ public class BizItemEvidence extends BaseEntity {
      * 采集点（19C）。同一个格口在四个时刻都会各留一条：没有这一列，四条链的证据会混成一堆，
      * 事后回答不了“关门那一刻到底看到什么”。旧记录为 NULL（当时没这个语义，不回填）。
      */
-    private Moment moment;
+    private EvidenceMoment moment;
     /** AI 简单标签：给业务员读的一行字（“像是黑色背包”）。与置信度不同，它不要求模型多有把握。 */
     private String aiLabel;
     /** 人看的说明：判误报的依据、复审结论等。客服与运维读的是这句，不是枚举名。 */
     private String note;
 
-    /** 证据采集点（用户原话：开门一张、关门一张、5 分钟检测到有物一张、他人代关后一张）。 */
-    public enum Moment {
-        /** 格口刚打开（此时柜内应为空基准）。 */
-        DOOR_OPENED,
-        /** 格口关上（带物检结论，是遗留判定的主凭据）。 */
-        DOOR_CLOSED,
-        /** 看管期间的定时检测（门未关阶梯上每发一次提醒做一次）。 */
-        WATCH_DETECT,
-        /** 另一位用户代关之后的检测（用于与代关前的记录对比）。 */
-        HELPER_CLOSED,
-        /** 物主自助取回后的复检（第 21 刀）：确认柜内已空才放格子回可售。 */
-        RETRIEVED_CHECK
-    }
 }

@@ -1,11 +1,12 @@
 package com.wherelee.cabinet.servicedesk.app;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.locker.domain.BizCabinet;
-import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.CabinetSnapshot;
+import com.wherelee.cabinet.locker.api.SlotQueryPort;
+import com.wherelee.cabinet.locker.api.SlotSnapshot;
+import com.wherelee.cabinet.locker.api.SiteSnapshot;
 import com.wherelee.cabinet.identity.api.CustomerQueryPort;
 import com.wherelee.cabinet.identity.api.CustomerSnapshot;
-import com.wherelee.cabinet.locker.domain.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
 import com.wherelee.cabinet.locker.api.OnlineState;
@@ -18,9 +19,6 @@ import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderUrgency;
-import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
-import com.wherelee.cabinet.locker.infra.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,22 +42,18 @@ public class WorkOrderIntake {
     private static final Logger log = LoggerFactory.getLogger(WorkOrderIntake.class);
 
     private final WorkOrderService workOrders;
-    private final BizCompartmentMapper slotMapper;
-    private final BizCabinetMapper cabinetMapper;
-    private final BizSiteMapper siteMapper;
+    /** 格口/柜机/点位的只读查询：工单不直接读 locker 的三张表。 */
+    private final SlotQueryPort slotQueries;
     private final CustomerQueryPort customers;
     private final BizStorageOrderMapper orderMapper;
     private final WorkOrderTriageService triage;
     private final WorkOrderSlaPolicy slaPolicy;
 
-    public WorkOrderIntake(WorkOrderService workOrders, BizCompartmentMapper slotMapper,
-                           BizCabinetMapper cabinetMapper, BizSiteMapper siteMapper,
+    public WorkOrderIntake(WorkOrderService workOrders, SlotQueryPort slotQueries,
                            CustomerQueryPort customers, BizStorageOrderMapper orderMapper,
                            WorkOrderTriageService triage, WorkOrderSlaPolicy slaPolicy) {
         this.workOrders = workOrders;
-        this.slotMapper = slotMapper;
-        this.cabinetMapper = cabinetMapper;
-        this.siteMapper = siteMapper;
+        this.slotQueries = slotQueries;
         this.customers = customers;
         this.orderMapper = orderMapper;
         this.triage = triage;
@@ -78,7 +72,7 @@ public class WorkOrderIntake {
      * 这只是**要求时刻**，不是自动动作——到点该由谁被提醒属于 19D。
      */
     public void onAnomaly(Long slotId, CompartmentAnomaly anomaly, String reason) {
-        BizCompartment slot = slotMapper.selectById(slotId);
+        SlotSnapshot slot = slotQueries.slot(slotId).orElse(null);
         if (slot == null) {
             log.warn("标异常却查不到格口，工单跳过 slotId={} anomaly={}", slotId, anomaly);
             return;
@@ -88,7 +82,7 @@ public class WorkOrderIntake {
         switch (anomaly) {
             case DOOR_OPEN -> {
                 type = WorkOrderType.DOOR_NOT_CLOSED;
-                urgent = slot.getPresence() == Presence.PRESENT;
+                urgent = Presence.PRESENT.name().equals(slot.presence());
             }
             case CONTENT_LEFT -> {
                 type = WorkOrderType.ITEM_LEFT;
@@ -109,17 +103,17 @@ public class WorkOrderIntake {
             }
         }
 
-        BizCabinet cabinet = slot.getCabinetId() == null ? null : cabinetMapper.selectById(slot.getCabinetId());
-        BizSite site = cabinet == null || cabinet.getSiteId() == null
-                ? null : siteMapper.selectById(cabinet.getSiteId());
+        CabinetSnapshot cabinet = slotQueries.cabinet(slot.cabinetId()).orElse(null);
+        SiteSnapshot site = cabinet == null || cabinet.siteId() == null
+                ? null : slotQueries.site(cabinet.siteId()).orElse(null);
         // 绑在这个格口上的活动单（可能没有：空格的传感器矛盾就没有物主）
-        BizStorageOrder order = slot.getCurrentOrderId() == null
-                ? null : orderMapper.selectById(slot.getCurrentOrderId());
+        BizStorageOrder order = slot.currentOrderId() == null
+                ? null : orderMapper.selectById(slot.currentOrderId());
         // 客户回退路径：单子一旦结算完成，格口上的 `current_order_id` 就被抹掉了，
         // 而“门未关/结束后遗留”这类异常往往正是在那之后才标上的——只认绑定关系就会开出
         // 一张**没有电话、拨不了也发不出消息**的紧急工单（审计报告缺陷 13）。
         // “是谁把这格打开的”就是当下用这一格的人，这个事实格口自己记着。
-        Long customerId = order != null ? order.getCustomerId() : slot.getDoorOpenedBy();
+        Long customerId = order != null ? order.getCustomerId() : slot.doorOpenedBy();
         CustomerSnapshot customer = customerId == null ? null : customers.byId(customerId).orElse(null);
 
         LocalDateTime now = LocalDateTime.now();
@@ -129,18 +123,18 @@ public class WorkOrderIntake {
         LocalDateTime responseDue = now.plusMinutes(slaPolicy.responseMinutes(priority));
         LocalDateTime resolveDue = now.plusMinutes(slaPolicy.resolveMinutes(priority));
         workOrders.open(new WorkOrderService.NewOrderV2(
-                slot.getTenantId(), WorkOrderKind.INCIDENT, type, WorkOrderSource.DEVICE,
+                slot.tenantId(), WorkOrderKind.INCIDENT, type, WorkOrderSource.DEVICE,
                 intentOf(anomaly), categoryOf(type), urgent, priority,
                 WorkOrderImpact.SINGLE,
                 urgent ? WorkOrderUrgency.HIGH : WorkOrderUrgency.NORMAL,
                 WorkOrderService.SIDE_ONLINE, WorkOrderService.SIDE_ONLINE,
-                site == null ? null : site.getId(), cabinet == null ? null : cabinet.getId(),
-                slot.getId(), slot.getSlotNo(),
+                site == null ? null : site.id(), cabinet == null ? null : cabinet.id(),
+                slot.id(), slot.slotNo(),
                 order == null ? null : order.getOrderNo(), order == null ? null : order.getId(),
                 customer == null ? null : customer.id(), customer == null ? null : customer.phone(),
-                site == null ? "未知点位" : site.getName(),
-                cabinet == null ? "-" : cabinet.getCabinetNo(),
-                titleOf(anomaly, slot.getSlotNo(), reason),
+                site == null ? "未知点位" : site.name(),
+                cabinet == null ? "-" : cabinet.cabinetNo(),
+                titleOf(anomaly, slot.slotNo(), reason),
                 detection(slot),
                 resolveDue, responseDue, resolveDue, null, null));
     }
@@ -152,9 +146,9 @@ public class WorkOrderIntake {
      * 这里统一补齐，也让开单幂等只依赖一个入口。
      */
     public void longRunningFor(Long slotId, String reason) {
-        BizCompartment slot = slotId == null ? null : slotMapper.selectById(slotId);
-        BizStorageOrder order = slot == null || slot.getCurrentOrderId() == null
-                ? null : orderMapper.selectById(slot.getCurrentOrderId());
+        SlotSnapshot slot = slotId == null ? null : slotQueries.slot(slotId).orElse(null);
+        BizStorageOrder order = slot == null || slot.currentOrderId() == null
+                ? null : orderMapper.selectById(slot.currentOrderId());
         if (order == null) {
             log.warn("超封顶开单跳过：格口上没有活动单 slotId={}", slotId);
             return;
@@ -181,16 +175,16 @@ public class WorkOrderIntake {
                              WorkOrderKind kind, WorkOrderSource source, WorkOrderIntent intent,
                              WorkOrderCategory category, WorkOrderPriority priority, String handoffJson,
                              String traceId) {
-        BizCompartment slot = order.getSlotId() == null ? null : slotMapper.selectById(order.getSlotId());
-        BizCabinet cabinet = slot == null || slot.getCabinetId() == null
-                ? null : cabinetMapper.selectById(slot.getCabinetId());
-        BizSite site = cabinet == null ? null : siteMapper.selectById(cabinet.getSiteId());
+        SlotSnapshot slot = order.getSlotId() == null ? null : slotQueries.slot(order.getSlotId()).orElse(null);
+        CabinetSnapshot cabinet = slot == null || slot.cabinetId() == null
+                ? null : slotQueries.cabinet(slot.cabinetId()).orElse(null);
+        SiteSnapshot site = cabinet == null ? null : slotQueries.site(cabinet.siteId()).orElse(null);
         CustomerSnapshot customer = order.getCustomerId() == null
                 ? null : customers.byId(order.getCustomerId()).orElse(null);
         WorkOrderKind actualKind = kind == null ? WorkOrderKind.INCIDENT : kind;
         // 柜机离线是快照事实：它只把“本来要连柜机才能自助”的现象改判为设备故障，
         // 不参与在线判定（在线与否以 Redis 心跳为准，见 OnlineState）。
-        boolean deviceOffline = cabinet != null && cabinet.getOnlineState() == OnlineState.OFFLINE;
+        boolean deviceOffline = cabinet != null && OnlineState.OFFLINE.name().equals(cabinet.onlineState());
         WorkOrderTriageService.Result triaged = actualKind == WorkOrderKind.REQUEST && intent != null
                 ? triage.triage(intent, new WorkOrderTriageService.Facts(deviceOffline, false, false, urgent))
                 : null;
@@ -211,12 +205,12 @@ public class WorkOrderIntake {
         return workOrders.open(new WorkOrderService.NewOrderV2(
                 order.getTenantId(), actualKind, resolvedType, source, intent, resolvedCategory, urgent,
                 resolvedPriority, resolvedImpact, resolvedUrgency, resolvedGroup, resolvedQueue,
-                site == null ? null : site.getId(), cabinet == null ? null : cabinet.getId(),
-                order.getSlotId(), slot == null ? null : slot.getSlotNo(),
+                site == null ? null : site.id(), cabinet == null ? null : cabinet.id(),
+                order.getSlotId(), slot == null ? null : slot.slotNo(),
                 order.getOrderNo(), order.getId(), order.getCustomerId(),
                 customer == null ? null : customer.phone(),
-                site == null ? "未知点位" : site.getName(),
-                cabinet == null ? "-" : cabinet.getCabinetNo(),
+                site == null ? "未知点位" : site.name(),
+                cabinet == null ? "-" : cabinet.cabinetNo(),
                 title, detection, resolveDue, responseDue, resolveDue, handoffJson, traceId));
     }
 
@@ -239,17 +233,17 @@ public class WorkOrderIntake {
     }
 
     /** 检测值快照：红外/重量/AI 的结论在这里合并成一行可读文本（19C 补上照片记录与 AI 标签）。 */
-    private String detection(BizCompartment slot) {
+    private String detection(SlotSnapshot slot) {
         return "门=" + (slot.doorOpen() ? "开着" : "已关")
-                + "；柜内=" + presenceText(slot.getPresence())
-                + "；异常=" + slot.getAnomaly();
+                + "；柜内=" + presenceText(slot.presence())
+                + "；异常=" + slot.anomaly();
     }
 
-    private String presenceText(Presence presence) {
+    private String presenceText(String presence) {
         if (presence == null) {
             return "未测";
         }
-        return switch (presence) {
+        return switch (Presence.valueOf(presence)) {
             case PRESENT -> "有物";
             case ABSENT -> "无物";
             case UNKNOWN -> "测不准";

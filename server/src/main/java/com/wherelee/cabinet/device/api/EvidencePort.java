@@ -18,4 +18,7 @@ public interface EvidencePort {
 
     /** 某个格口的证据（旧→新），工单详情用（工单只认格口，不保证都在同一张单上）。 */
     List<EvidenceSnapshot> byCompartment(Long compartmentId, int limit);
+
+    /** 落一条证据：四个采集点在格口状态机那边，写入只走这里。 */
+    void record(EvidenceRecord record);
 }

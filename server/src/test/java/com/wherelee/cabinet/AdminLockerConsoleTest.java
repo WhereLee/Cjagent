@@ -13,6 +13,7 @@ import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.locker.domain.BizCabinet;
 import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.device.domain.BizFaultEvent;
+import com.wherelee.cabinet.device.api.EvidenceMoment;
 import com.wherelee.cabinet.device.domain.BizItemEvidence;
 import com.wherelee.cabinet.locker.domain.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
@@ -394,9 +395,9 @@ class AdminLockerConsoleTest {
                 "后台详情要能拿到这一格（字段口径归台账用例管，这里只验详情可达）");
         List<BizItemEvidence> rows = TenantContext.callAs(TENANT,
                 () -> evidenceMapper.timelineOf(order.getSlotId(), 30));
-        assertTrue(rows.stream().anyMatch(e -> e.getMoment() == BizItemEvidence.Moment.DOOR_OPENED),
+        assertTrue(rows.stream().anyMatch(e -> e.getMoment() == EvidenceMoment.DOOR_OPENED),
                 "开门采集必须留底：它代表这一格当时应是空的，是后续比对的基准：" + rows);
-        assertTrue(rows.stream().anyMatch(e -> e.getMoment() == BizItemEvidence.Moment.DOOR_CLOSED),
+        assertTrue(rows.stream().anyMatch(e -> e.getMoment() == EvidenceMoment.DOOR_CLOSED),
                 "关门采集必须留底：结单与遗留判定的主要凭据就靠它");
     }
 }

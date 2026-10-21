@@ -1,9 +1,13 @@
 package com.wherelee.cabinet.device.infra;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wherelee.cabinet.device.api.EvidenceMoment;
 import com.wherelee.cabinet.device.api.EvidencePort;
+import com.wherelee.cabinet.device.api.EvidenceRecord;
 import com.wherelee.cabinet.device.api.EvidenceSnapshot;
+import com.wherelee.cabinet.device.api.EvidenceSource;
 import com.wherelee.cabinet.device.domain.BizItemEvidence;
+import com.wherelee.cabinet.locker.api.Presence;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -54,6 +58,21 @@ public class EvidenceQueryAdapter implements EvidencePort {
                         .orderByAsc(BizItemEvidence::getCreateTime)
                         .last("limit " + clamp(limit)))
                 .stream().map(EvidenceQueryAdapter::toSnapshot).toList();
+    }
+
+    @Override
+    public void record(EvidenceRecord record) {
+        BizItemEvidence evidenceRow = new BizItemEvidence();
+        evidenceRow.setTenantId(record.tenantId());
+        evidenceRow.setCabinetId(record.cabinetId());
+        evidenceRow.setCompartmentId(record.compartmentId());
+        // 三值结论直接带上：测不准就是 UNKNOWN，不折成“没东西”
+        evidenceRow.setPresence(record.presence() == null ? Presence.UNKNOWN : Presence.valueOf(record.presence()));
+        evidenceRow.setSource(record.source() == null ? EvidenceSource.DEVICE_PROBE : EvidenceSource.valueOf(record.source()));
+        evidenceRow.setMoment(record.moment() == null ? null : EvidenceMoment.valueOf(record.moment()));
+        evidenceRow.setNote(record.note());
+        evidenceRow.setCreateTime(java.time.LocalDateTime.now());
+        evidence.insert(evidenceRow);
     }
 
     private static int clamp(int limit) {

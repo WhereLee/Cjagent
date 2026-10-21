@@ -11,7 +11,7 @@ import com.wherelee.cabinet.funds.api.DepositStatus;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.funds.api.PointTxnType;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
+import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.funds.infra.BizDepositMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
@@ -53,18 +53,18 @@ public class OrderFundService {
     private final com.wherelee.cabinet.funds.app.PriceRuleService priceRules;
     private final BizDepositMapper depositMapper;
     private final BizStorageOrderMapper orderMapper;
-    private final BizCompartmentMapper slotMapper;
+    private final SlotPort slots;
 
     public OrderFundService(PointAccountService points, PricingPolicy pricing,
                             com.wherelee.cabinet.funds.app.PriceRuleService priceRules,
                             BizDepositMapper depositMapper, BizStorageOrderMapper orderMapper,
-                            BizCompartmentMapper slotMapper) {
+                            SlotPort slots) {
         this.points = points;
         this.pricing = pricing;
         this.priceRules = priceRules;
         this.depositMapper = depositMapper;
         this.orderMapper = orderMapper;
-        this.slotMapper = slotMapper;
+        this.slots = slots;
     }
 
     /**
@@ -170,16 +170,16 @@ public class OrderFundService {
             throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，结算需重试 orderNo=" + order.getOrderNo());
         }
 
-        int released = slotMapper.releaseOccupiedSlot(order.getSlotId(), order.getId());
-        if (released == 0) {
+        boolean released = slots.releaseOccupied(order.getSlotId(), order.getId());
+        if (!released) {
             // 19A（开柜即计时）带出来的新分支：“门没关就走了、直接在手机上点结束”。
             // 这一格从来没被 markOccupied 过（它停在 RESERVED + door_open_at 非空），
             // 但单已经结、钱已经算，格子必须跟着一起来——否则它永远挂在上一位身上。
             // 仍然靠 current_order_id 当条件：不是自己绑定的单就不许动，
             // “误把别人的格口放走”比“多留一个异常”严重得多。
-            released = slotMapper.releaseSlot(order.getSlotId(), order.getId());
+            released = slots.releaseReserved(order.getSlotId(), order.getId());
         }
-        if (released == 0) {
+        if (!released) {
             // 结完算却释放不掉：说明格口已被别人改写，必须响而不是把账做平就收工
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，需人工核对 slotId="
                     + order.getSlotId());

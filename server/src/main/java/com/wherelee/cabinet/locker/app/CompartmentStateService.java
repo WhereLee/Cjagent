@@ -6,9 +6,10 @@ import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.locker.domain.BizCompartment;
-import com.wherelee.cabinet.device.domain.BizItemEvidence;
-import com.wherelee.cabinet.device.api.EvidenceSource;
-import com.wherelee.cabinet.device.domain.BizFaultEvent;
+import com.wherelee.cabinet.device.api.EvidenceMoment;
+import com.wherelee.cabinet.device.api.EvidencePort;
+import com.wherelee.cabinet.device.api.EvidenceRecord;
+import com.wherelee.cabinet.device.api.FaultPort;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
 import com.wherelee.cabinet.locker.api.Sensing;
@@ -16,9 +17,10 @@ import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.api.Presence;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
+import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
 import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
-import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,22 +46,21 @@ public class CompartmentStateService implements SlotPort {
     private static final Logger log = LoggerFactory.getLogger(CompartmentStateService.class);
 
     private final BizCompartmentMapper slotMapper;
-    private final BizFaultEventMapper faultMapper;
+    private final BizCabinetMapper cabinetMapper;
+    private final FaultPort faults;
     private final DeviceChannel channel;
     /**
-     * 开单入口（19B）。挂在“标异常的唯一出口”上而不是各业务分支里：
+     * 开单与提醒阶梯走工单端口（19B）。挂在“标异常的唯一出口”上而不是各业务分支里：
      * 分散调用一定漏路径，而漏的往往是异常那一条。
      */
-    private final com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake;
-    /** 工单流转（19B）：门关上时把“门未关”工单自动转化留底。 */
-    private final com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders;
+    private final WorkOrderPort workOrders;
     /**
      * 证据留底（19C）：四个采集点各一条。
      *
      * <p>写在这里而不是各调用方自己写：这已经是门态与物检的唯一写入点，
      * 分散写必然出现“实时路径记了、巡检路径漏了”那种同事件不同结果（第 13 刀为此合并过一次）。
      */
-    private final com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper;
+    private final EvidencePort evidence;
     /** 遗留物通知（第 21 刀）：物主收到的站内消息走它，一张未关闭工单只发一条。 */
     private final NoticePort notices;
     /** 遗留物归因：发现遗留物时活动单早已结束，能指认的就是这个格口最近一张终态单的主人。 */
@@ -84,19 +85,19 @@ public class CompartmentStateService implements SlotPort {
     @Value("${cabinet.sensor.presence-max-age-minutes:2}")
     private int presenceMaxAgeMinutes;
 
-    public CompartmentStateService(BizCompartmentMapper slotMapper, BizFaultEventMapper faultMapper,
+    public CompartmentStateService(BizCompartmentMapper slotMapper, BizCabinetMapper cabinetMapper,
+                                   FaultPort faults,
                                    DeviceChannel channel,
-                                   com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake,
-                                   com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders,
-                                   com.wherelee.cabinet.device.infra.BizItemEvidenceMapper evidenceMapper,
+                                   WorkOrderPort workOrders,
+                                   EvidencePort evidence,
                                    NoticePort notices,
                                    BizStorageOrderMapper orderMapper) {
         this.slotMapper = slotMapper;
-        this.faultMapper = faultMapper;
+        this.cabinetMapper = cabinetMapper;
+        this.faults = faults;
         this.channel = channel;
-        this.intake = intake;
         this.workOrders = workOrders;
-        this.evidenceMapper = evidenceMapper;
+        this.evidence = evidence;
         this.notices = notices;
         this.orderMapper = orderMapper;
     }
@@ -139,7 +140,7 @@ public class CompartmentStateService implements SlotPort {
         if (slotMapper.markDoorOpen(slot.getId(), customerId, now) == 0) {
             log.debug("门已经是开着的，起点保持不动 slotNo={}", slot.getSlotNo());
         }
-        recordEvidence(BizItemEvidence.Moment.DOOR_OPENED, slot, "开门采集：此时柜内应为空，作为后续比对的基准");
+        recordEvidence(EvidenceMoment.DOOR_OPENED, slot, "开门采集：此时柜内应为空，作为后续比对的基准");
     }
 
     @Override
@@ -151,19 +152,11 @@ public class CompartmentStateService implements SlotPort {
      * 落一条证据记录（19C）。<b>不写 photoRef</b>：我们是虚拟设备，没有摄像头，
      * 宁可留空也不能存一个不存在的图片引用——那会比没记录更坏（业务员会去调一张不存在的图）。
      */
-    private void recordEvidence(BizItemEvidence.Moment moment, BizCompartment slot, String note) {
-        BizItemEvidence evidence = new BizItemEvidence();
-        evidence.setTenantId(slot.getTenantId());
-        evidence.setCabinetId(slot.getCabinetId());
-        evidence.setCompartmentId(slot.getId());
-        evidence.setSource(EvidenceSource.DEVICE_PROBE);
+    private void recordEvidence(EvidenceMoment moment, BizCompartment slot, String note) {
         // 三值结论直接带上：测不准就是 UNKNOWN，不折成“没东西”
         Presence presence = slot.getPresence() == null ? Presence.UNKNOWN : slot.getPresence();
-        evidence.setPresence(presence);
-        evidence.setMoment(moment);
-        evidence.setNote(note);
-        evidence.setCreateTime(LocalDateTime.now());
-        evidenceMapper.insert(evidence);
+        evidence.record(new EvidenceRecord(slot.getTenantId(), slot.getCabinetId(), slot.getId(),
+                moment.name(), "DEVICE_PROBE", presence.name(), note));
     }
 
     /**
@@ -191,7 +184,7 @@ public class CompartmentStateService implements SlotPort {
         }
         afterDoorClosed(slot, helperCustomerId);
         BizCompartment after = slotMapper.selectById(slotId);
-        recordEvidence(BizItemEvidence.Moment.HELPER_CLOSED,
+        recordEvidence(EvidenceMoment.HELPER_CLOSED,
                 after == null ? slot : after,
                 "他人代关后采集（id=" + helperCustomerId + "）：与代关前的记录比对后才判定能不能放回可售");
         // 代关的人要进台账：将来争辩“谁关的、为什么关”时这是唯一依据
@@ -253,7 +246,7 @@ public class CompartmentStateService implements SlotPort {
         var type = com.wherelee.cabinet.servicedesk.api.WorkOrderType.DOOR_NOT_CLOSED;
         int already = workOrders.remindedTimes(slotId, type);
         // 看管期间每次检测都留一条（“5 分钟检测到有物时再来一张”就落在这里）
-        recordEvidence(BizItemEvidence.Moment.WATCH_DETECT, slot,
+        recordEvidence(EvidenceMoment.WATCH_DETECT, slot,
                 "门未关第 " + already + " 次检测：柜内=" + slot.getPresence());
         int totalReminds = 1 + repeatRemindTimes;
         if (already >= totalReminds) {
@@ -296,7 +289,7 @@ public class CompartmentStateService implements SlotPort {
         if (moved == 0) {
             log.debug("关门事件重复到达，忽略 slotNo={}", slot.getSlotNo());
         }
-        recordEvidence(BizItemEvidence.Moment.DOOR_CLOSED, slot, "关门采集：结单与遗留判定的主要凭据");
+        recordEvidence(EvidenceMoment.DOOR_CLOSED, slot, "关门采集：结单与遗留判定的主要凭据");
         // “遗留与否”只能在这个时刻判：人已结完单、取完东西、把门关上了（定-17，2026-10-12 用户点破）。
         // 以前这件事做在“点结束”那一瞬，而那时柜里必然还是他自己的东西，每次正常取物都会被误判成遗弃。
         // 只对已没有活动单绑定的格口判：还在投件/临时开门流程里的格口由那条路径自己判（applyCloseVerified），不在这里抢判
@@ -379,18 +372,11 @@ public class CompartmentStateService implements SlotPort {
         // 19B：异常一旦落下就同时开一张工单（开单幂等，重复标同一种异常不会刷出多张）。
         // 放在写完当前态与流水之后：工单是“有人该管”，不是异常本身的一部分，
         // 它失败不能让格口不回写（否则开单问提会拖挂主链路）。
-        intake.onAnomaly(slotId, anomaly, reason);
+        workOrders.openForAnomaly(slotId, anomaly, reason);
     }
 
     private void logFault(BizCompartment slot, FaultType.Action action, String reason) {
-        BizFaultEvent event = new BizFaultEvent();
-        event.setCabinetId(slot.getCabinetId());
-        event.setSlotId(slot.getId());
-        event.setFaultType(FaultType.DOOR_NOT_CLOSED);
-        event.setAction(action);
-        event.setFailCount(0);
-        event.setReason(reason);
-        faultMapper.insert(event);
+        faults.record(slot.getCabinetId(), slot.getId(), action, 0, reason);
     }
 
     /**
@@ -455,7 +441,7 @@ public class CompartmentStateService implements SlotPort {
     }
 
     public void recordRetrievalEvidence(BizCompartment slot, String note) {
-        recordEvidence(BizItemEvidence.Moment.RETRIEVED_CHECK, slot, note);
+        recordEvidence(EvidenceMoment.RETRIEVED_CHECK, slot, note);
     }
 
     /**
@@ -542,6 +528,16 @@ public class CompartmentStateService implements SlotPort {
     @Override
     public void markFaulty(Long slotId) {
         slotMapper.markFaulty(slotId);
+    }
+
+    @Override
+    public void markSlotFault(Long slotId) {
+        slotMapper.markSlotFault(slotId);
+    }
+
+    @Override
+    public void disableCabinet(Long cabinetId) {
+        cabinetMapper.disableCabinet(cabinetId);
     }
 
     @Override
