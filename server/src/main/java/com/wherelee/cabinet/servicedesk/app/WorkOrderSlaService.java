@@ -1,5 +1,6 @@
 package com.wherelee.cabinet.servicedesk.app;
 
+import com.wherelee.cabinet.notify.api.NoticeChannel;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.common.api.ResultCode;
@@ -171,12 +172,12 @@ public class WorkOrderSlaService {
         String where = (open.getSlotNo() == null ? "格口" : "格口 " + open.getSlotNo())
                 + "（" + open.getTitle() + "）";
         // 业务员侧待办：不假装系统自己打了电话，只把“必须联系”挂在队列里并要求回填结果
-        notices.emit(open.getTenantId(), NoticePort.CHANNEL_PHONE,
+        notices.emit(open.getTenantId(), NoticeChannel.PHONE_CALL,
                 type.name(), "WO" + open.getId() + ":PHONE",
                 "必须电话联系客户 " + (phone == null ? "（无电话记录）" : phone) + "：" + where + " — " + detail,
                 open.getCustomerId(), open.getId(), open.getOrderNo());
         // 客户侧站内消息：没有推送，他自己打开小程序能看到也算提醒到了
-        notices.emit(open.getTenantId(), NoticePort.CHANNEL_MESSAGE,
+        notices.emit(open.getTenantId(), NoticeChannel.SYSTEM_MESSAGE,
                 type.name(), "WO" + open.getId() + ":MSG",
                 "你的暂存柜" + where + " 需要处理：" + detail + "。请尽快关门或取走物品并结束订单。",
                 open.getCustomerId(), open.getId(), open.getOrderNo());

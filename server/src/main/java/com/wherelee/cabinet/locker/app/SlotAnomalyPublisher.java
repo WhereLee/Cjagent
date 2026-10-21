@@ -1,5 +1,6 @@
 package com.wherelee.cabinet.locker.app;
 
+import com.wherelee.cabinet.notify.api.NoticeChannel;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.device.api.EvidenceMoment;
 import com.wherelee.cabinet.device.api.EvidencePort;
@@ -260,7 +261,7 @@ public class SlotAnomalyPublisher {
             if (workOrderId == null) {
                 return;
             }
-            notices.emit(slot.getTenantId(), NoticePort.CHANNEL_MESSAGE, "LEFTOVER_OWNER",
+            notices.emit(slot.getTenantId(), NoticeChannel.SYSTEM_MESSAGE, "LEFTOVER_OWNER",
                     "WO" + workOrderId + ":OWNER_MSG",
                     "你的暂存柜格口 " + slot.getSlotNo() + " 检测到遗留物品，请到柜取回。"
                             + "取回路径：小程序-我的寄存单-该订单-取回物品",

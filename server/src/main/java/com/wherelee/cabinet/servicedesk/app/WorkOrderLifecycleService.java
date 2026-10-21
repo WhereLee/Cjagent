@@ -1,5 +1,6 @@
 package com.wherelee.cabinet.servicedesk.app;
 
+import com.wherelee.cabinet.notify.api.NoticeChannel;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -195,13 +196,13 @@ public class WorkOrderLifecycleService {
                 String where = (o.getSlotNo() == null ? "格口" : "格口 " + o.getSlotNo())
                         + "（" + o.getTitle() + "）";
                 notices.emit(o.getTenantId(),
-                        NoticePort.CHANNEL_MESSAGE,
+                        NoticeChannel.SYSTEM_MESSAGE,
                         "WORK_ORDER_AUTO_CLOSED", "WO" + o.getId() + ":AUTO_CLOSE:MSG",
                         "你的工单" + where + " 已因异常解除自动关闭。如果问题仍存在，"
                                 + "可在工单详情里点“还没解决”。",
                         o.getCustomerId(), o.getId(), o.getOrderNo());
                 notices.emit(o.getTenantId(),
-                        NoticePort.CHANNEL_QUEUE,
+                        NoticeChannel.QUEUE,
                         "WORK_ORDER_AUTO_CLOSED", "WO" + o.getId() + ":AUTO_CLOSE:QUEUE",
                         "工单 WO" + o.getId() + " 因事实恢复自动关闭：" + where,
                         null, o.getId(), o.getOrderNo());

@@ -1,5 +1,6 @@
 package com.wherelee.cabinet.storage.app;
 
+import com.wherelee.cabinet.notify.api.NoticeChannel;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
@@ -207,7 +208,7 @@ public class StorageOrderService {
         // 柜机屏那条凭码路径事实上不可达（"有锁没钥匙"）。
         String createdSlotNo = lookup.slotNoOf(allocated.slotId());
         notices.emit(cabinet.tenantId(),
-                NoticePort.CHANNEL_MESSAGE,
+                NoticeChannel.SYSTEM_MESSAGE,
                 "PICKUP_VOUCHER", order.getOrderNo() + ":voucher",
                 vouchers.noteForExisting(order.getVoucherCode(), createdSlotNo),
                 order.getCustomerId(), null, order.getOrderNo());

@@ -44,11 +44,12 @@ public class NoticeService implements NoticePort {
      * @return true 表示这是第一次发出
      */
     @Transactional
-    public boolean emit(Long tenantId, String channel, String kind, String dedupKey, String content,
+    public boolean emit(Long tenantId, com.wherelee.cabinet.notify.api.NoticeChannel channel, String kind,
+                        String dedupKey, String content,
                         Long customerId, Long workOrderId, String orderNo) {
         BizNotice notice = new BizNotice();
         notice.setTenantId(tenantId);
-        notice.setChannel(channel);
+        notice.setChannel(channel == null ? null : channel.name());
         notice.setKind(kind);
         notice.setDedupKey(dedupKey);
         notice.setContent(content == null || content.isBlank() ? kind : truncate(content));
@@ -84,7 +85,7 @@ public class NoticeService implements NoticePort {
     public List<View> forCustomer(Long customerId) {
         return notices.selectList(Wrappers.<BizNotice>lambdaQuery()
                 .eq(BizNotice::getCustomerId, customerId)
-                .eq(BizNotice::getChannel, CHANNEL_MESSAGE)
+                .eq(BizNotice::getChannel, com.wherelee.cabinet.notify.api.NoticeChannel.SYSTEM_MESSAGE.name())
                 .orderByAsc(BizNotice::getDoneAt)
                 .orderByDesc(BizNotice::getCreateTime)
                 .last("limit 50")).stream().map(this::toView).toList();
@@ -93,7 +94,7 @@ public class NoticeService implements NoticePort {
     /** 业务员侧"还没打给客户"的任务清单。 */
     public List<View> pendingCalls() {
         return notices.selectList(Wrappers.<BizNotice>lambdaQuery()
-                .eq(BizNotice::getChannel, CHANNEL_PHONE)
+                .eq(BizNotice::getChannel, com.wherelee.cabinet.notify.api.NoticeChannel.PHONE_CALL.name())
                 .isNull(BizNotice::getDoneAt)
                 .orderByAsc(BizNotice::getCreateTime)
                 .last("limit 200")).stream().map(this::toView).toList();
