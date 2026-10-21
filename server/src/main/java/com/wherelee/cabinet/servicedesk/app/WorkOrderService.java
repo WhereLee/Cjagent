@@ -83,6 +83,10 @@ public class WorkOrderService {
     private final WorkOrderHandoffService handoffs;
     /** 责任组 → 值班人（组内轮转，不做排班表）。 */
     private final WorkOrderRoutingService routing;
+    /** 取单与事件留痕：生命周期、SLA、查询三处共用同一条流水。 */
+    private final WorkOrderJournal journal;
+    /** 两个 SLA 时限与门未关阶梯。 */
+    private final WorkOrderSlaService sla;
 
     public WorkOrderService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                             com.wherelee.cabinet.notify.api.NoticePort notices,
@@ -90,7 +94,8 @@ public class WorkOrderService {
                             SlotQueryPort slotQueries,
                             WorkOrderTriageService triage,
                             ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> schedulerProvider,
-                            WorkOrderHandoffService handoffs, WorkOrderRoutingService routing) {
+                            WorkOrderHandoffService handoffs, WorkOrderRoutingService routing,
+                            WorkOrderJournal journal, WorkOrderSlaService sla) {
         this.orders = orders;
         this.events = events;
         this.notices = notices;
@@ -100,6 +105,33 @@ public class WorkOrderService {
         this.schedulerProvider = schedulerProvider;
         this.handoffs = handoffs;
         this.routing = routing;
+        this.journal = journal;
+        this.sla = sla;
+    }
+
+    /** 暂停 SLA：只停两个时限的前进，不改工单状态（时间算术在 SLA 服务里）。 */
+    public void pauseSla(Long workOrderId, Long operatorId) {
+        sla.pause(workOrderId, operatorId);
+    }
+
+    /** 恢复 SLA：把暂停时长补回响应/解决时限。 */
+    public void resumeSla(Long workOrderId, Long operatorId) {
+        sla.resume(workOrderId, operatorId);
+    }
+
+    /** 记一次“被催办”（门未关阶梯用）。 */
+    public boolean remind(Long slotId, WorkOrderType type, String detail) {
+        return sla.remind(slotId, type, detail);
+    }
+
+    /** 阶梯到点：升级为紧急并产出电话待办与站内消息。 */
+    public boolean escalate(Long slotId, WorkOrderType type, String detail) {
+        return sla.escalate(slotId, type, detail);
+    }
+
+    /** 这张单已催过几次（阶梯判重用）。 */
+    public int remindedTimes(Long slotId, WorkOrderType type) {
+        return sla.remindedTimes(slotId, type);
     }
 
     /** 一条证据的可读视图（采集点 + 三值结论 + 置信度 + AI 标签 + 照片引用）。 */
@@ -114,7 +146,7 @@ public class WorkOrderService {
      * 而业务员要看的是这个格子先后被看到过什么。
      */
     public java.util.List<EvidenceView> evidenceFor(Long workOrderId) {
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         if (order.getSlotId() == null) {
             return java.util.List.of();
         }
@@ -198,9 +230,9 @@ public class WorkOrderService {
     /** 智能工单统一开单入口：异常和用户请求都从这里进来，只是 kind/source 不同。 */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long open(NewOrderV2 cmd) {
-        BizWorkOrder existing = findOpen(cmd.kind(), cmd.type(), cmd.slotId());
+        BizWorkOrder existing = journal.findOpen(cmd.kind(), cmd.type(), cmd.slotId());
         if (existing != null) {
-            note(existing, "REPEATED", null, "同一问题再次被观察到：" + cmd.detection(),
+            journal.note(existing, "REPEATED", null, "同一问题再次被观察到：" + cmd.detection(),
                     actorTypeOf(cmd.source()), cmd.traceId());
             return existing.getId();
         }
@@ -238,20 +270,20 @@ public class WorkOrderService {
             orders.insert(order);
         } catch (DuplicateKeyException e) {
             // 并发下另一个巡检/另一次上报先到：回读那张，不算失败也不重复建
-            BizWorkOrder won = findOpen(cmd.kind(), cmd.type(), cmd.slotId());
+            BizWorkOrder won = journal.findOpen(cmd.kind(), cmd.type(), cmd.slotId());
             if (won == null) {
                 // 冲突却查不到：唯一索引挡住了新单而那张已被关/软删，属于不一致现场，必须响
                 throw new BizException(ResultCode.SYSTEM_ERROR,
                         "工单唯一索引冲突但找不到未关闭的那张，slotId=" + cmd.slotId());
             }
-            note(won, "REPEATED", null, "并发开单合并到已有工单：" + cmd.title(),
+            journal.note(won, "REPEATED", null, "并发开单合并到已有工单：" + cmd.title(),
                     actorTypeOf(cmd.source()), cmd.traceId());
             return won.getId();
         }
-        note(order, "CREATED", null, cmd.title() + "｜检测：" + nullSafe(cmd.detection()),
+        journal.note(order, "CREATED", null, cmd.title() + "｜检测：" + nullSafe(cmd.detection()),
                 actorTypeOf(cmd.source()), cmd.traceId());
         // 开单即登记两个 SLA 任务：到点没人响应/没结论必须自己冒出来，不靠人惦记。
-        scheduleSla(order);
+        sla.schedule(order);
         log.warn("工单已开 id={} kind={} source={} type={} priority={} slotNo={} orderNo={}",
                 order.getId(), order.getKind(), order.getSource(), order.getType(),
                 order.getPriority(), cmd.slotNo(), cmd.orderNo());
@@ -261,7 +293,7 @@ public class WorkOrderService {
     /** 重新分诊：规则调整后对一张已有单重算分类/队列/优先级/SLA，并留 TRIAGED 痕。 */
     @Transactional
     public void triage(Long workOrderId) {
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         if (order.getIntent() == null) {
             throw new BizException(ResultCode.BIZ_ERROR, "这张工单没有用户现象，无法分诊");
         }
@@ -282,7 +314,7 @@ public class WorkOrderService {
                 .set(BizWorkOrder::getAssigneeGroup, result.assigneeGroup())
                 .set(BizWorkOrder::getResponseDueAt, now.plusMinutes(result.responseMinutes()))
                 .set(BizWorkOrder::getResolveDueAt, now.plusMinutes(result.resolveMinutes())));
-        note(order, "TRIAGED", null,
+        journal.note(order, "TRIAGED", null,
                 "命中规则 " + result.ruleCode() + " v" + result.ruleVersion()
                         + " → " + result.category() + "/" + result.priority(),
                 ActorType.SYSTEM.name(), null);
@@ -297,106 +329,25 @@ public class WorkOrderService {
                 && OnlineState.OFFLINE.name().equals(cabinet.onlineState());
     }
 
-    /**
-     * 暂停 SLA：只停两个时限的前进，不改工单状态。暂停中取消两个到点任务，
-     * 恢复时按实际暂停时长把时限补回来——否则“等配件”停的一周会把 SLA 达成率吃掉。
-     */
-    @Transactional
-    public void pauseSla(Long workOrderId, Long operatorId) {
-        BizWorkOrder order = require(workOrderId);
-        if (!isOpen(order)) {
-            throw new BizException(ResultCode.BIZ_ERROR, "工单已关闭，不能暂停 SLA");
-        }
-        if (order.getSlaPausedAt() != null) {
-            return; // 重放友好：已暂停就不重复写
-        }
-        orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
-                .eq(BizWorkOrder::getId, workOrderId)
-                .isNull(BizWorkOrder::getSlaPausedAt)
-                .set(BizWorkOrder::getSlaPausedAt, LocalDateTime.now()));
-        cancelSla(order);
-        note(order, "SLA_PAUSED", operatorId, "SLA 已暂停（暂停时长不计入时限）");
-    }
-
-    /** 恢复 SLA：把暂停时长补回响应/解决时限，并重新登记到点任务。 */
-    @Transactional
-    public void resumeSla(Long workOrderId, Long operatorId) {
-        BizWorkOrder order = require(workOrderId);
-        if (order.getSlaPausedAt() == null) {
-            return;
-        }
-        LocalDateTime now = LocalDateTime.now();
-        long pausedMinutes = Math.max(0, Duration.between(order.getSlaPausedAt(), now).toMinutes());
-        LocalDateTime responseDue = order.getResponseDueAt() == null
-                ? null : order.getResponseDueAt().plusMinutes(pausedMinutes);
-        LocalDateTime resolveDue = order.getResolveDueAt() == null
-                ? null : order.getResolveDueAt().plusMinutes(pausedMinutes);
-        int accumulated = (order.getSlaPausedMinutes() == null ? 0 : order.getSlaPausedMinutes())
-                + (int) pausedMinutes;
-        orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
-                .eq(BizWorkOrder::getId, workOrderId)
-                .set(BizWorkOrder::getSlaPausedAt, null)
-                .set(BizWorkOrder::getSlaPausedMinutes, accumulated)
-                .set(BizWorkOrder::getResponseDueAt, responseDue)
-                .set(BizWorkOrder::getResolveDueAt, resolveDue)
-                .set(BizWorkOrder::getDueAt, resolveDue));
-        // 取消时任务落成 DONE，register 会把它当作新一轮重新排上。
-        order.setSlaPausedAt(null);
-        order.setResponseDueAt(responseDue);
-        order.setResolveDueAt(resolveDue);
-        scheduleSla(order);
-        note(order, "SLA_RESUMED", operatorId, "SLA 已恢复：暂停 " + pausedMinutes + " 分钟已补回时限");
-    }
-
-    private void scheduleSla(BizWorkOrder order) {
-        if (order == null || order.getId() == null || order.getTenantId() == null || !isOpen(order)) {
-            return;
-        }
-        String bizKey = String.valueOf(order.getId());
-        if (order.getFirstResponseAt() == null && order.getResponseDueAt() != null) {
-            scheduler().schedule(TaskType.WORK_ORDER_RESPONSE_SLA, bizKey,
-                    order.getTenantId(), order.getResponseDueAt());
-        }
-        if (order.getResolveDueAt() != null) {
-            scheduler().schedule(TaskType.WORK_ORDER_RESOLVE_SLA, bizKey,
-                    order.getTenantId(), order.getResolveDueAt());
-        }
-    }
-
-    private void cancelSla(BizWorkOrder order) {
-        String bizKey = String.valueOf(order.getId());
-        scheduler().cancel(TaskType.WORK_ORDER_RESPONSE_SLA, bizKey, order.getTenantId());
-        scheduler().cancel(TaskType.WORK_ORDER_RESOLVE_SLA, bizKey, order.getTenantId());
-    }
-
-    private com.wherelee.cabinet.application.task.DelayTaskService scheduler() {
-        return schedulerProvider.getObject();
-    }
-
-    private boolean isOpen(BizWorkOrder order) {
-        return order.getStatus() == WorkOrderStatus.PENDING || order.getStatus() == WorkOrderStatus.CLAIMED;
-    }
-
     /** 认领：抢不到就是别人已经接了，给业务异常而不静默成功。 */
     @Transactional
     public void claim(Long workOrderId, Long operatorId) {
         if (orders.claim(workOrderId, operatorId) == 0) {
-            BizWorkOrder now = require(workOrderId);
+            BizWorkOrder now = journal.require(workOrderId);
             if (now.getStatus() == WorkOrderStatus.CLAIMED && operatorId.equals(now.getAssigneeId())) {
                 return; // 重放友好：自己已经认领过，不报错也不重复写
             }
             throw new BizException(ResultCode.BIZ_ERROR,
                     "这张工单已被他人认领或已关闭，当前状态：" + now.getStatus());
         }
-        BizWorkOrder claimed = require(workOrderId);
+        BizWorkOrder claimed = journal.require(workOrderId);
         // 认领 = 响应：记录首次响应时刻，响应 SLA 任务同时取消（它已经完成使命）。
         orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
                 .eq(BizWorkOrder::getId, workOrderId)
                 .isNull(BizWorkOrder::getFirstResponseAt)
                 .set(BizWorkOrder::getFirstResponseAt, LocalDateTime.now()));
-        scheduler().cancel(TaskType.WORK_ORDER_RESPONSE_SLA, String.valueOf(workOrderId),
-                claimed.getTenantId());
-        note(claimed, "CLAIMED", operatorId, "已认领");
+        sla.cancelResponse(claimed);
+        journal.note(claimed, "CLAIMED", operatorId, "已认领");
     }
 
     /**
@@ -421,22 +372,22 @@ public class WorkOrderService {
         if (resultNote == null || resultNote.isBlank()) {
             throw new BizException(ResultCode.BIZ_ERROR, "处理结论必填：工单的价值就在“谁说了什么”");
         }
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         CloseReason closeReason = allowedCloseReason(order, requestedCloseReason);
         if (orders.resolve(workOrderId, resultNote, closeReason.name()) == 0) {
             throw new BizException(ResultCode.BIZ_ERROR, "这张工单已关闭，不能重复处理");
         }
-        cancelSla(order);
-        note(order, "RESOLVED", operatorId, resultNote + "（关闭依据：" + closeReason + "）");
+        sla.cancel(order);
+        journal.note(order, "RESOLVED", operatorId, resultNote + "（关闭依据：" + closeReason + "）");
         if (!needOffline) {
             return null;
         }
         // 同一格口同类型在 FIELD 队列只能有一张未关闭单（唯一索引）。
         // 超 72 小时系统可能已经自动派过一张线下单，此时再点“需线下”必须复用它，
         // 否则会撞 uk_work_order_open 把父单的处理结论一起回滚。
-        BizWorkOrder existingChild = findOpenInQueue(order.getKind(), order.getType(), order.getSlotId(), SIDE_FIELD);
+        BizWorkOrder existingChild = journal.findOpenInQueue(order.getKind(), order.getType(), order.getSlotId(), SIDE_FIELD);
         if (existingChild != null) {
-            note(existingChild, "DISPATCHED", operatorId, "复用已有线下工单，父单 id=" + order.getId());
+            journal.note(existingChild, "DISPATCHED", operatorId, "复用已有线下工单，父单 id=" + order.getId());
             return existingChild.getId();
         }
         BizWorkOrder child = new BizWorkOrder();
@@ -477,15 +428,15 @@ public class WorkOrderService {
             orders.insert(child);
         } catch (DuplicateKeyException raced) {
             // 与自动派单并发：别人先插成功，回读那张即可，父单已经 RESOLVED，不能因子单冲突回滚
-            BizWorkOrder won = findOpenInQueue(order.getKind(), order.getType(), order.getSlotId(), SIDE_FIELD);
+            BizWorkOrder won = journal.findOpenInQueue(order.getKind(), order.getType(), order.getSlotId(), SIDE_FIELD);
             if (won == null) {
                 throw new BizException(ResultCode.SYSTEM_ERROR,
                         "线下工单唯一索引冲突但找不到未关闭的那张，slotId=" + order.getSlotId());
             }
             return won.getId();
         }
-        note(child, "DISPATCHED", operatorId, "线上判断需线下运维，父单 id=" + order.getId());
-        scheduleSla(child);
+        journal.note(child, "DISPATCHED", operatorId, "线上判断需线下运维，父单 id=" + order.getId());
+        sla.schedule(child);
         log.warn("已派发线下工单 parent={} child={} urgent={}", order.getId(), child.getId(), child.getUrgent());
         return child.getId();
     }
@@ -506,8 +457,8 @@ public class WorkOrderService {
                     .orderByDesc(BizWorkOrder::getClosedAt)
                     .last("limit " + closed));
             for (BizWorkOrder o : list) {
-                cancelSla(o);
-                note(o, "AUTO_CLOSED", null, "异常事实已消失，工单自动转化留底（非人工结论）");
+                sla.cancel(o);
+                journal.note(o, "AUTO_CLOSED", null, "异常事实已消失，工单自动转化留底（非人工结论）");
                 // 自动关闭不是“有人处理了”，但用户和队列都必须知道这件事已经结束：
                 // 用户不知道就会重复报，队列不知道就会继续把它当待办。
                 String where = (o.getSlotNo() == null ? "格口" : "格口 " + o.getSlotNo())
@@ -572,16 +523,16 @@ public class WorkOrderService {
      */
     @Transactional
     public void confirmResolved(Long workOrderId, Long customerId, String note) {
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         if (customerId == null || !customerId.equals(order.getCustomerId())) {
             throw new BizException(ResultCode.FORBIDDEN, "这张工单不属于当前账号");
         }
-        String detail = note == null || note.isBlank() ? "" : "；用户备注：" + truncate(note.trim());
+        String detail = note == null || note.isBlank() ? "" : "；用户备注：" + journal.truncate(note.trim());
         if (orders.confirmResolved(workOrderId, customerId, detail) == 0) {
             throw new BizException(ResultCode.BIZ_ERROR, "这张工单已关闭，或不属于当前账号");
         }
-        cancelSla(order);
-        note(order, "USER_CONFIRMED", customerId, "用户确认问题已解决" + detail,
+        sla.cancel(order);
+        journal.note(order, "USER_CONFIRMED", customerId, "用户确认问题已解决" + detail,
                 ActorType.USER.name(), null);
     }
 
@@ -595,17 +546,17 @@ public class WorkOrderService {
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long reopen(Long workOrderId, Long customerId, String reason) {
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         if (customerId == null || !customerId.equals(order.getCustomerId())) {
             throw new BizException(ResultCode.FORBIDDEN, "这张工单不属于当前账号");
         }
-        String detail = reason == null || reason.isBlank() ? "用户反馈问题还没解决" : truncate(reason.trim());
+        String detail = reason == null || reason.isBlank() ? "用户反馈问题还没解决" : journal.truncate(reason.trim());
         try {
             if (orders.reopen(workOrderId, customerId, "；用户反馈：" + detail) == 0) {
                 throw new BizException(ResultCode.BIZ_ERROR, "只能重开本人已关闭的工单");
             }
         } catch (DuplicateKeyException conflict) {
-            BizWorkOrder target = findOpenInQueue(order.getKind(), order.getType(),
+            BizWorkOrder target = journal.findOpenInQueue(order.getKind(), order.getType(),
                     order.getSlotId(), order.getQueueSide());
             if (target == null) {
                 throw new BizException(ResultCode.SYSTEM_ERROR,
@@ -613,14 +564,14 @@ public class WorkOrderService {
             }
             orders.markMerged(workOrderId, target.getId(),
                     "；重开时已有同类未关闭工单，合并到 #" + target.getId());
-            note(target, "REOPENED", customerId,
+            journal.note(target, "REOPENED", customerId,
                     "用户反馈问题还没解决，原单 #" + workOrderId + " 已并入本单",
                     ActorType.USER.name(), null);
             return target.getId();
         }
-        BizWorkOrder reopened = require(workOrderId);
-        note(reopened, "REOPENED", customerId, detail, ActorType.USER.name(), null);
-        scheduleSla(reopened);
+        BizWorkOrder reopened = journal.require(workOrderId);
+        journal.note(reopened, "REOPENED", customerId, detail, ActorType.USER.name(), null);
+        sla.schedule(reopened);
         log.warn("用户重开工单 id={} customer={} reopenedCount={}",
                 workOrderId, customerId, reopened.getReopenedCount());
         return workOrderId;
@@ -639,7 +590,7 @@ public class WorkOrderService {
 
     /** 用户侧单张工单：只能看自己的，避免拿 id 猜别人的单。 */
     public CustomerView myOrder(Long workOrderId, Long customerId) {
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         if (customerId == null || !customerId.equals(order.getCustomerId())) {
             throw new BizException(ResultCode.FORBIDDEN, "这张工单不属于当前账号");
         }
@@ -661,8 +612,8 @@ public class WorkOrderService {
         if (resultNote == null || resultNote.isBlank()) {
             throw new BizException(ResultCode.BIZ_ERROR, "联系结果必填：联系上了/未接/约定多久处理");
         }
-        BizWorkOrder order = require(workOrderId);
-        note(order, "PHONE_CALLED", operatorId, truncate(resultNote));
+        BizWorkOrder order = journal.require(workOrderId);
+        journal.note(order, "PHONE_CALLED", operatorId, journal.truncate(resultNote));
     }
 
     /**
@@ -691,7 +642,7 @@ public class WorkOrderService {
      * 不让电话进模型上下文。
      */
     public View one(Long workOrderId) {
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         String parentNote = null;
         if (order.getParentId() != null) {
             BizWorkOrder parent = orders.selectById(order.getParentId());
@@ -706,7 +657,7 @@ public class WorkOrderService {
      }
      
      public Family family(Long workOrderId) {
-         BizWorkOrder order = require(workOrderId);
+         BizWorkOrder order = journal.require(workOrderId);
          View self = toView(order, null);
          View parent = order.getParentId() == null ? null : one(order.getParentId());
          List<View> children = orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
@@ -723,7 +674,7 @@ public class WorkOrderService {
      * 而不是拿别的格口/别的类型的单充数。结果按完结时刻倒序：最近的处理方式最值得参考。
      */
     public List<WorkOrderBriefPort.SimilarCase> similarResolved(Long workOrderId, int limit) {
-        BizWorkOrder order = require(workOrderId);
+        BizWorkOrder order = journal.require(workOrderId);
         int size = Math.min(Math.max(limit, 1), 5);
         return orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
                         .eq(BizWorkOrder::getType, order.getType())
@@ -749,81 +700,16 @@ public class WorkOrderService {
                 .toList();
     }
 
-    /**
-     * 记一次“被催办”（19D 阶梯）。返回 false 表示没有未关闭的对应工单（异常已收口）。
-     *
-     * <p>为什么不开一张 `biz_reminder` 表：提醒的语义就是“这张单又被催了一次”，
-     * 它本来就是工单事件流水里的一行；另建一张表只会多出一个要同步的真相。
-     * 真正的投递（站内消息、需打电话的任务）是另一件事，落在 `biz_notice` 上。
-     */
-    @Transactional
-    public boolean remind(Long slotId, WorkOrderType type, String detail) {
-        BizWorkOrder open = findOpen(type, slotId);
-        if (open == null) {
-            return false;
-        }
-        note(open, "REMINDER", null, detail);
-        return true;
-    }
-
-    /**
-     * 阶梯到点：升级为紧急并把处理时限拉到“就是现在”，同时产出两件可见的东西：
-     * 业务员一条“必须电话联系客户”的待办，客户一条站内消息。
-     *
-     * <p>去重键用“工单 ID + 档位”而不是“时刻”：阶梯每轮巡检都会重进这里，
-     * 用时刻做键就会每隔几分钟刷出一条一模一样的电话任务。
-     */
-    @Transactional
-    public boolean escalate(Long slotId, WorkOrderType type, String detail) {
-        if (orders.escalateBySlot(slotId, type.name()) == 0) {
-            return false;
-        }
-        BizWorkOrder open = findOpen(type, slotId);
-        if (open == null) {
-            return true;
-        }
-        note(open, "ESCALATED", null, detail);
-        String phone = readSnapshotString(open, "customerPhone");
-        String where = (open.getSlotNo() == null ? "格口" : "格口 " + open.getSlotNo())
-                + "（" + open.getTitle() + "）";
-        // 业务员侧待办：不假装系统自己打了电话，只把“必须联系”挂在队列里并要求回填结果
-        notices.emit(open.getTenantId(), com.wherelee.cabinet.notify.api.NoticePort.CHANNEL_PHONE,
-                type.name(), "WO" + open.getId() + ":PHONE",
-                "必须电话联系客户 " + (phone == null ? "（无电话记录）" : phone) + "：" + where + " — " + detail,
-                open.getCustomerId(), open.getId(), open.getOrderNo());
-        // 客户侧站内消息：没有推送，他自己打开小程序能看到也算提醒到了
-        notices.emit(open.getTenantId(), com.wherelee.cabinet.notify.api.NoticePort.CHANNEL_MESSAGE,
-                type.name(), "WO" + open.getId() + ":MSG",
-                "你的暂存柜" + where + " 需要处理：" + detail + "。请尽快关门或取走物品并结束订单。",
-                open.getCustomerId(), open.getId(), open.getOrderNo());
-        log.warn("工单升级紧急 slotId={} type={} {}", slotId, type, detail);
-        return true;
-    }
-
-    /**
-     * 这张单已催过几次。阶梯靠它判重：一轮巡检可能跑两次（租约过期被接管），
-     * 不数已发过多少就会在同一时刻重复发提醒。
-     */
-    public int remindedTimes(Long slotId, WorkOrderType type) {
-        BizWorkOrder open = findOpen(type, slotId);
-        if (open == null) {
-            return 0;
-        }
-        return Math.toIntExact(events.selectCount(Wrappers.<BizWorkOrderEvent>lambdaQuery()
-                .eq(BizWorkOrderEvent::getWorkOrderId, open.getId())
-                .eq(BizWorkOrderEvent::getEventType, "REMINDER")));
-    }
-
     /** 异常 → 工单映射所需的类型入口（阶梯升级时要升级同一类单）。 */
     public Long openIdOf(Long slotId, WorkOrderType type) {
-        BizWorkOrder open = findOpen(type, slotId);
+        BizWorkOrder open = journal.findOpen(type, slotId);
         return open == null ? null : open.getId();
     }
 
     /**
      * 按格口取当前绑定的活动单（阶梯里用来区分“订单中”与“结束后”的措辞）。 */
     public Long boundOrderId(Long slotId) {
-        BizWorkOrder open = findOpen(WorkOrderType.DOOR_NOT_CLOSED, slotId);
+        BizWorkOrder open = journal.findOpen(WorkOrderType.DOOR_NOT_CLOSED, slotId);
         return open == null ? null : open.getStorageId();
     }
 
@@ -838,12 +724,12 @@ public class WorkOrderService {
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Long openFieldTwin(Long parentWorkOrderId, String reason) {
-        BizWorkOrder parent = require(parentWorkOrderId);
+        BizWorkOrder parent = journal.require(parentWorkOrderId);
         // 父单自己就是 FIELD 单时不能再派一张“线下子单给自己”：同队列唯一索引会挡住
         if (SIDE_FIELD.equals(parent.getQueueSide())) {
             return parent.getId();
         }
-        BizWorkOrder existing = findOpenInQueue(parent.getKind(), parent.getType(), parent.getSlotId(), SIDE_FIELD);
+        BizWorkOrder existing = journal.findOpenInQueue(parent.getKind(), parent.getType(), parent.getSlotId(), SIDE_FIELD);
         if (existing != null) {
             return existing.getId();
         }
@@ -881,11 +767,11 @@ public class WorkOrderService {
         try {
             orders.insert(child);
         } catch (DuplicateKeyException raced) {
-            BizWorkOrder won = findOpenInQueue(parent.getKind(), parent.getType(), parent.getSlotId(), SIDE_FIELD);
+            BizWorkOrder won = journal.findOpenInQueue(parent.getKind(), parent.getType(), parent.getSlotId(), SIDE_FIELD);
             return won == null ? child.getId() : won.getId();
         }
-        note(child, "DISPATCHED", null, reason + "（系统按时间阈值自动派发）");
-        scheduleSla(child);
+        journal.note(child, "DISPATCHED", null, reason + "（系统按时间阈值自动派发）");
+        sla.schedule(child);
         log.warn("自动派发线下工单 parent={} child={} {}", parent.getId(), child.getId(), reason);
         return child.getId();
     }
@@ -898,56 +784,10 @@ public class WorkOrderService {
      */
     @Transactional
     public void noteStep(Long slotId, WorkOrderType type, String eventType, String detail) {
-        BizWorkOrder open = findOpen(type, slotId);
+        BizWorkOrder open = journal.findOpen(type, slotId);
         if (open != null) {
-            note(open, eventType, null, detail);
+            journal.note(open, eventType, null, detail);
         }
-    }
-
-    private BizWorkOrder findOpenInQueue(WorkOrderType type, Long slotId, String queueSide) {
-        return findOpenInQueue(WorkOrderKind.INCIDENT, type, slotId, queueSide);
-    }
-
-    /** 同 kind + type + slot + queue 的未关闭单；type 为空时按 IS NULL 查。 */
-    private BizWorkOrder findOpenInQueue(WorkOrderKind kind, WorkOrderType type, Long slotId, String queueSide) {
-        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<BizWorkOrder> query =
-                Wrappers.<BizWorkOrder>lambdaQuery()
-                        .eq(BizWorkOrder::getKind, kindOf(kind))
-                        .eq(BizWorkOrder::getSlotId, slotId)
-                        .eq(BizWorkOrder::getQueueSide, queueSide)
-                        .eq(BizWorkOrder::getActiveFlag, 1);
-        if (type == null) {
-            query.isNull(BizWorkOrder::getType);
-        } else {
-            query.eq(BizWorkOrder::getType, type);
-        }
-        return orders.selectOne(query);
-    }
-
-    /**
-     * 当前未关闭的<b>线上</b>工单。
-     *
-     * <p>必须带 queue_side：V18 允许同一格口同类型同时存在 ONLINE 父单与 FIELD 子单，
-     * 只按 slot+type 查会 selectOne 到两条并抛异常，把提醒、升级、阶梯全部打断。
-     * 这七处调用说的都是“线上那件事”，线下子单由 {@link #findOpenInQueue} 单独处理。
-     */
-    private BizWorkOrder findOpen(WorkOrderKind kind, WorkOrderType type, Long slotId) {
-        if (type == null || slotId == null) {
-            return null;
-        }
-        return findOpenInQueue(kind, type, slotId, SIDE_ONLINE);
-    }
-
-    private BizWorkOrder findOpen(WorkOrderType type, Long slotId) {
-        return findOpen(WorkOrderKind.INCIDENT, type, slotId);
-    }
-
-    private BizWorkOrder require(Long id) {
-        BizWorkOrder order = orders.selectById(id);
-        if (order == null) {
-            throw new BizException(ResultCode.BIZ_ERROR, "工单不存在：" + id);
-        }
-        return order;
     }
 
     private WorkOrderKind kindOf(WorkOrderKind kind) {
@@ -968,30 +808,6 @@ public class WorkOrderService {
             case USER -> ActorType.USER.name();
             case DEVICE, SYSTEM -> ActorType.SYSTEM.name();
         };
-    }
-
-    private void note(BizWorkOrder order, String eventType, Long operatorId, String detail) {
-        note(order, eventType, operatorId, detail,
-                operatorId == null ? ActorType.SYSTEM.name() : ActorType.OPERATOR.name(), null);
-    }
-
-    /** 显式指定 actorType/traceId 的留痕：AI 动作不能混进人工或系统动作。 */
-    private void note(BizWorkOrder order, String eventType, Long operatorId, String detail,
-                      String actorType, String traceId) {
-        BizWorkOrderEvent event = new BizWorkOrderEvent();
-        event.setTenantId(order.getTenantId());
-        event.setWorkOrderId(order.getId());
-        event.setEventType(eventType);
-        event.setActorType(actorType == null ? ActorType.SYSTEM.name() : actorType);
-        event.setOperatorId(operatorId);
-        event.setTraceId(traceId);
-        event.setDetail(detail == null ? eventType : truncate(detail));
-        event.setCreateTime(LocalDateTime.now());
-        events.insert(event);
-    }
-
-    private String truncate(String text) {
-        return text.length() <= 500 ? text : text.substring(0, 497) + "...";
     }
 
     /** 快照里放业务员判断性质需要的东西：位置、编号、时间、用户电话、检测值。 */
@@ -1024,8 +840,8 @@ public class WorkOrderService {
                 o.getCategory() == null ? null : o.getCategory().name(),
                 o.getPriority() == null ? null : o.getPriority().name(),
                 o.getCloseReason() == null ? null : o.getCloseReason().name(),
-                o.getResultNote(), o.getSlotNo(), readSnapshotString(o, "cabinetNo"),
-                readSnapshotString(o, "siteAddress"), o.getResponseDueAt(), o.getResolveDueAt(),
+                o.getResultNote(), o.getSlotNo(), journal.readSnapshot(o, "cabinetNo"),
+                journal.readSnapshot(o, "siteAddress"), o.getResponseDueAt(), o.getResolveDueAt(),
                 o.getClosedAt(), o.getCreateTime(), o.getMergedIntoId(),
                 o.getReopenedCount() == null ? 0 : o.getReopenedCount());
     }
@@ -1044,9 +860,9 @@ public class WorkOrderService {
                 o.getUrgency() == null ? null : o.getUrgency().name(),
                 Boolean.TRUE.equals(o.getUrgent()),
                 o.getStatus().name(), o.getQueueSide(), o.getAssigneeGroup(), o.getSlotNo(),
-                readSnapshotString(o, "cabinetNo"), readSnapshotString(o, "siteAddress"), o.getOrderNo(),
-                readSnapshotString(o, "customerPhone"), o.getTitle(),
-                readSnapshotString(o, "detection"), o.getResultNote(),
+                journal.readSnapshot(o, "cabinetNo"), journal.readSnapshot(o, "siteAddress"), o.getOrderNo(),
+                journal.readSnapshot(o, "customerPhone"), o.getTitle(),
+                journal.readSnapshot(o, "detection"), o.getResultNote(),
                 o.getCloseReason() == null ? null : o.getCloseReason().name(),
                 o.getAssigneeId(), o.getParentId(), parentResultNote,
                 o.getDueAt(), o.getResponseDueAt(), o.getResolveDueAt(), o.getFirstResponseAt(),
@@ -1054,32 +870,4 @@ public class WorkOrderService {
                 o.getReopenedCount() == null ? 0 : o.getReopenedCount());
     }
 
-    /**
-     * 从快照 JSON 取一个字符串字段（电话、柜机编号、点位地址、检测值都走它）。
-     *
-     * <p>这些值只从快照取、不回查业务表：这张单要反映“开单当时看到的是什么”，
-     * 用户改绑手机号、点位改了名之后，快照不能跟着变。
-     *
-     * <p><b>不能按 {@code "key":"} 拼精确位置</b>：MySQL 的 JSON 列存进去会被重排成
-     * {@code "key": "..."}（冒号后多一个空格），按无空格的模式找就会永远返回 null。
-     * 这个坑我在定价快照断言上已经踩过一次，这次是踩在生产代码里。
-     * 所以改成：定位键名 → 找第一个冒号 → 取冒号后第一个引号里的内容。
-     */
-    private String readSnapshotString(BizWorkOrder o, String key) {
-        String json = o.getSnapshotJson();
-        if (json == null) {
-            return null;
-        }
-        int keyAt = json.indexOf(key);
-        if (keyAt < 0) {
-            return null;
-        }
-        int colon = json.indexOf(':', keyAt);
-        int from = json.indexOf('"', colon + 1);
-        if (colon < 0 || from < 0) {
-            return null;
-        }
-        int to = json.indexOf('"', from + 1);
-        return to < 0 ? null : json.substring(from + 1, to);
-    }
 }
