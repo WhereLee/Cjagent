@@ -197,6 +197,23 @@ class WorkOrderSlaTest {
     }
 
     @Test
+    @DisplayName("先普通暂停再标记等待用户：只补记原因，不重复暂停")
+    void markWaitingWhileAlreadyPaused() {
+        Long id = openRequest(WorkOrderType.DEVICE_FAULT, WorkOrderPriority.P2,
+                LocalDateTime.now().plusMinutes(30), LocalDateTime.now().plusMinutes(480));
+        TenantContext.runAs(TENANT, () -> workOrders.pauseSla(id, OPERATOR));
+        LocalDateTime firstPausedAt = jdbc.queryForObject(
+                "select sla_paused_at from biz_work_order where id = ?", LocalDateTime.class, id);
+
+        TenantContext.runAs(TENANT, () -> workOrders.pauseSla(id, OPERATOR, SlaPauseReason.WAITING_CUSTOMER));
+        assertEquals("WAITING_CUSTOMER", jdbc.queryForObject(
+                "select sla_pause_reason from biz_work_order where id = ?", String.class, id));
+        assertEquals(firstPausedAt, jdbc.queryForObject(
+                "select sla_paused_at from biz_work_order where id = ?", LocalDateTime.class, id),
+                "已暂停时不能再写一次起点");
+    }
+
+    @Test
     @DisplayName("队列按优先级排序：整柜离线（P1）排在单格门打不开（P2）前面")
     void queueOrdersByPriority() {
         Long p2 = openRequest(WorkOrderType.DEVICE_FAULT, WorkOrderPriority.P2,

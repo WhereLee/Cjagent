@@ -70,7 +70,14 @@ public class WorkOrderSlaService {
             throw new BizException(ResultCode.BIZ_ERROR, "工单已关闭，不能暂停 SLA");
         }
         if (order.getSlaPausedAt() != null) {
-            return; // 重放友好：已暂停就不重复写
+            // 已暂停时再标记“等待用户”：只补记原因，不重复动时限（重放友好）
+            if (reason != null && !reason.name().equals(order.getSlaPauseReason())) {
+                orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
+                        .eq(BizWorkOrder::getId, workOrderId)
+                        .set(BizWorkOrder::getSlaPauseReason, reason.name()));
+                journal.note(order, "SLA_PAUSE_REASON", operatorId, "暂停原因更新为等待用户");
+            }
+            return;
         }
         orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
                 .eq(BizWorkOrder::getId, workOrderId)
