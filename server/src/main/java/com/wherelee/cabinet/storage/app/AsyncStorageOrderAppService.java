@@ -50,7 +50,7 @@ import java.util.concurrent.ThreadLocalRandom;
  * </ul>
  */
 @Service
-public class AsyncStorageOrderAppService {
+public class AsyncStorageOrderAppService implements com.wherelee.cabinet.storage.api.OrderPersistPort {
 
     private static final Logger log = LoggerFactory.getLogger(AsyncStorageOrderAppService.class);
 
@@ -138,6 +138,11 @@ public class AsyncStorageOrderAppService {
      * <p><b>信任边界要写清</b>：tenant_id 来自消息体，意味着“谁能往这个 topic 写”就是谁能以哪个租户身份落库。
      * 本项目的 topic 只由服务自己产生，且 broker 不得对外网开放（第 16 刀的 ACL/ TLS 负这个责）。
      */
+    @Override
+    public void persist(OrderPersistMessage message) {
+        persistFromMessage(message);
+    }
+
     public void persistFromMessage(OrderPersistMessage message) {
         String previousTrace = MDC.get("traceId");
         if (message.traceId() != null) {
@@ -269,6 +274,7 @@ public class AsyncStorageOrderAppService {
      * 所以“门开着”或“有遗留物”的格口一旦进了集合，就会被真的分给用户——
      * 这是预扣设计下<b>唯一能造成卖错</b>的地方（其他策略都会在条件 UPDATE 上被拦下）。
      */
+    @Override
     public void syncFreeSets(Long cabinetId) {
         for (SizeType size : SizeType.values()) {
             slotHold.syncFreeSet(cabinetId, size);

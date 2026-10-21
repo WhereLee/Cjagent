@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mq;
 
-import com.wherelee.cabinet.storage.app.AsyncStorageOrderAppService;
+import com.wherelee.cabinet.storage.api.OrderPersistPort;
 import com.wherelee.cabinet.storage.api.OrderPersistMessage;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
@@ -27,9 +27,9 @@ public class OrderPersistListener implements RocketMQListener<OrderPersistMessag
 
     private static final Logger log = LoggerFactory.getLogger(OrderPersistListener.class);
 
-    private final AsyncStorageOrderAppService storageOrderAppService;
+    private final OrderPersistPort storageOrderAppService;
 
-    public OrderPersistListener(AsyncStorageOrderAppService storageOrderAppService) {
+    public OrderPersistListener(OrderPersistPort storageOrderAppService) {
         this.storageOrderAppService = storageOrderAppService;
     }
 
@@ -41,6 +41,6 @@ public class OrderPersistListener implements RocketMQListener<OrderPersistMessag
             return;
         }
         log.info("收到落库消息 orderNo={} slotId={}", message.orderNo(), message.slotId());
-        storageOrderAppService.persistFromMessage(message);
+        storageOrderAppService.persist(message);
     }
 }

@@ -10,4 +10,3 @@ bff.mini->identity:app
 bff.mini->locker:app
 bff.mini->servicedesk:app
 bff.mini->storage:app
-bff.mq->storage:app
