@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.storage;
 
-import com.wherelee.cabinet.locker.app.CabinetAvailabilityService;
+import com.wherelee.cabinet.locker.api.CabinetAvailabilityPort;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.platform.security.Caller;
@@ -33,9 +33,9 @@ import java.util.List;
 @RequestMapping("/api/mini/storage/cabinets")
 public class MiniHelperCloseController {
 
-    private final CabinetAvailabilityService cabinets;
+    private final CabinetAvailabilityPort cabinets;
 
-    public MiniHelperCloseController(CabinetAvailabilityService cabinets) {
+    public MiniHelperCloseController(CabinetAvailabilityPort cabinets) {
         this.cabinets = cabinets;
     }
 
@@ -43,7 +43,7 @@ public class MiniHelperCloseController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/{cabinetNo}/closable-slots")
-    public R<List<CabinetAvailabilityService.ClosableView>> closable(
+    public R<List<CabinetAvailabilityPort.ClosableView>> closable(
             @PathVariable @NotBlank @Size(max = 32) String cabinetNo) {
         return R.ok(cabinets.closableSlots(cabinetNo));
     }

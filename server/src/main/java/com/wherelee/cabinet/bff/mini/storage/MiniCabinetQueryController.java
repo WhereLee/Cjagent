@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.storage;
 
-import com.wherelee.cabinet.locker.app.CabinetAvailabilityService;
+import com.wherelee.cabinet.locker.api.CabinetAvailabilityPort;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,9 +28,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/mini/storage/cabinets")
 public class MiniCabinetQueryController {
 
-    private final CabinetAvailabilityService availability;
+    private final CabinetAvailabilityPort availability;
 
-    public MiniCabinetQueryController(CabinetAvailabilityService availability) {
+    public MiniCabinetQueryController(CabinetAvailabilityPort availability) {
         this.availability = availability;
     }
 
@@ -39,7 +39,7 @@ public class MiniCabinetQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/{cabinetNo}/availability")
-    public R<CabinetAvailabilityService.Availability> availability(
+    public R<CabinetAvailabilityPort.Availability> availability(
             @PathVariable @NotBlank @Size(max = 32) String cabinetNo) {
         return R.ok(availability.of(cabinetNo));
     }

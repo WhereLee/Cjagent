@@ -5,6 +5,7 @@ import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.locker.domain.BizCabinet;
 import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.locker.api.CabinetAvailabilityPort;
 import com.wherelee.cabinet.locker.api.SizeType;
 import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
 import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
@@ -26,7 +27,7 @@ import java.util.List;
  * 一台柜机的格口全部异常时，这里三个尺寸都是 0，用户在屏幕上看到的就不是“还能去”。
  */
 @Service
-public class CabinetAvailabilityService {
+public class CabinetAvailabilityService implements com.wherelee.cabinet.locker.api.CabinetAvailabilityPort {
 
     private final BizCabinetMapper cabinetMapper;
     private final BizCompartmentMapper slotMapper;
@@ -37,13 +38,6 @@ public class CabinetAvailabilityService {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.states = states;
-    }
-
-    /**
-     * 可代关清单（按柜机编号）。<b>对外一律用编号，不泄内部 ID</b>：
-     * 内部 ID 一旦落到客户端，就会有人拿它去猜别的接口入参（这条约定本接口自己先违反了）。
-     */
-    public record ClosableView(String cabinetNo, String slotNo, String sizeType) {
     }
 
     public List<ClosableView> closableSlots(String cabinetNo) {
@@ -72,14 +66,6 @@ public class CabinetAvailabilityService {
             throw new BizException(ResultCode.DATA_NOT_FOUND, "暂存柜不存在：" + cabinetNo);
         }
         return cabinet;
-    }
-
-    /** 一个尺寸的剩余正常格口数。 */
-    public record SizeFree(String sizeType, long free) {
-    }
-
-    /** 一台暂存柜的剩余情况：只给编号，不给内部 ID（接口层不回实体）。 */
-    public record Availability(String cabinetNo, List<SizeFree> sizes) {
     }
 
     public Availability of(String cabinetNo) {

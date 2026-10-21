@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.admin.locker;
 
-import com.wherelee.cabinet.locker.app.LockerConsoleService;
+import com.wherelee.cabinet.locker.api.LockerConsolePort;
 import com.wherelee.cabinet.storage.api.OrderPersistPort;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
@@ -44,12 +44,12 @@ import java.util.List;
 @Validated
 public class AdminLockerController {
 
-    private final LockerConsoleService console;
+    private final LockerConsolePort console;
     private final OrderPersistPort asyncOrders;
     /** 客户禁用/启用是身份的事：控制器只转发，不在柜机服务里改客户表。 */
     private final com.wherelee.cabinet.identity.api.CustomerAdminPort customers;
 
-    public AdminLockerController(LockerConsoleService console, OrderPersistPort asyncOrders,
+    public AdminLockerController(LockerConsolePort console, OrderPersistPort asyncOrders,
                                  com.wherelee.cabinet.identity.api.CustomerAdminPort customers) {
         this.console = console;
         this.asyncOrders = asyncOrders;
@@ -61,7 +61,7 @@ public class AdminLockerController {
     @Operation(summary = "异常格口台账", description = "默认按判定时刻升序（卡最久的在前）；可按原因码与点位过滤")
     @PreAuthorize("hasAuthority('locker:ledger:list')")
     @GetMapping("/compartments/anomalies")
-    public R<PageResult<LockerConsoleService.LedgerView>> anomalies(@Valid PageQuery query,
+    public R<PageResult<LockerConsolePort.LedgerView>> anomalies(@Valid PageQuery query,
                                                                      @RequestParam(required = false)
                                                                      @Size(max = 24) String anomaly,
                                                                      @RequestParam(required = false) Long siteId) {
@@ -71,7 +71,7 @@ public class AdminLockerController {
     @Operation(summary = "异常积压概览", description = "按原因码给出条数与最长停留分钟，排班看这个数")
     @PreAuthorize("hasAuthority('locker:ledger:list')")
     @GetMapping("/compartments/anomalies/summary")
-    public R<List<LockerConsoleService.SummaryView>> anomalySummary(
+    public R<List<LockerConsolePort.SummaryView>> anomalySummary(
             @RequestParam(required = false) Long siteId) {
         return R.ok(console.anomalySummary(siteId));
     }
@@ -79,21 +79,21 @@ public class AdminLockerController {
     @Operation(summary = "格口详情", description = "现状 + 证据时间线 + 当前占用的单")
     @PreAuthorize("hasAuthority('locker:ledger:list')")
     @GetMapping("/compartments/{compartmentId}")
-    public R<LockerConsoleService.Detail> detail(@PathVariable Long compartmentId) {
+    public R<LockerConsolePort.Detail> detail(@PathVariable Long compartmentId) {
         return R.ok(console.compartmentDetail(compartmentId));
     }
 
     @Operation(summary = "未退押金清单", description = "只列订单已终态而押金凭证仍未退还的（在线单挂着押金是正常态）")
     @PreAuthorize("hasAuthority('locker:deposit:unrefunded-list')")
     @GetMapping("/deposits/unrefunded")
-    public R<PageResult<LockerConsoleService.DepositView>> unrefunded(@Valid PageQuery query) {
+    public R<PageResult<LockerConsolePort.DepositView>> unrefunded(@Valid PageQuery query) {
         return R.ok(console.unrefundedDeposits(query));
     }
 
     @Operation(summary = "欠费客户清单", description = "按客户汇总未缴点数，降序")
     @PreAuthorize("hasAuthority('locker:arrears:list')")
     @GetMapping("/arrears")
-    public R<PageResult<LockerConsoleService.ArrearsView>> arrears(@Valid PageQuery query) {
+    public R<PageResult<LockerConsolePort.ArrearsView>> arrears(@Valid PageQuery query) {
         return R.ok(console.arrears(query));
     }
 

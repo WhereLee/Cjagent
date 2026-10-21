@@ -47,7 +47,7 @@ import java.util.Set;
  * 两层各管一件事，才不会漏出"只有绕过 HTTP 直调 service 才能免单"的口子。
  */
 @Service
-public class LockerConsoleService {
+public class LockerConsoleService implements com.wherelee.cabinet.locker.api.LockerConsolePort {
 
     private static final Logger log = LoggerFactory.getLogger(LockerConsoleService.class);
 
@@ -82,7 +82,7 @@ public class LockerConsoleService {
     public PageResult<LedgerView> anomalies(PageQuery query, String anomaly, Long siteId) {
         com.baomidou.mybatisplus.extension.plugins.pagination.Page<BizLockerConsoleMapper.LedgerRow> page =
                 PageSupport.toPage(query, LEDGER_SORTABLE);
-        return PageSupport.toResult(consoleMapper.pageAnomalies(page, anomaly, siteId), LedgerView::from);
+        return PageSupport.toResult(consoleMapper.pageAnomalies(page, anomaly, siteId), this::toLedger);
     }
 
     /** 按原因码的积压概览（后台顶部那一排数字）。 */
@@ -196,37 +196,11 @@ public class LockerConsoleService {
     // 原来四道前置里的三条（独立权限点、已终态不可重复、全程审计）仍然是通用做法，
     // 下一切后台动钱的动作都得照它们办。
 
-    /** 格口详情出参。 */
-    public record Detail(BizCompartment compartment, List<EvidenceSnapshot> evidence, OrderSnapshot currentOrder) {
+    private LedgerView toLedger(BizLockerConsoleMapper.LedgerRow row) {
+        return new LedgerView(row.getId(), row.getCabinetId(), row.getCabinetNo(), row.getSlotNo(),
+                row.getAnomaly() == null ? null : row.getAnomaly().name(),
+                row.getAnomalyAt(), row.getStuckMinutes(), row.getAnomalyReason(),
+                row.getSiteId(), row.getSiteName(), row.getCurrentOrderId());
     }
 
-    /**
-     * 台账行视图。<b>接口层不得直接用 mapper 的行对象</b>（ArchUnit 有这条规则，今天就是它拦下来的）：
-     * 行对象跟着 SQL 列变，一变就把 SQL 细节透给了前端契约。
-     */
-    public record LedgerView(Long compartmentId, Long cabinetId, String cabinetNo, String slotNo, String anomaly,
-                             LocalDateTime anomalyAt, Long stuckMinutes, String anomalyReason,
-                             Long siteId, String siteName, Long currentOrderId) {
-
-        static LedgerView from(BizLockerConsoleMapper.LedgerRow row) {
-            return new LedgerView(row.getId(), row.getCabinetId(), row.getCabinetNo(), row.getSlotNo(),
-                    row.getAnomaly() == null ? null : row.getAnomaly().name(),
-                    row.getAnomalyAt(), row.getStuckMinutes(), row.getAnomalyReason(),
-                    row.getSiteId(), row.getSiteName(), row.getCurrentOrderId());
-        }
-    }
-
-    /** 积压概览行。 */
-    public record SummaryView(String anomaly, long rowsCount, long longestMinutes) {
-    }
-
-    /** 未退押金行。 */
-    public record DepositView(Long depositId, String orderNo, Long customerId, Long points,
-                              String depositStatus, Long heldHours) {
-    }
-
-    /** 欠费客户行。 */
-    public record ArrearsView(Long customerId, Long arrearsPoints, int arrearsOrders,
-                              LocalDateTime lastFinishedAt) {
-    }
 }
