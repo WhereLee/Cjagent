@@ -1,6 +1,5 @@
 package com.wherelee.cabinet.storage.app;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
-import com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;

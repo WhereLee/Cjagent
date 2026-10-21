@@ -23,6 +23,19 @@ import java.util.List;
 public interface BizStorageOrderMapper extends BaseMapper<BizStorageOrder> {
 
     /**
+     * 某客户全部欠费合计（下单拦截与钱包展示共用这一个口径）。
+     *
+     * <p>coalesce 包在聚合上而不是包在列上：把 {@code coalesce(arrears_points,0)} 写进 where
+     * 会让索引失效，这里只对外层结果取 0。
+     */
+    @Select("""
+            select coalesce(sum(o.arrears_points), 0)
+              from biz_storage_order o
+             where o.deleted = 0 and o.customer_id = #{customerId} and o.arrears_points > 0
+            """)
+    long sumCustomerArrears(@Param("customerId") Long customerId);
+
+    /**
      * 按取件码找一张还活着的单（定-25 的双因子入口专用）。
      *
      * <p>{@code @InterceptorIgnore(tenantLine)}：这个端点匿名可达，请求里本来就没有租户，

@@ -65,7 +65,7 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort;
     // 柜内物品争议与“误报免除”已于 2026-10-12 作废（用户定：结束不拦人后“争议期间”不存在）。
     /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
-    private final com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper;
+    private final com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper arrearsMapper;
     /** 取件凭据的站内消息（第 25 刀）：下单发一条，重置改写同一条。 */
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
     /**
@@ -128,7 +128,7 @@ public class StorageOrderService {
                                com.wherelee.cabinet.device.api.CommandPort deviceCommands,
                                com.wherelee.cabinet.storage.api.FundPort funds,
                                SlotPort states,
-                               com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper,
+                               com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper arrearsMapper,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
                                com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort,
@@ -143,7 +143,7 @@ public class StorageOrderService {
         this.states = states;
         this.workOrderPort = workOrderPort;
         this.notices = notices;
-        this.consoleMapper = consoleMapper;
+        this.arrearsMapper = arrearsMapper;
         this.newTx = new org.springframework.transaction.support.TransactionTemplate(
                 txTemplate.getTransactionManager());
         this.newTx.setPropagationBehavior(
@@ -168,7 +168,7 @@ public class StorageOrderService {
         // 拦下一环始终没落，所以始终“欠着钱还能一直下单”）。它不靠前端置灰：
         // 那只是个提示，绕过一个 POST 就能白用。
         // 取件仍绝不拦（欠的是债不是留置权），只拦住“新用户服务”这个入口。
-        long owing = consoleMapper.sumCustomerArrears(customerId);
+        long owing = arrearsMapper.sumCustomerArrears(customerId);
         if (owing > 0L) {
             throw new BizException(ResultCode.BIZ_ERROR,
                     "您有未缴清的费用（" + owing + " 点），请先在点数页补缴后再下单");
