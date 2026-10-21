@@ -158,6 +158,9 @@ class ModuleBoundaryTest {
         if ("interfaces".equals(head) && parts.length > 1) {
             return new Module("bff." + parts[1], "");
         }
+        if ("bff".equals(head) && parts.length > 1) {
+            return new Module("bff." + parts[1], "");
+        }
         if (SERVICES.contains(head)) {
             String layer = parts.length > 1 && LAYERS.contains(parts[1]) ? parts[1] : "";
             return new Module(head, layer);
