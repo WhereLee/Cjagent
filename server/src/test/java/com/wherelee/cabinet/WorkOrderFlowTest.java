@@ -19,7 +19,7 @@ import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderStatus;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.interfaces.admin.workorder.AdminWorkOrderController;
+import com.wherelee.cabinet.bff.admin.workorder.AdminWorkOrderController;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

@@ -35,7 +35,7 @@ import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.device.infra.BizItemEvidenceMapper;
 import com.wherelee.cabinet.locker.infra.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.interfaces.admin.locker.AdminLockerController;
+import com.wherelee.cabinet.bff.admin.locker.AdminLockerController;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

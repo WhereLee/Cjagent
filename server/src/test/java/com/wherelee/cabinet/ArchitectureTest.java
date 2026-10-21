@@ -31,7 +31,7 @@ class ArchitectureTest {
     void domainIsPure() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".domain..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        ROOT + ".interfaces..", ROOT + ".application..",
+                        ROOT + ".bff..", ROOT + ".application..",
                         ROOT + ".infrastructure..", ROOT + ".app..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -41,7 +41,7 @@ class ArchitectureTest {
     void commonDependsOnNothingButItself() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".common..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        ROOT + ".platform..", ROOT + ".app..", ROOT + ".interfaces..",
+                        ROOT + ".platform..", ROOT + ".app..", ROOT + ".bff..",
                         ROOT + ".application..", ROOT + ".infrastructure..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -49,7 +49,7 @@ class ArchitectureTest {
     @Test
     @DisplayName("接口层不得依赖基础设施层：控制器只认平台层的 Caller 与视图")
     void interfacesDoNotTouchInfrastructure() {
-        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".bff..")
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".infrastructure..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -59,7 +59,7 @@ class ArchitectureTest {
     void commonStaysGeneric() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".common..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        ROOT + ".interfaces..", ROOT + ".application..", ROOT + ".infrastructure..");
+                        ROOT + ".bff..", ROOT + ".application..", ROOT + ".infrastructure..");
         rule.check(PRODUCTION_CLASSES);
     }
 
@@ -67,14 +67,14 @@ class ArchitectureTest {
     @DisplayName("infrastructure 不反向依赖接口层")
     void infrastructureDoesNotDependOnInterfaces() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".infrastructure..")
-                .should().dependOnClassesThat().resideInAnyPackage(ROOT + ".interfaces..");
+                .should().dependOnClassesThat().resideInAnyPackage(ROOT + ".bff..");
         rule.check(PRODUCTION_CLASSES);
     }
 
     @Test
     @DisplayName("Controller 不得直接注入 Mapper（必须经 application 编排）")
     void controllersDoNotTouchMappers() {
-        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".bff..")
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".infrastructure.mapper..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -82,10 +82,10 @@ class ArchitectureTest {
     @Test
     @DisplayName("后台与用户端互不依赖：两端凭证与语义不得混用")
     void endsAreIsolated() {
-        ArchRule adminNotDependMini = noClasses().that().resideInAPackage(ROOT + ".interfaces.admin..")
-                .should().dependOnClassesThat().resideInAPackage(ROOT + ".interfaces.mini..");
-        ArchRule miniNotDependAdmin = noClasses().that().resideInAPackage(ROOT + ".interfaces.mini..")
-                .should().dependOnClassesThat().resideInAPackage(ROOT + ".interfaces.admin..");
+        ArchRule adminNotDependMini = noClasses().that().resideInAPackage(ROOT + ".bff.admin..")
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".bff.mini..");
+        ArchRule miniNotDependAdmin = noClasses().that().resideInAPackage(ROOT + ".bff.mini..")
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".bff.admin..");
         adminNotDependMini.check(PRODUCTION_CLASSES);
         miniNotDependAdmin.check(PRODUCTION_CLASSES);
     }
@@ -94,7 +94,7 @@ class ArchitectureTest {
     @DisplayName("技术细节不外泄：entity 的持久化注解只允许出现在 domain/infrastructure")
     void mybatisAnnotationsStayInPersistenceLayers() {
         // 防止 Mapper/PO 直接当接口出参：那样一改表结构就击穿到接口契约
-        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".bff..")
                 .should().dependOnClassesThat().resideInAPackage("com.baomidou.mybatisplus.core.mapper..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -110,7 +110,7 @@ class ArchitectureTest {
     @Test
     @DisplayName("接口层不得直接使 MyBatis-Plus 分页对象（必须走 PageQuery/PageSupport）")
     void interfacesMustUsePageContract() {
-        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".bff..")
                 .should().dependOnClassesThat()
                 .resideInAPackage("com.baomidou.mybatisplus.extension.plugins.pagination..");
         rule.check(PRODUCTION_CLASSES);
@@ -121,7 +121,7 @@ class ArchitectureTest {
     void entitiesMustNotLeakToInterfaces() {
         // 起因：/api/mini/auth/me 直接返回了 SysRider，把 openId/unionId/deleted 下发给客户端。
         // 实体一旦当响应用，前端就会“顺手用起来”，以后改名或拆字段就是破契约
-        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".interfaces..")
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".bff..")
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".domain.entity..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -130,7 +130,7 @@ class ArchitectureTest {
     @DisplayName("application 不得反向依赖接口层（视图归 application）")
     void applicationDoesNotDependOnInterfaces() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".application..")
-                .should().dependOnClassesThat().resideInAPackage(ROOT + ".interfaces..");
+                .should().dependOnClassesThat().resideInAPackage(ROOT + ".bff..");
         rule.check(PRODUCTION_CLASSES);
     }
 
@@ -141,7 +141,7 @@ class ArchitectureTest {
         // 哪天换 LangChain4j 或自写循环，改的只是 infrastructure.ai 一个包
         ArchRule rule = noClasses().that().resideInAnyPackage(
                         ROOT + ".domain..", ROOT + ".application..",
-                        ROOT + ".interfaces..", ROOT + ".common..")
+                        ROOT + ".bff..", ROOT + ".common..")
                 .should().dependOnClassesThat().resideInAnyPackage("org.springframework.ai..");
         rule.check(PRODUCTION_CLASSES);
     }

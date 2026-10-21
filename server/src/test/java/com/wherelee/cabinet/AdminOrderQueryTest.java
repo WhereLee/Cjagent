@@ -6,7 +6,7 @@ import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.interfaces.admin.order.AdminOrderController;
+import com.wherelee.cabinet.bff.admin.order.AdminOrderController;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
