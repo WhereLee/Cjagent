@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
  * <p>JSON 只存不查（列表查询不解析它），所以字段变更不需要迁移；展示端按字段读。
  */
 @Component
-public class WorkOrderHandoffService {
+public class WorkOrderHandoffService implements com.wherelee.cabinet.servicedesk.api.WorkOrderHandoffPort {
 
     private final ObjectMapper mapper = new ObjectMapper();
 

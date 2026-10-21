@@ -6,6 +6,7 @@ import com.wherelee.cabinet.domain.enums.TaskType;
 import com.wherelee.cabinet.locker.api.OnlineState;
 import com.wherelee.cabinet.locker.api.SlotQueryPort;
 import com.wherelee.cabinet.servicedesk.api.ActorType;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderImpact;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
@@ -55,13 +56,13 @@ public class WorkOrderIntakeService {
      * 开单（旧入参）：把所有字段映射成智能工单口径后走同一个入口。
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public Long open(WorkOrderService.NewOrder cmd) {
-        return open(new WorkOrderService.NewOrderV2(
+    public Long open(WorkOrderConsolePort.NewOrder cmd) {
+        return open(new WorkOrderConsolePort.NewOrderV2(
                 cmd.tenantId(), WorkOrderKind.INCIDENT, cmd.type(), WorkOrderSource.SYSTEM,
                 null, null, cmd.urgent(), priorityOf(cmd.urgent()), WorkOrderImpact.SINGLE,
                 cmd.urgent() ? com.wherelee.cabinet.servicedesk.api.WorkOrderUrgency.HIGH
                         : com.wherelee.cabinet.servicedesk.api.WorkOrderUrgency.NORMAL,
-                WorkOrderService.SIDE_ONLINE, WorkOrderService.SIDE_ONLINE,
+                "ONLINE", "ONLINE",
                 cmd.siteId(), cmd.cabinetId(), cmd.slotId(), cmd.slotNo(),
                 cmd.orderNo(), cmd.storageId(), cmd.customerId(), cmd.customerPhone(),
                 cmd.siteAddress(), cmd.cabinetNo(), cmd.title(), cmd.detection(),
@@ -76,7 +77,7 @@ public class WorkOrderIntakeService {
      * READ COMMITTED 让回读看到最新提交，业务结果不变。
      */
     @Transactional(isolation = Isolation.READ_COMMITTED)
-    public Long open(WorkOrderService.NewOrderV2 cmd) {
+    public Long open(WorkOrderConsolePort.NewOrderV2 cmd) {
         BizWorkOrder existing = journal.findOpen(cmd.kind(), cmd.type(), cmd.slotId());
         if (existing != null) {
             journal.note(existing, "REPEATED", null, "同一问题再次被观察到：" + cmd.detection(),
@@ -96,7 +97,7 @@ public class WorkOrderIntakeService {
         order.setImpact(cmd.impact());
         order.setUrgency(cmd.urgency());
         order.setStatus(WorkOrderStatus.PENDING);
-        order.setQueueSide(cmd.queueSide() == null ? WorkOrderService.SIDE_ONLINE : cmd.queueSide());
+        order.setQueueSide(cmd.queueSide() == null ? "ONLINE" : cmd.queueSide());
         order.setAssigneeGroup(cmd.assigneeGroup());
         order.setActiveFlag(1);
         order.setSiteId(cmd.siteId());
@@ -197,7 +198,7 @@ public class WorkOrderIntakeService {
     }
 
     /** 快照里放业务员判断性质需要的东西：位置、编号、时间、用户电话、检测值。 */
-    private String snapshot(WorkOrderService.NewOrderV2 cmd) {
+    private String snapshot(WorkOrderConsolePort.NewOrderV2 cmd) {
         StringBuilder sb = new StringBuilder("{");
         sb.append("\"siteAddress\":\"").append(escape(cmd.siteAddress())).append("\",");
         sb.append("\"cabinetNo\":\"").append(escape(cmd.cabinetNo())).append("\",");

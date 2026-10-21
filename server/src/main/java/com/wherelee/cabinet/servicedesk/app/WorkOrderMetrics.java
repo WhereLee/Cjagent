@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>窗口默认 24 小时：这是“最近的运行状态”，不是财务口径。指标只读，不参与任何业务判定。
  */
 @Service
-public class WorkOrderMetrics {
+public class WorkOrderMetrics implements com.wherelee.cabinet.servicedesk.api.WorkOrderMetricsPort {
 
     private static final Logger log = LoggerFactory.getLogger(WorkOrderMetrics.class);
 
@@ -84,6 +84,7 @@ public class WorkOrderMetrics {
     }
 
     /** 每次客服对话记一笔；兜底不是 AI 的功劳，单独记。 */
+    @Override
     public void chat(boolean escalated, boolean fallback) {
         if (fallback) {
             chatFallback.increment();

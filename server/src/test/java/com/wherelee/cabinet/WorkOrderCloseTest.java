@@ -1,5 +1,6 @@
 package com.wherelee.cabinet;
 
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.application.task.DelayTaskService;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.context.TenantContext;
@@ -253,7 +254,7 @@ class WorkOrderCloseTest {
                         + "'P3', '别人的单', NOW(3), NOW(3), 0)",
                 siteId + 99, TENANT, CUSTOMER + 1);
 
-        List<WorkOrderService.CustomerView> mine = TenantContext.callAs(TENANT,
+        List<WorkOrderConsolePort.CustomerView> mine = TenantContext.callAs(TENANT,
                 () -> workOrders.myOrders(CUSTOMER, 20));
 
         assertEquals(1, mine.size());
@@ -264,7 +265,7 @@ class WorkOrderCloseTest {
     private Long openRequest(WorkOrderKind kind) {
         WorkOrderType type = kind == WorkOrderKind.INCIDENT
                 ? WorkOrderType.DOOR_NOT_CLOSED : WorkOrderType.DEVICE_FAULT;
-        return TenantContext.callAs(TENANT, () -> workOrders.open(new WorkOrderService.NewOrderV2(
+        return TenantContext.callAs(TENANT, () -> workOrders.open(new WorkOrderConsolePort.NewOrderV2(
                 TENANT, kind, type, WorkOrderSource.AI,
                 WorkOrderIntent.DOOR_NOT_OPEN, WorkOrderCategory.DOOR_FAULT, false,
                 WorkOrderPriority.P2, WorkOrderImpact.SINGLE, WorkOrderUrgency.HIGH,

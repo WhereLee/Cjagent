@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.assistant.infra;
 
 import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
-import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -36,10 +36,10 @@ public class MimoWorkOrderBriefAgent implements WorkOrderBriefPort {
             只输出规则要求的简报内容，不要寒暄。""";
 
     private final ChatClient chatClient;
-    private final WorkOrderService workOrders;
+    private final WorkOrderConsolePort workOrders;
     private final String systemPrompt;
 
-    public MimoWorkOrderBriefAgent(ChatClient chatClient, WorkOrderService workOrders) {
+    public MimoWorkOrderBriefAgent(ChatClient chatClient, WorkOrderConsolePort workOrders) {
         this.chatClient = chatClient;
         this.workOrders = workOrders;
         this.systemPrompt = SYSTEM_PROMPT + "\n\n" + WikiLoader.wiki();

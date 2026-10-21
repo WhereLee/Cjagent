@@ -1,6 +1,3 @@
-﻿assistant->servicedesk:app
-assistant->storage:app
-bff.admin->servicedesk:app
+﻿assistant->storage:app
 bff.admin->storage:app
-bff.mini->servicedesk:app
 bff.mini->storage:app

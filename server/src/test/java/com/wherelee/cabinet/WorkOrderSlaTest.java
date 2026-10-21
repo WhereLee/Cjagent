@@ -1,5 +1,6 @@
 package com.wherelee.cabinet;
 
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.application.task.DelayTaskService;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.api.PageQuery;
@@ -179,7 +180,7 @@ class WorkOrderSlaTest {
         Long p1 = openRequest(WorkOrderType.DOOR_NOT_CLOSED, WorkOrderPriority.P1,
                 LocalDateTime.now().plusMinutes(10), LocalDateTime.now().plusMinutes(120));
 
-        PageResult<WorkOrderService.View> queue = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.View> queue = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, new PageQuery()));
         assertEquals(p1, queue.records().get(0).id(), "P1 必须排在 P2 前面，而不是按开单先后");
         assertEquals(p2, queue.records().get(1).id());
@@ -187,7 +188,7 @@ class WorkOrderSlaTest {
 
     private Long openRequest(WorkOrderType type, WorkOrderPriority priority,
                              LocalDateTime responseDue, LocalDateTime resolveDue) {
-        return TenantContext.callAs(TENANT, () -> workOrders.open(new WorkOrderService.NewOrderV2(
+        return TenantContext.callAs(TENANT, () -> workOrders.open(new WorkOrderConsolePort.NewOrderV2(
                 TENANT, WorkOrderKind.REQUEST, type, WorkOrderSource.AI,
                 WorkOrderIntent.DOOR_NOT_OPEN, WorkOrderCategory.DOOR_FAULT, false,
                 priority, WorkOrderImpact.SINGLE, WorkOrderUrgency.HIGH,

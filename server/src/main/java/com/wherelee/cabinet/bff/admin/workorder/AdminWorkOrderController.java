@@ -1,8 +1,9 @@
 package com.wherelee.cabinet.bff.admin.workorder;
 
 import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
-import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
-import com.wherelee.cabinet.servicedesk.app.WorkOrderTriageService;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderTriagePort;
+
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.R;
@@ -38,7 +39,7 @@ import java.util.List;
  * <p>例外只有单据详情（timeline/evidence）：认领与处理都要求先能看单，
  * 所以持有任一队列查看权的人都放行——否则线下运维认领之后寸步难行。
  *
- * <p>返回的全是应用层视图（{@link WorkOrderService.View}），不回传实体：
+ * <p>返回的全是应用层视图（{@link WorkOrderConsolePort.View}），不回传实体：
  * 实体带着 active_flag、version 这些流转内部字段，暴露出去迟早有人拿它们当业务状态用
  * （ArchUnit 也会当场拦下）。
  */
@@ -47,15 +48,15 @@ import java.util.List;
 @RequestMapping("/api/admin/work-orders")
 public class AdminWorkOrderController {
 
-    private final WorkOrderService workOrders;
+    private final WorkOrderConsolePort workOrders;
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
     private final WorkOrderBriefPort briefs;
-    private final WorkOrderTriageService triage;
+    private final WorkOrderTriagePort triage;
 
-    public AdminWorkOrderController(WorkOrderService workOrders,
+    public AdminWorkOrderController(WorkOrderConsolePort workOrders,
                                     com.wherelee.cabinet.notify.api.NoticePort notices,
                                     WorkOrderBriefPort briefs,
-                                    WorkOrderTriageService triage) {
+                                    WorkOrderTriagePort triage) {
         this.workOrders = workOrders;
         this.notices = notices;
         this.briefs = briefs;
@@ -100,17 +101,17 @@ public class AdminWorkOrderController {
     @Operation(summary = "线上工单队列", description = "紧急在前、开单早的先办；默认只给未关闭的；支持统一分页与排序（createTime/dueAt）")
     @PreAuthorize("hasAuthority('workorder:online:list')")
     @GetMapping("/online")
-    public R<PageResult<WorkOrderService.View>> online(@Valid PageQuery query,
+    public R<PageResult<WorkOrderConsolePort.View>> online(@Valid PageQuery query,
                                                        @RequestParam(defaultValue = "true") boolean openOnly) {
-        return R.ok(workOrders.queue(WorkOrderService.SIDE_ONLINE, openOnly, query));
+        return R.ok(workOrders.queue("ONLINE", openOnly, query));
     }
 
     @Operation(summary = "线下工单队列", description = "线上业务员判断“需跑一趟”后派发到这里的工单；支持统一分页与排序")
     @PreAuthorize("hasAuthority('workorder:field:list')")
     @GetMapping("/field")
-    public R<PageResult<WorkOrderService.View>> field(@Valid PageQuery query,
+    public R<PageResult<WorkOrderConsolePort.View>> field(@Valid PageQuery query,
                                                       @RequestParam(defaultValue = "true") boolean openOnly) {
-        return R.ok(workOrders.queue(WorkOrderService.SIDE_FIELD, openOnly, query));
+        return R.ok(workOrders.queue("FIELD", openOnly, query));
     }
 
     @Operation(summary = "认领工单", description = "并发下只有一个人认领成功，其余拿到“已被他人认领”")
@@ -162,14 +163,14 @@ public class AdminWorkOrderController {
     @Operation(summary = "工单流转留痕", description = "从开单到关闭的每一步，含系统自动转化；线上/线下队列查看人均可读")
     @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @GetMapping("/{id}/timeline")
-    public R<List<WorkOrderService.EventView>> timeline(@PathVariable Long id) {
+    public R<List<WorkOrderConsolePort.EventView>> timeline(@PathVariable Long id) {
         return R.ok(workOrders.timeline(id));
     }
 
     @Operation(summary = "父子单关系", description = "详情页双向跳转：父单结论、当前单、派生过的子单")
     @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @GetMapping("/{id}/family")
-    public R<WorkOrderService.Family> family(@PathVariable Long id) {
+    public R<WorkOrderConsolePort.Family> family(@PathVariable Long id) {
         return R.ok(workOrders.family(id));
     }
 
@@ -182,7 +183,7 @@ public class AdminWorkOrderController {
     @Operation(summary = "格口证据时间线", description = "开门/关门/看管检测/代关后四个采集点的观测记录；线上/线下队列查看人均可读")
     @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @GetMapping("/{id}/evidence")
-    public R<List<WorkOrderService.EvidenceView>> evidence(@PathVariable Long id) {
+    public R<List<WorkOrderConsolePort.EvidenceView>> evidence(@PathVariable Long id) {
         return R.ok(workOrders.evidenceFor(id));
     }
 

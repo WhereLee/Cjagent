@@ -1,5 +1,6 @@
 package com.wherelee.cabinet;
 
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
@@ -228,7 +229,7 @@ class WorkOrderFlowTest {
         assertEquals(WorkOrderStatus.PENDING.name(), orders.get(0).get("status"));
 
         Long id = ((Number) orders.get(0).get("id")).longValue();
-        List<WorkOrderService.EventView> timeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
+        List<WorkOrderConsolePort.EventView> timeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
         assertTrue(timeline.stream().anyMatch(e -> "CREATED".equals(e.eventType())), "开单必须留第一条痕");
         assertTrue(timeline.stream().anyMatch(e -> "REPEATED".equals(e.eventType())),
                 "重复观察到也要留痕：它是“这格一直没关”的次数证据");
@@ -276,7 +277,7 @@ class WorkOrderFlowTest {
         assertTrue(String.valueOf(row.get("result_note")).contains("自动转化"), "结论位要写清这是自动的：" + row.get("result_note"));
         assertFalse(rows("select id from biz_work_order where id = ?", id).isEmpty(), "用户要求留底：绝不删除");
 
-        List<WorkOrderService.EventView> timeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
+        List<WorkOrderConsolePort.EventView> timeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
         assertTrue(timeline.stream().anyMatch(e -> "AUTO_CLOSED".equals(e.eventType()) && e.operatorId() == null),
                 "留痕里系统事件的 operator 必须为空");
 
@@ -322,19 +323,19 @@ class WorkOrderFlowTest {
         assertEquals(WorkOrderStatus.RESOLVED.name(),
                 rows("select status from biz_work_order where id = ?", id).get(0).get("status"));
 
-        List<WorkOrderService.EventView> parentTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
+        List<WorkOrderConsolePort.EventView> parentTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(id));
         assertTrue(parentTimeline.stream().anyMatch(e -> "CLAIMED".equals(e.eventType()) && 777L == e.operatorId()),
                 "认领要能查到是谁");
-        List<WorkOrderService.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(child));
+        List<WorkOrderConsolePort.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(child));
         assertTrue(childTimeline.stream().anyMatch(e -> "DISPATCHED".equals(e.eventType())),
                 "派发动作记在子单上：父单说“为什么派人”，子单说“谁派来的”");
 
         // 队列视图里线上只剩已关闭、线下多了一张待办（返回已改统一分页）
-        PageResult<WorkOrderService.View> field = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.View> field = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_FIELD, true, new PageQuery()));
         assertEquals(1, field.total());
         assertEquals(1, field.records().size());
-        WorkOrderService.View fieldOrder = field.records().get(0);
+        WorkOrderConsolePort.View fieldOrder = field.records().get(0);
         assertNotNull(fieldOrder.customerPhone(), "线下到场要能直接看到联系电话（快照，不回查）");
         assertEquals(Boolean.TRUE, fieldOrder.urgent(), "线下子单继承紧急级别，队列排序依赖它");
     }
@@ -343,10 +344,10 @@ class WorkOrderFlowTest {
     @DisplayName("队列视图必须带回柜机编号/点位地址/检测值：业务员凭一行就知道去哪、看什么")
     void queueViewCarriesSnapshotFacts() {
         markDoorOpen();
-        PageResult<WorkOrderService.View> online = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.View> online = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, new PageQuery()));
         assertEquals(1, online.records().size());
-        WorkOrderService.View v = online.records().get(0);
+        WorkOrderConsolePort.View v = online.records().get(0);
         assertNotNull(v.cabinetNo());
         assertTrue(v.cabinetNo().startsWith("CAB-WO-"), "柜机编号来自快照：" + v.cabinetNo());
         assertEquals("工单测试点位", v.siteAddress(), "点位地址来自快照（回查会被改名带跑）");
@@ -385,7 +386,7 @@ class WorkOrderFlowTest {
 
         PageQuery first = new PageQuery();
         first.setPageSize(2);
-        PageResult<WorkOrderService.View> page1 = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.View> page1 = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, first));
         assertEquals(3, page1.total());
         assertEquals(2, page1.pages());
@@ -396,7 +397,7 @@ class WorkOrderFlowTest {
         PageQuery second = new PageQuery();
         second.setPageNum(2);
         second.setPageSize(2);
-        PageResult<WorkOrderService.View> page2 = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.View> page2 = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, second));
         assertEquals(1, page2.records().size(), "第二页拿到剩下的 1 张，而不是被写死的 limit 200 丢掉");
     }
@@ -437,8 +438,8 @@ class WorkOrderFlowTest {
         String onlineReturn = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("online")).findFirst().orElseThrow()
                 .getGenericReturnType().getTypeName();
-        assertTrue(onlineReturn.contains("WorkOrderService$View"),
-                "队列必须返回应用层视图而不是实体：" + onlineReturn);
+        assertTrue(onlineReturn.contains("WorkOrderConsolePort$View"),
+                "队列必须返回契约视图（api）而不是实体：" + onlineReturn);
         assertFalse(onlineReturn.contains("BizWorkOrder"), "实体不得出现在接口层返回值里：" + onlineReturn);
     }
 
@@ -577,10 +578,10 @@ class WorkOrderFlowTest {
 
         assertTrue(TenantContext.callAs(TENANT,
                 () -> workOrders.escalate(slotId, WorkOrderType.DOOR_NOT_CLOSED, "到点")));
-        List<WorkOrderService.EventView> parentTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(parent));
+        List<WorkOrderConsolePort.EventView> parentTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(parent));
         assertTrue(parentTimeline.stream().anyMatch(e -> "ESCALATED".equals(e.eventType())),
                 "升级事件记在线上父单上");
-        List<WorkOrderService.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(child));
+        List<WorkOrderConsolePort.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(child));
         assertTrue(childTimeline.stream().noneMatch(e -> "ESCALATED".equals(e.eventType())),
                 "线下子单不该被重复记一次升级事件");
     }
@@ -603,7 +604,7 @@ class WorkOrderFlowTest {
         assertEquals(1, jdbc.queryForObject(
                 "select count(*) from biz_work_order where parent_id = ?", Integer.class, parent).intValue(),
                 "同一父单只能有一张线下子单");
-        List<WorkOrderService.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(autoChild));
+        List<WorkOrderConsolePort.EventView> childTimeline = TenantContext.callAs(TENANT, () -> workOrders.timeline(autoChild));
         assertTrue(childTimeline.stream().anyMatch(e -> "DISPATCHED".equals(e.eventType())),
                 "复用也要留痕：让后来的人知道这张子单不是这次点击新开的");
     }
@@ -633,7 +634,7 @@ class WorkOrderFlowTest {
         Long wo = jdbc.queryForObject(
                 "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
 
-        List<WorkOrderService.EvidenceView> evidence =
+        List<WorkOrderConsolePort.EvidenceView> evidence =
                 TenantContext.callAs(TENANT, () -> workOrders.evidenceFor(wo));
         assertTrue(evidence.stream().anyMatch(e -> "WATCH_DETECT".equals(e.moment())),
                 "门未关阶梯上的检测必须留证据，否则业务员事后不知道当时看到什么：" + evidence);

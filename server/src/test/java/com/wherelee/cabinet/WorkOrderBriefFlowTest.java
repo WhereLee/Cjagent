@@ -1,6 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
 import com.wherelee.cabinet.common.context.TenantContext;
 import org.junit.jupiter.api.AfterEach;
@@ -133,7 +134,7 @@ class WorkOrderBriefFlowTest {
                 + "values (?, ?, 'DEVICE_FAULT', 0, 'RESOLVED', 'ONLINE', ?, ?, '别格口的同类型', '不该被召回的别的格口', '2026-10-12', 0, 0, NOW(3), NOW(3), 0)",
                 siteId + 7, TENANT, otherSlot, "WX" + otherSlot.toString().substring(otherSlot.toString().length() - 3));
 
-        List<WorkOrderBriefPort.SimilarCase> cases = TenantContext.callAs(TENANT,
+        List<WorkOrderConsolePort.SimilarCase> cases = TenantContext.callAs(TENANT,
                 () -> workOrders.similarResolved(targetOrderId, 3));
 
         assertEquals(1, cases.size(), "只召回精确匹配的那一张：" + cases.size());

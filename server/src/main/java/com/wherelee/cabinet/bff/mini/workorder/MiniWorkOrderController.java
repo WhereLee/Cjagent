@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.workorder;
 
-import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.platform.security.Caller;
@@ -23,7 +23,7 @@ import java.util.List;
 /**
  * 用户侧工单：只看自己的、只能确认或反馈没解决。
  *
- * <p>视图是 {@link WorkOrderService.CustomerView}，不是后台的 {@code View}：
+ * <p>视图是 {@link WorkOrderConsolePort.CustomerView}，不是后台的 {@code View}：
  * 交接 JSON、快照电话、指派对象属于内部流转细节，不能顺手塞进小程序。
  *
  * <p>“问题已解决/还没解决”都只对本人已存在的单生效：
@@ -34,9 +34,9 @@ import java.util.List;
 @RequestMapping("/api/mini/work-orders")
 public class MiniWorkOrderController {
 
-    private final WorkOrderService workOrders;
+    private final WorkOrderConsolePort workOrders;
 
-    public MiniWorkOrderController(WorkOrderService workOrders) {
+    public MiniWorkOrderController(WorkOrderConsolePort workOrders) {
         this.workOrders = workOrders;
     }
 
@@ -44,7 +44,7 @@ public class MiniWorkOrderController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping
-    public R<List<WorkOrderService.CustomerView>> myOrders(
+    public R<List<WorkOrderConsolePort.CustomerView>> myOrders(
             @AuthenticationPrincipal Caller current,
             @RequestParam(defaultValue = "20") int limit) {
         return R.ok(workOrders.myOrders(current.subjectId(), limit));
@@ -54,7 +54,7 @@ public class MiniWorkOrderController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/{id}")
-    public R<WorkOrderService.CustomerView> detail(@AuthenticationPrincipal Caller current,
+    public R<WorkOrderConsolePort.CustomerView> detail(@AuthenticationPrincipal Caller current,
                                                    @PathVariable Long id) {
         return R.ok(workOrders.myOrder(id, current.subjectId()));
     }

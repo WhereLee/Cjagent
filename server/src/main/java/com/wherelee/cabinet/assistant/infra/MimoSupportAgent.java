@@ -3,8 +3,8 @@ package com.wherelee.cabinet.assistant.infra;
 import com.wherelee.cabinet.storage.app.StorageOrderFacade;
 import com.wherelee.cabinet.storage.app.StorageQueryService;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
-import com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService;
-import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderHandoffPort;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntakePort;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
 import org.slf4j.Logger;
@@ -45,16 +45,16 @@ public class MimoSupportAgent implements SupportAgentPort {
     private final ChatClient chatClient;
     private final StorageQueryService queries;
     private final StorageOrderFacade doors;
-    private final WorkOrderIntake intake;
+    private final WorkOrderIntakePort intake;
     private final BizStorageOrderMapper orderMapper;
     private final WorkOrderPort workOrderPort;
-    private final WorkOrderHandoffService handoffs;
+    private final WorkOrderHandoffPort handoffs;
     private final String systemPrompt;
 
     public MimoSupportAgent(ChatClient chatClient,
                             StorageQueryService queries, StorageOrderFacade doors,
-                            WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
-                            WorkOrderPort workOrderPort, WorkOrderHandoffService handoffs) {
+                            WorkOrderIntakePort intake, BizStorageOrderMapper orderMapper,
+                            WorkOrderPort workOrderPort, WorkOrderHandoffPort handoffs) {
         this.chatClient = chatClient;
         this.queries = queries;
         this.doors = doors;

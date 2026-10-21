@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.bff.mini.support;
 
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
-import com.wherelee.cabinet.servicedesk.app.WorkOrderMetrics;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderMetricsPort;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
@@ -37,9 +37,9 @@ import org.springframework.web.bind.annotation.RestController;
 public class MiniSupportController {
 
     private final SupportAgentPort support;
-    private final WorkOrderMetrics metrics;
+    private final WorkOrderMetricsPort metrics;
 
-    public MiniSupportController(SupportAgentPort support, WorkOrderMetrics metrics) {
+    public MiniSupportController(SupportAgentPort support, WorkOrderMetricsPort metrics) {
         this.support = support;
         this.metrics = metrics;
     }

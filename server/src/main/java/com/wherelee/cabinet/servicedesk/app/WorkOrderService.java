@@ -1,6 +1,5 @@
 package com.wherelee.cabinet.servicedesk.app;
 
-import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.domain.enums.CloseReason;
@@ -9,6 +8,7 @@ import com.wherelee.cabinet.servicedesk.api.WorkOrderImpact;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderUrgency;
@@ -39,7 +39,7 @@ import java.util.List;
  * 本类保留<b>对外签名与视图记录</b>——记录被 bff 与 assistant 直接引用，挪包会改契约。
  */
 @Service
-public class WorkOrderService {
+public class WorkOrderService implements WorkOrderConsolePort {
 
     /** 队列侧常量：两条队列对应两个角色，不靠角色名硬猜。 */
     public static final String SIDE_ONLINE = "ONLINE";
@@ -87,66 +87,6 @@ public class WorkOrderService {
     /** 这张单已催过几次（阶梯判重用）。 */
     public int remindedTimes(Long slotId, WorkOrderType type) {
         return sla.remindedTimes(slotId, type);
-    }
-
-    /** 一条证据的可读视图（采集点 + 三值结论 + 置信度 + AI 标签 + 照片引用）。 */
-    public record EvidenceView(String moment, String source, String presence, java.math.BigDecimal confidence,
-                               String aiLabel, String photoRef, String note, java.time.LocalDateTime at) {
-    }
-
-    /**
-     * 开单入参。<b>所有字段都是“当时看到的事实”</b>，不是引用：电话与格口编号必须快照，
-     * 否则用户改绑手机之后，这张单就再也说不清当时联系的是谁。
-     */
-    public record NewOrder(Long tenantId, WorkOrderType type, boolean urgent,
-                           Long siteId, Long cabinetId, Long slotId, String slotNo,
-                           String orderNo, Long storageId, Long customerId, String customerPhone,
-                           String siteAddress, String cabinetNo, String title, String detection,
-                           LocalDateTime dueAt) {
-    }
-
-    /** 智能工单入参：在旧 NewOrder 上增加 kind/source/intent/category/priority/SLA/交接。 */
-    public record NewOrderV2(Long tenantId, WorkOrderKind kind, WorkOrderType type, WorkOrderSource source,
-                             WorkOrderIntent intent, WorkOrderCategory category, boolean urgent,
-                             WorkOrderPriority priority, WorkOrderImpact impact, WorkOrderUrgency urgency,
-                             String assigneeGroup, String queueSide,
-                             Long siteId, Long cabinetId, Long slotId, String slotNo,
-                             String orderNo, Long storageId, Long customerId, String customerPhone,
-                             String siteAddress, String cabinetNo, String title, String detection,
-                             LocalDateTime dueAt, LocalDateTime responseDueAt, LocalDateTime resolveDueAt,
-                             String handoffJson, String traceId) {
-    }
-
-    /** 队列视图：接口层不回传实体（ArchUnit 会拦，而且实体带着一堆流转细节）。 */
-    public record View(Long id, String kind, String source, String type, String intent, String category,
-                       String priority, String impact, String urgency, boolean urgent, String status,
-                       String queueSide, String assigneeGroup, String slotNo, String cabinetNo,
-                       String siteAddress, String orderNo, String customerPhone, String title,
-                       String detection, String resultNote, String closeReason, Long assigneeId,
-                       Long parentId, String parentResultNote, LocalDateTime dueAt,
-                       LocalDateTime responseDueAt, LocalDateTime resolveDueAt,
-                       LocalDateTime firstResponseAt, LocalDateTime closedAt, LocalDateTime createTime,
-                       String handoffJson, int reopenedCount) {
-    }
-
-    /** 留痕视图。 */
-    public record EventView(String eventType, String actorType, Long operatorId, String traceId,
-                            String detail, LocalDateTime at) {
-    }
-
-    /** 父子单关系：详情页要能双向跳转，且子单看得到父单结论。 */
-    public record Family(View self, View parent, List<View> children) {
-    }
-
-    /**
-     * 用户侧工单视图：只给用户自己关心的字段。
-     * 交接 JSON、快照电话、内部指派这些是给业务员看的，不能顺手塞进小程序。
-     */
-    public record CustomerView(Long id, String orderNo, String title, String status, String category,
-                               String priority, String closeReason, String resultNote, String slotNo,
-                               String cabinetNo, String siteAddress, LocalDateTime responseDueAt,
-                               LocalDateTime resolveDueAt, LocalDateTime closedAt, LocalDateTime createTime,
-                               Long mergedIntoId, int reopenedCount) {
     }
 
     // ------------------------------------------------------------------
@@ -250,7 +190,7 @@ public class WorkOrderService {
         return queries.family(workOrderId);
     }
 
-    public List<WorkOrderBriefPort.SimilarCase> similarResolved(Long workOrderId, int limit) {
+    public List<SimilarCase> similarResolved(Long workOrderId, int limit) {
         return queries.similarResolved(workOrderId, limit);
     }
 

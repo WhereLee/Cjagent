@@ -27,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 不硬派给线上或线下。
  */
 @Service
-public class WorkOrderTriageService {
+public class WorkOrderTriageService implements com.wherelee.cabinet.servicedesk.api.WorkOrderTriagePort {
 
     private static final Logger log = LoggerFactory.getLogger(WorkOrderTriageService.class);
 
@@ -102,6 +102,7 @@ public class WorkOrderTriageService {
     }
 
     /** 管理端改完规则后调用：清缓存，下一次请求重新装载。 */
+    @Override
     public void reload() {
         cache.clear();
         log.info("分诊规则缓存已清理，下一次请求重新装载");

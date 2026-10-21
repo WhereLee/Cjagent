@@ -14,6 +14,8 @@ import com.wherelee.cabinet.locker.api.Presence;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderCategory;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderImpact;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntakePort;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
@@ -37,7 +39,7 @@ import java.time.LocalDateTime;
  * 抄一份现场的责任集中在这里，避免每个分支各抄一次、各漏一处。
  */
 @Component
-public class WorkOrderIntake {
+public class WorkOrderIntake implements WorkOrderIntakePort {
 
     private static final Logger log = LoggerFactory.getLogger(WorkOrderIntake.class);
 
@@ -122,7 +124,7 @@ public class WorkOrderIntake {
         WorkOrderPriority priority = urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3;
         LocalDateTime responseDue = now.plusMinutes(slaPolicy.responseMinutes(priority));
         LocalDateTime resolveDue = now.plusMinutes(slaPolicy.resolveMinutes(priority));
-        workOrders.open(new WorkOrderService.NewOrderV2(
+        workOrders.open(new WorkOrderConsolePort.NewOrderV2(
                 slot.tenantId(), WorkOrderKind.INCIDENT, type, WorkOrderSource.DEVICE,
                 intentOf(anomaly), categoryOf(type), urgent, priority,
                 WorkOrderImpact.SINGLE,
@@ -170,6 +172,7 @@ public class WorkOrderIntake {
     }
 
     /** 智能工单入口：AI 转报带 intent/handoff，系统任务仍可走上面的旧签名。 */
+    @Override
     public Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
                              String detection, String title, LocalDateTime dueAt,
                              WorkOrderKind kind, WorkOrderSource source, WorkOrderIntent intent,
@@ -202,7 +205,7 @@ public class WorkOrderIntake {
                 : LocalDateTime.now().plusMinutes(triaged.responseMinutes());
         LocalDateTime resolveDue = triaged == null ? dueAt
                 : LocalDateTime.now().plusMinutes(triaged.resolveMinutes());
-        return workOrders.open(new WorkOrderService.NewOrderV2(
+        return workOrders.open(new WorkOrderConsolePort.NewOrderV2(
                 order.getTenantId(), actualKind, resolvedType, source, intent, resolvedCategory, urgent,
                 resolvedPriority, resolvedImpact, resolvedUrgency, resolvedGroup, resolvedQueue,
                 site == null ? null : site.id(), cabinet == null ? null : cabinet.id(),

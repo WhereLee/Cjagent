@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,20 +30,20 @@ class BriefToolsTest {
 
     private static final Long WO = 501L;
 
-    private WorkOrderService workOrders;
+    private WorkOrderConsolePort workOrders;
 
     @BeforeEach
     void setUp() {
-        workOrders = mock(WorkOrderService.class);
+        workOrders = mock(WorkOrderConsolePort.class);
     }
 
     private BriefTools tools() {
         return new BriefTools(workOrders, WO);
     }
 
-    private WorkOrderService.View view() {
+    private WorkOrderConsolePort.View view() {
         LocalDateTime now = LocalDateTime.now();
-        return new WorkOrderService.View(WO, "INCIDENT", "DEVICE", "DEVICE_FAULT", null, "DOOR_FAULT",
+        return new WorkOrderConsolePort.View(WO, "INCIDENT", "DEVICE", "DEVICE_FAULT", null, "DOOR_FAULT",
                 "P1", "SINGLE", "HIGH", false, "PENDING", "ONLINE", "ONLINE",
                 "A-01", "CAB-1", "测试点位", "SO-1", "13900001234",
                 "格口 A-01 门未关：取件后未回关", "门=开着；柜内=有物；异常=DOOR_OPEN",
@@ -65,7 +65,7 @@ class BriefToolsTest {
     @DisplayName("证据输出不含照片引用：本地路径对模型无意义，不属于事实")
     void evidenceOmitsPhotoRef() {
         when(workOrders.evidenceFor(WO)).thenReturn(List.of(
-                new WorkOrderService.EvidenceView("OPEN_DOOR", "SENSOR", "UNKNOWN",
+                new WorkOrderConsolePort.EvidenceView("OPEN_DOOR", "SENSOR", "UNKNOWN",
                         new BigDecimal("0.42"), "未识别", "/data/photo/1.jpg",
                         "开门采集", LocalDateTime.now())));
 
@@ -82,7 +82,7 @@ class BriefToolsTest {
         assertTrue(tools().similarResolved().contains("暂无"), "没有历史要明说，不许编");
 
         when(workOrders.similarResolved(WO, 3)).thenReturn(List.of(
-                new com.wherelee.cabinet.assistant.api.WorkOrderBriefPort.SimilarCase(
+                new WorkOrderConsolePort.SimilarCase(
                         "格口 A-01 门未关：取件后未回关", "电话联系后用户返回关好柜门，柜内无物", "2026-10-10")));
         String out = tools().similarResolved();
         assertTrue(out.contains("电话联系后用户返回关好柜门"), "结论必须原文转述：" + out);
@@ -93,7 +93,7 @@ class BriefToolsTest {
     void toolsAreReadOnly() {
         when(workOrders.one(WO)).thenReturn(view());
         when(workOrders.timeline(WO)).thenReturn(List.of(
-                new WorkOrderService.EventView("CREATED", "SYSTEM", null, null,
+                new WorkOrderConsolePort.EventView("CREATED", "SYSTEM", null, null,
                         "格口 A-01 门未关：取件后未回关", LocalDateTime.now())));
         when(workOrders.evidenceFor(WO)).thenReturn(List.of());
         when(workOrders.similarResolved(WO, 3)).thenReturn(List.of());
@@ -109,7 +109,7 @@ class BriefToolsTest {
         verify(workOrders, never()).resolve(anyLong(), anyLong(), anyString(), anyBoolean());
         verify(workOrders, never()).claim(anyLong(), anyLong());
         verify(workOrders, never()).notePhoneCall(anyLong(), anyLong(), anyString());
-        verify(workOrders, never()).open(any(WorkOrderService.NewOrder.class));
-        verify(workOrders, never()).open(any(WorkOrderService.NewOrderV2.class));
+        verify(workOrders, never()).open(any(WorkOrderConsolePort.NewOrder.class));
+        verify(workOrders, never()).open(any(WorkOrderConsolePort.NewOrderV2.class));
     }
 }

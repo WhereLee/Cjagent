@@ -4,7 +4,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.storage.app.StorageOrderFacade;
 import com.wherelee.cabinet.storage.app.StorageQueryService;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
-import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderHandoffPort;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderIntakePort;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
@@ -43,7 +44,7 @@ public class AgentTools {
 
     private final StorageQueryService queries;
     private final StorageOrderFacade doors;
-    private final WorkOrderIntake intake;
+    private final WorkOrderIntakePort intake;
     private final BizStorageOrderMapper orderMapper;
     private final WorkOrderPort workOrderPort;
     private final Long customerId;
@@ -55,12 +56,12 @@ public class AgentTools {
     private String lastAttemptSummary;
     private boolean escalated;
     private String ticketNo;
-    private final com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService handoffs;
+    private final WorkOrderHandoffPort handoffs;
 
     public AgentTools(StorageQueryService queries, StorageOrderFacade doors,
-                      WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
+                      WorkOrderIntakePort intake, BizStorageOrderMapper orderMapper,
                       WorkOrderPort workOrderPort,
-                      com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService handoffs,
+                      WorkOrderHandoffPort handoffs,
                       SupportAgentPort.SupportSession session) {
         this.queries = queries;
         this.doors = doors;
