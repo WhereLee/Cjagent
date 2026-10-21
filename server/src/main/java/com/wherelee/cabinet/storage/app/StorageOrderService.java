@@ -58,6 +58,8 @@ public class StorageOrderService {
     private final SlotAllocator allocator;
     /** 设备明确回报打不开时换同尺寸空格（候选与预占都在 locker 内）。 */
     private final SlotSwapPort slotSwap;
+    /** 取件凭据：发码、验码、错次计数与锁定、重置。 */
+    private final OrderVoucherService vouchers;
     private final com.wherelee.cabinet.device.api.CommandPort deviceCommands;
     private final com.wherelee.cabinet.storage.api.FundPort funds;
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
@@ -104,14 +106,6 @@ public class StorageOrderService {
     private long openRetryIntervalMs;
 
     /**
-     * 取件码连续输错的锁定阈值——<b>5 次由用户 2026-10-10 给出</b>，不进配置。
-     *
-     * <p>不做成可配参数是因为没人会去调它，但一个能配的东西就会被误配成 0（一输错就锁）
-     * 或 99（锁定等于不存在）。真要改就改这一行，改动会进代码评审。
-     */
-    private static final int VOUCHER_MAX_WRONG = 5;
-
-    /**
      * 开门后的容错期（分钟，第 13B 刀）：这段时间不计费，给用户挑包、放件、翻找。
      *
      * <p>取代原来的 {@code door-grace-minutes}：“多久该提醒”与“多久该起计”本质上是
@@ -126,6 +120,7 @@ public class StorageOrderService {
                                BizStorageOrderMapper orderMapper,
                                SlotAllocator allocator,
                                SlotSwapPort slotSwap,
+                               OrderVoucherService vouchers,
                                com.wherelee.cabinet.device.api.CommandPort deviceCommands,
                                com.wherelee.cabinet.storage.api.FundPort funds,
                                SlotPort states,
@@ -139,6 +134,7 @@ public class StorageOrderService {
         this.orderMapper = orderMapper;
         this.allocator = allocator;
         this.slotSwap = slotSwap;
+        this.vouchers = vouchers;
         this.deviceCommands = deviceCommands;
         this.funds = funds;
         this.states = states;
@@ -212,7 +208,7 @@ public class StorageOrderService {
             // 那次 update 影响 0 行却被忽略，定价快照静默丢失（结算时才发现）——
             // 顺序改对比“记住检查每个 updateById”更可靠。
             funds.holdFunds(order);
-            insertWithFreshVoucher(order);
+            vouchers.insert(order);
         } catch (RuntimeException e) {
             // 罕见但必须留痕：格口已绑单而订单没落库。事务会回滚掉占用，
             // 但如果不打日志，压测时看到的就是"莫名失败"而查不到根因
@@ -240,12 +236,12 @@ public class StorageOrderService {
         notices.emit(cabinet.tenantId(),
                 com.wherelee.cabinet.notify.api.NoticePort.CHANNEL_MESSAGE,
                 "PICKUP_VOUCHER", order.getOrderNo() + ":voucher",
-                credentialNote(order.getVoucherCode(), createdSlotNo),
+                vouchers.noteForExisting(order.getVoucherCode(), createdSlotNo),
                 order.getCustomerId(), null, order.getOrderNo());
         return new StorageOrderView(order.getOrderNo(), cabinet.cabinetNo(), createdSlotNo,
                 allocated.actualSize().name(), order.getStatus().name(), order.getEstimateMinutes(),
                 allocated.triedSlots(), allocator.strategy(),
-                voucherNote(order.getVoucherCode(), createdSlotNo));
+                vouchers.noteForNewOrder(order.getVoucherCode(), createdSlotNo));
     }
 
     @Transactional
@@ -317,47 +313,6 @@ public class StorageOrderService {
         }
     }
 
-    /** 换码最多重试几次。取件码冲突是十万一级别的小概率，3 次足够；再多就是拿下单时长换概率。 */
-    private static final int VOUCHER_RETRIES = 3;
-
-    /**
-     * 落库；取件码撞号时只重“换码”这一步（缺陷 7）。
-     *
-     * <p>不能重来整个下单：格口已经分配、预收已经扣过，重来会把一次码冲突放大成用户能感到的失败。
-     * <p>只认 {@code uk_order_voucher} 这一种冲突：别的唯一索引报错（比如格口被抢先占了）
-     * 重试多少次都一样，掩盖成“正在重试”反而让真正的并发原因查不出来。
-     */
-    private void insertWithFreshVoucher(BizStorageOrder order) {
-        for (int attempt = 1; ; attempt++) {
-            try {
-                orderMapper.insert(order);
-                return;
-            } catch (org.springframework.dao.DuplicateKeyException collision) {
-                boolean voucherClash = String.valueOf(collision.getMessage()).contains("uk_order_voucher");
-                if (!voucherClash || attempt >= VOUCHER_RETRIES) {
-                    throw collision;
-                }
-                order.setVoucherCode(VoucherCodes.newVoucher());
-                log.warn("取件码撞号，换码重试 orderNo={} 第 {} 次", order.getOrderNo(), attempt);
-            }
-        }
-    }
-
-    /**
-     * 取件码交付话术（第 25 刀）：存件那一刻是唯一能把码交给用户的时点（手机还没电），
-     * 所以要求“记下或截图”。凭码路径的找回对应物 = App 内查询端点 + 自助重置，不假装有短信。
-     */
-    private String voucherNote(String voucherCode, String slotNo) {
-        return "格口 " + slotNo + " 已开，取件码 " + voucherCode
-                + "——手机没电时可凭它与手机尾号在柜机屏取件，请记下或截图";
-    }
-
-    /** 可回看的凭证文案（站内消息与重置返回共用：此刻门没开，不能再写“已开”）。 */
-    private String credentialNote(String voucherCode, String slotNo) {
-        return "取件码 " + voucherCode + "（格口 " + slotNo
-                + "）——手机没电时可凭它与手机尾号在柜机屏取件；泄露或忘记可在订单里重置";
-    }
-
     private String slotNoOf(Long slotId) {
         return slotQueries.slot(slotId).map(SlotSnapshot::slotNo).orElse("-");
     }
@@ -414,7 +369,7 @@ public class StorageOrderService {
         StorageOrderView settled = newTx.execute(status -> {
             BizStorageOrder order = findOwned(customerId, orderNo);
             if (withVoucher) {
-                verifyVoucher(order, voucherCode);
+                vouchers.verify(order, voucherCode);
             }
             return finish(customerId, orderNo, OrderCloseReason.NORMAL);
         });
@@ -494,76 +449,6 @@ public class StorageOrderService {
                 : "已下发开门，请确认柜门已开；若没反应请联系现场工作人员");
     }
 
-    /**
-     * 校验取件码并累计错次。
-     *
-     * <p>两个判据分开写：<b>锁定</b>是“错太多，暂停这条凭据”，<b>错</b>是“本次不对”——
-     * 混在一起会变成“一输错就锁”或“锁了还继续给次数”。阈值 5 是用户 2026-10-10 给的数。
-     * 正确码会把计数归零（所以上限是“连续”错 5 次，不是“一共”5 次）。
-     */
-    private void verifyVoucher(BizStorageOrder order, String voucherCode) {
-        requireNotVoucherLocked(order);
-        if (voucherCode == null || voucherCode.isBlank()) {
-            return;
-        }
-        if (voucherCode.trim().equals(order.getVoucherCode())) {
-            // 成功路径不抛异常，所以留在外层事务里改（并把内存对象也改对，
-            // 不然随后的 finish 会用陈旧的计数把零盖回去）
-            if (order.getVoucherWrongCount() != null && order.getVoucherWrongCount() > 0) {
-                order.setVoucherWrongCount(0);
-                orderMapper.updateById(order);
-            }
-            return;
-        }
-        int counted = registerVoucherWrong(order);
-        throw new BizException(ResultCode.BIZ_ERROR,
-                "取件码不正确（还剩 " + (VOUCHER_MAX_WRONG - counted) + " 次机会）");
-    }
-    
-    static final String LOCK_MESSAGE = "取件码连续输错次数过多，本单开柜已锁定；"
-            + "可在订单里重置取件码自助解锁，或联系客服核验后处理";
-    
-    /**
-     * 记一次凭据错误：到阈值就锁这张单的开柜能力，没到就返回当前错次。
-     *
-     * <p>写成方法而不是留在 {@code verifyVoucher} 里：定-25 的第二条路径（取件码 + 手机尾号）
-     * 要用**完全同一套计数**。复制两份就会有一边漏掉锁定，而“锁不住”正是这个机制唯一要防的事。
-     * <p>先落库再报错：这两列要活过外层回滚，不然锁定永远不生效。
-     */
-    int registerVoucherWrong(BizStorageOrder order) {
-        int wrong = (order.getVoucherWrongCount() == null ? 0 : order.getVoucherWrongCount()) + 1;
-        boolean lock = wrong >= VOUCHER_MAX_WRONG;
-        LocalDateTime at = lock ? LocalDateTime.now() : null;
-        final int counted = wrong;
-        newTx.executeWithoutResult(status -> {
-            BizStorageOrder fresh = orderMapper.selectById(order.getId());
-            if (fresh == null) {
-                return;
-            }
-            fresh.setVoucherWrongCount(counted);
-            if (at != null) {
-                fresh.setVoucherLockedAt(at);
-            }
-            orderMapper.updateById(fresh);
-        });
-        order.setVoucherWrongCount(counted);
-        if (lock) {
-            order.setVoucherLockedAt(at);
-            log.warn("取件码连续输错 {} 次，锁定该单开柜能力 orderNo={} customer={}",
-                    counted, order.getOrderNo(), order.getCustomerId());
-            throw new BizException(ResultCode.BIZ_ERROR, LOCK_MESSAGE);
-        }
-        return counted;
-    }
-
-    private void requireNotVoucherLocked(BizStorageOrder order) {
-        if (order.getVoucherLockedAt() != null) {
-            throw new BizException(ResultCode.BIZ_ERROR,
-                    "该单因取件码连续输错已锁定开柜，可在订单里重置取件码自助解锁；"
-                            + "或联系客服核验（后台可强制开柜并留审计）");
-        }
-    }
-
     // abandon（声明放弃物品）与 remoteClose（远程结束）已于 2026-10-12 删除：
     // 前者被定-13（结束不拦人）抽掉——柜里有东西也照样结束并自动标遗留物，不需要一个“放弃”按钮；
     // 后者被定-15 抽掉——结束本来就是在手机上点的，“远程”不再是一种需要加收的情形。
@@ -628,7 +513,7 @@ public class StorageOrderService {
         // 取件码连错锁定后，**开柜能力**被锁（不管首次投件还是中途取物）；
         // 但“关门校验”与“结束订单”不拦——结束不需要开门，把他困在柜子前不是本锁的目的。
         if (action != com.wherelee.cabinet.device.api.CommandAction.CLOSE_VERIFY) {
-            requireNotVoucherLocked(order);
+            vouchers.requireNotLocked(order);
         }
         CabinetSnapshot cabinet = slotQueries.cabinet(order.getCabinetId()).orElse(null);
         if (cabinet == null) {
@@ -691,7 +576,7 @@ public class StorageOrderService {
         // 不能再拿 null 当“成功了”，也不能把“已下发无回执”说成“门已打开”。
         String note;
         if (opening && outcome.businessSuccess()) {
-            note = voucherNote(order.getVoucherCode(), openSlotNo);
+            note = vouchers.noteForNewOrder(order.getVoucherCode(), openSlotNo);
         } else if (outcome.message() != null && !outcome.message().isBlank()) {
             note = outcome.message();
         } else if (outcome.state() == com.wherelee.cabinet.device.api.CommandState.FAILED) {
@@ -726,33 +611,9 @@ public class StorageOrderService {
         if (order.getStatus().isTerminal()) {
             throw new BizException(ResultCode.BIZ_ERROR, "该单已结束，取件码已失效，无需重置");
         }
-        String finalCode = null;
-        for (int attempt = 1; ; attempt++) {
-            String fresh = VoucherCodes.newVoucher();
-            try {
-                int updated = orderMapper.update(null, Wrappers.<BizStorageOrder>lambdaUpdate()
-                        .eq(BizStorageOrder::getId, order.getId())
-                        .eq(BizStorageOrder::getVersion, order.getVersion())
-                        .set(BizStorageOrder::getVoucherCode, fresh)
-                        .set(BizStorageOrder::getVoucherWrongCount, 0)
-                        .set(BizStorageOrder::getVoucherLockedAt, null)
-                        .set(BizStorageOrder::getVersion, order.getVersion() + 1));
-                if (updated == 0) {
-                    throw new BizException(ResultCode.SYSTEM_ERROR,
-                            "订单已被并发修改，请重试 orderNo=" + orderNo);
-                }
-                finalCode = fresh;
-                break;
-            } catch (org.springframework.dao.DuplicateKeyException collision) {
-                if (!String.valueOf(collision.getMessage()).contains("uk_order_voucher")
-                        || attempt >= VOUCHER_RETRIES) {
-                    throw collision;
-                }
-                log.warn("重置时取件码撞号，换码重试 orderNo={} 第 {} 次", orderNo, attempt);
-            }
-        }
+        String finalCode = vouchers.rotate(order);
         // 一条凭证消息始终反映当前码：改写而不是再发一条（消息页堆废码比没码更糟）
-        notices.rewrite(orderNo + ":voucher", credentialNote(finalCode, slotNoOf(order.getSlotId())));
+        notices.rewrite(orderNo + ":voucher", vouchers.noteForExisting(finalCode, slotNoOf(order.getSlotId())));
         return new VoucherView(orderNo, cabinetNoOf(order.getCabinetId()), slotNoOf(order.getSlotId()),
                 order.getSizeType().name(), order.getStatus().name(), finalCode, false);
     }
@@ -1188,4 +1049,10 @@ public class StorageOrderService {
         }
         return order;
     }
+
+    /** 记一次凭据错误（双因子取件路径也走同一套计数）。 */
+    int registerVoucherWrong(BizStorageOrder order) {
+        return vouchers.registerWrong(order);
+    }
+
 }
