@@ -10,6 +10,3 @@ storage->funds:infra
 storage->locker:app
 storage->locker:domain
 storage->locker:infra
-storage->servicedesk:app
-storage->servicedesk:domain
-storage->servicedesk:infra

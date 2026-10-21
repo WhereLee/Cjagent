@@ -62,7 +62,7 @@ public class StorageOrderService {
     /** 门态/物检/异常的唯一写入口（第 13B 刀）。 */
     private final SlotPort states;
     /** 定-21/定-23：预备开重试无效时要开一条设备故障工单（不然故障只活在日志里）。 */
-    private final com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake;
+    private final com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort;
     // 柜内物品争议与“误报免除”已于 2026-10-12 作废（用户定：结束不拦人后“争议期间”不存在）。
     /** 欠费合计的只读查询（与后台展示同一口径，避免“后台说没欠、下单却被拒”）。 */
     private final com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper;
@@ -134,7 +134,7 @@ public class StorageOrderService {
                                com.wherelee.cabinet.funds.app.PriceRuleService priceRules,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
-                               com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake,
+                               com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort,
                                com.wherelee.cabinet.notify.api.NoticePort notices) {
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
@@ -144,7 +144,7 @@ public class StorageOrderService {
         this.deviceCommands = deviceCommands;
         this.funds = funds;
         this.states = states;
-        this.intake = intake;
+        this.workOrderPort = workOrderPort;
         this.notices = notices;
         this.consoleMapper = consoleMapper;
         this.priceRules = priceRules;
@@ -470,7 +470,7 @@ public class StorageOrderService {
             log.error("结算后取物开门下发失败 orderNo={}: {}", orderNo, offline.getMessage());
             states.markContentUnverified(order.getSlotId(),
                     "结算后取物开门下发失败（柜机离线或通道异常），物品仍在柜内，需现场开门");
-            intake.onOrderEvent(order, com.wherelee.cabinet.servicedesk.api.WorkOrderType.DEVICE_FAULT, true,
+            workOrderPort.openDeviceFault(order, true,
                     "用户已结束订单但取物开门下发失败（柜机离线或通道异常），需现场协助开门",
                     "取物开门无响应，已标格口异常", LocalDateTime.now().plusMinutes(10));
             return settled.withMessage("柜机现在连不上，门没打开：已通知现场人员，请联系客服或现场工作人员");
@@ -485,7 +485,7 @@ public class StorageOrderService {
             log.warn("结算后取物开门被柜机明确拒绝 orderNo={}", orderNo);
             states.markContentUnverified(order.getSlotId(),
                     "用户已结束订单但柜机明确回报打不开门：物品仍在柜内，需现场开门核验");
-            intake.onOrderEvent(order, com.wherelee.cabinet.servicedesk.api.WorkOrderType.DEVICE_FAULT, true,
+            workOrderPort.openDeviceFault(order, true,
                     "用户已结束订单但柜机明确回报打不开门，物品仍在柜内",
                     "取物开门失败，需现场开门", LocalDateTime.now().plusMinutes(10));
             return settled.withMessage("这个柜口打不开：已通知现场人员处理，请联系客服或现场工作人员");
@@ -856,7 +856,7 @@ public class StorageOrderService {
             orderMapper.updateById(order);
             log.warn("预备开失败判定格口故障并换格 old={} new={} orderNo={}",
                     oldSlotId, slot.getId(), order.getOrderNo());
-            intake.onOrderEvent(order, com.wherelee.cabinet.servicedesk.api.WorkOrderType.DEVICE_FAULT,
+            workOrderPort.openDeviceFault(order,
                     true, "预备开自动重试 " + (1 + (int) openRetries) + " 次柜机均回报开不了，旧格口已摘出可分配池",
                     "格口打不开，已改用格口 " + slot.getSlotNo(), LocalDateTime.now().plusHours(2));
             return true;

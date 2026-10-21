@@ -49,13 +49,13 @@ public class LeftoverRetrieveService {
     /** 格口状态动作：门态、清异常、证据与台账都从这里走。 */
     private final SlotPort slotStates;
     private final CommandPort deviceCommands;
-    private final com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders;
+    private final com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrders;
     /** 收敛走显式短事务：探测（sense）是一次设备问答，绝不能握着数据库连接做。 */
     private final TransactionTemplate newTx;
 
     public LeftoverRetrieveService(BizStorageOrderMapper orderMapper, SlotQueryPort slots,
                                    SlotPort slotStates, CommandPort deviceCommands,
-                                   com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders,
+                                   com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrders,
                                    TransactionTemplate txTemplate) {
         this.orderMapper = orderMapper;
         this.slots = slots;

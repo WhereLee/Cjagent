@@ -1,11 +1,16 @@
 package com.wherelee.cabinet.servicedesk.infra;
 
+import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderService;
+import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
 import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 工单端口适配器：把格口状态机要的那几个动作翻译成工单服务的方法。
@@ -19,10 +24,39 @@ public class WorkOrderPortAdapter implements WorkOrderPort {
 
     private final WorkOrderIntake intake;
     private final WorkOrderService workOrders;
+    private final BizWorkOrderMapper workOrderMapper;
 
-    public WorkOrderPortAdapter(WorkOrderIntake intake, WorkOrderService workOrders) {
+    public WorkOrderPortAdapter(WorkOrderIntake intake, WorkOrderService workOrders,
+                                BizWorkOrderMapper workOrderMapper) {
         this.intake = intake;
         this.workOrders = workOrders;
+        this.workOrderMapper = workOrderMapper;
+    }
+
+    @Override
+    public void openDeviceFault(BizStorageOrder order, boolean urgent, String detection, String title,
+                                LocalDateTime dueAt) {
+        intake.onOrderEvent(order, WorkOrderType.DEVICE_FAULT, urgent, detection, title, dueAt);
+    }
+
+    @Override
+    public List<WorkOrderBrief> byStorageId(Long storageOrderId, int limit) {
+        if (storageOrderId == null) {
+            return List.of();
+        }
+        return workOrderMapper.selectList(com.baomidou.mybatisplus.core.toolkit.Wrappers
+                        .<BizWorkOrder>lambdaQuery()
+                        .eq(BizWorkOrder::getStorageId, storageOrderId)
+                        .orderByDesc(BizWorkOrder::getCreateTime)
+                        .last("limit " + Math.max(1, Math.min(limit, 100))))
+                .stream()
+                .map(w -> new WorkOrderBrief(w.getId(), name(w.getStatus()), name(w.getCategory()),
+                        name(w.getPriority()), name(w.getCloseReason()), w.getTitle(), w.getCreateTime()))
+                .toList();
+    }
+
+    private static String name(Enum<?> value) {
+        return value == null ? null : value.name();
     }
 
     @Override

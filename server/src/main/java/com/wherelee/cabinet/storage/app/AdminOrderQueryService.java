@@ -16,7 +16,6 @@ import com.wherelee.cabinet.device.domain.BizDeviceCommand;
 import com.wherelee.cabinet.device.domain.BizItemEvidence;
 import com.wherelee.cabinet.locker.domain.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
 import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
@@ -24,7 +23,6 @@ import com.wherelee.cabinet.device.api.CommandPort;
 import com.wherelee.cabinet.device.api.EvidencePort;
 import com.wherelee.cabinet.locker.infra.BizSiteMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -67,7 +65,7 @@ public class AdminOrderQueryService {
     private final BizSiteMapper siteMapper;
     private final CommandPort commandPort;
     private final EvidencePort evidencePort;
-    private final BizWorkOrderMapper workOrderMapper;
+    private final com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort;
     private final StorageQueryService storageQueries;
 
     public AdminOrderQueryService(BizStorageOrderMapper orderMapper,
@@ -77,7 +75,7 @@ public class AdminOrderQueryService {
                                   BizSiteMapper siteMapper,
                                   CommandPort commandPort,
                                   EvidencePort evidencePort,
-                                  BizWorkOrderMapper workOrderMapper,
+                                  com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort,
                                   StorageQueryService storageQueries) {
         this.orderMapper = orderMapper;
         this.customers = customers;
@@ -86,7 +84,7 @@ public class AdminOrderQueryService {
         this.siteMapper = siteMapper;
         this.commandPort = commandPort;
         this.evidencePort = evidencePort;
-        this.workOrderMapper = workOrderMapper;
+        this.workOrderPort = workOrderPort;
         this.storageQueries = storageQueries;
     }
 
@@ -193,13 +191,10 @@ public class AdminOrderQueryService {
                         e.confidence(), e.aiLabel(), e.note(), e.at()))
                 .toList();
 
-        List<WorkOrderLine> workOrders = workOrderMapper.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
-                        .eq(BizWorkOrder::getStorageId, order.getId())
-                        .orderByDesc(BizWorkOrder::getCreateTime)
-                        .last("limit " + RELATED_WORK_ORDER_LIMIT))
+        List<WorkOrderLine> workOrders = workOrderPort.byStorageId(order.getId(), RELATED_WORK_ORDER_LIMIT)
                 .stream()
-                .map(w -> new WorkOrderLine(w.getId(), name(w.getStatus()), name(w.getCategory()),
-                        name(w.getPriority()), name(w.getCloseReason()), w.getTitle(), w.getCreateTime()))
+                .map(w -> new WorkOrderLine(w.id(), w.status(), w.category(), w.priority(),
+                        w.closeReason(), w.title(), w.createTime()))
                 .toList();
 
         return new OrderDetail(toRow(order, customer, cabinet, slot, site),
