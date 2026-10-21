@@ -140,6 +140,9 @@ async function openDetail(row: WorkOrderRow): Promise<void> {
     timeline.value = tl ?? []
     evidence.value = ev ?? []
     family.value = fam ?? null
+    // family.self 是详情接口现取的快照：操作后重新打开抽屉时，用它覆盖列表里的旧行，
+    // 否则“等待用户/恢复SLA”点了之后抽屉仍显示旧状态。
+    if (fam?.self) current.value = fam.self
   } catch (e) {
     ElMessage.error(e instanceof ApiError ? e.message : '详情加载失败')
   } finally {
