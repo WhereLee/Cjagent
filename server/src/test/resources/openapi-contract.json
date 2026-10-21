@@ -1,0 +1,4665 @@
+{
+  "components" : {
+    "schemas" : {
+      "AdminLoginRequest" : {
+        "properties" : {
+          "password" : {
+            "maxLength" : 64,
+            "minLength" : 6,
+            "type" : "string"
+          },
+          "tenantCode" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "username" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "password", "tenantCode", "username" ],
+        "type" : "object"
+      },
+      "AgentReply" : {
+        "properties" : {
+          "degraded" : {
+            "type" : "boolean"
+          },
+          "escalated" : {
+            "type" : "boolean"
+          },
+          "reply" : {
+            "type" : "string"
+          },
+          "ticketNo" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ArrearsView" : {
+        "properties" : {
+          "arrearsOrders" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "arrearsPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "customerId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "lastFinishedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "AskCommand" : {
+        "properties" : {
+          "question" : {
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "question" ],
+        "type" : "object"
+      },
+      "Availability" : {
+        "properties" : {
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "sizes" : {
+            "items" : {
+              "$ref" : "#/components/schemas/SizeFree"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "BillLine" : {
+        "properties" : {
+          "amount" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "at" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "balanceAfter" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "remark" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "BillView" : {
+        "properties" : {
+          "arrearsPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "billedHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "billedMinutes" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "capDays" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "chargePoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "dailyCapHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "finishedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "freeMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "lines" : {
+            "items" : {
+              "$ref" : "#/components/schemas/BillLine"
+            },
+            "type" : "array"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "prepayPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "settledPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "sizeType" : {
+            "type" : "string"
+          },
+          "startedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "unitPointsPerHour" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "BizCompartment" : {
+        "properties" : {
+          "anomaly" : {
+            "enum" : [ "DOOR_OPEN", "CONTENT_LEFT", "CONTENT_UNVERIFIED", "SENSOR_CONFLICT" ],
+            "type" : "string"
+          },
+          "anomalyAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "anomalyReason" : {
+            "type" : "string"
+          },
+          "cabinetId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "currentOrderId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "deleted" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "doorClosedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "doorClosedBy" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "doorOpenAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "doorOpenedBy" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "presence" : {
+            "enum" : [ "PRESENT", "ABSENT", "UNKNOWN" ],
+            "type" : "string"
+          },
+          "presenceCheckedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "sizeType" : {
+            "enum" : [ "LARGE", "MEDIUM", "SMALL" ],
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "status" : {
+            "enum" : [ "FREE", "RESERVED", "OCCUPIED", "FAULT", "MAINTENANCE" ],
+            "type" : "string"
+          },
+          "tenantId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "updateTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "version" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "Brief" : {
+        "properties" : {
+          "draftNote" : {
+            "type" : "string"
+          },
+          "similarCases" : {
+            "items" : {
+              "$ref" : "#/components/schemas/SimilarCase"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "CabinetView" : {
+        "properties" : {
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "onlineState" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "CallDoneCommand" : {
+        "properties" : {
+          "resultNote" : {
+            "maxLength" : 300,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "resultNote" ],
+        "type" : "object"
+      },
+      "ChatRequest" : {
+        "properties" : {
+          "message" : {
+            "maxLength" : 500,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "orderNo" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "message" ],
+        "type" : "object"
+      },
+      "ClosableView" : {
+        "properties" : {
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "sizeType" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "CommandLine" : {
+        "properties" : {
+          "ackedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "action" : {
+            "type" : "string"
+          },
+          "lastError" : {
+            "type" : "string"
+          },
+          "retryCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "sentAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "state" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ConfirmCommand" : {
+        "properties" : {
+          "note" : {
+            "maxLength" : 300,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "solved" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
+      },
+      "CreateOrderCommand" : {
+        "properties" : {
+          "cabinetNo" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "estimateMinutes" : {
+            "format" : "int32",
+            "maximum" : 4320,
+            "minimum" : 15,
+            "type" : "integer"
+          },
+          "requestId" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "sizeType" : {
+            "minLength" : 1,
+            "pattern" : "(?i)LARGE|MEDIUM|SMALL",
+            "type" : "string"
+          }
+        },
+        "required" : [ "cabinetNo", "requestId", "sizeType" ],
+        "type" : "object"
+      },
+      "CurrentAccountView" : {
+        "properties" : {
+          "authorities" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "end" : {
+            "type" : "string"
+          },
+          "tenantId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "userId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "CustomerLoginRequest" : {
+        "properties" : {
+          "code" : {
+            "maxLength" : 128,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "phone" : {
+            "maxLength" : 20,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "tenantCode" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "code" ],
+        "type" : "object"
+      },
+      "CustomerLoginView" : {
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "customerId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "expiresIn" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "newRegister" : {
+            "type" : "boolean"
+          },
+          "refreshExpiresIn" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          },
+          "tenantId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "tokenType" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "CustomerStatusRequest" : {
+        "properties" : {
+          "reason" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "status" : {
+            "format" : "int32",
+            "maximum" : 1,
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        },
+        "required" : [ "reason", "status" ],
+        "type" : "object"
+      },
+      "CustomerView" : {
+        "properties" : {
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "category" : {
+            "type" : "string"
+          },
+          "closeReason" : {
+            "type" : "string"
+          },
+          "closedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "mergedIntoId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "priority" : {
+            "type" : "string"
+          },
+          "reopenedCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "resolveDueAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "responseDueAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "resultNote" : {
+            "type" : "string"
+          },
+          "siteAddress" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "DepositView" : {
+        "properties" : {
+          "customerId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "depositId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "depositStatus" : {
+            "type" : "string"
+          },
+          "heldHours" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "points" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "Detail" : {
+        "properties" : {
+          "compartment" : {
+            "$ref" : "#/components/schemas/BizCompartment"
+          },
+          "currentOrder" : {
+            "$ref" : "#/components/schemas/OrderSnapshot"
+          },
+          "evidence" : {
+            "items" : {
+              "$ref" : "#/components/schemas/EvidenceSnapshot"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "Draft" : {
+        "properties" : {
+          "capDays" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "dailyCapHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "depositPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "effectiveAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "freeMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "reason" : {
+            "type" : "string"
+          },
+          "remoteCloseHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "siteId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "toleranceMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "unitLarge" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "unitMedium" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "unitSmall" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "EventView" : {
+        "properties" : {
+          "actorType" : {
+            "type" : "string"
+          },
+          "at" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "detail" : {
+            "type" : "string"
+          },
+          "eventType" : {
+            "type" : "string"
+          },
+          "operatorId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "EvidenceLine" : {
+        "properties" : {
+          "aiLabel" : {
+            "type" : "string"
+          },
+          "at" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "number"
+          },
+          "moment" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "presence" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "EvidenceSnapshot" : {
+        "properties" : {
+          "aiLabel" : {
+            "type" : "string"
+          },
+          "at" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "number"
+          },
+          "moment" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "photoRef" : {
+            "type" : "string"
+          },
+          "presence" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "EvidenceView" : {
+        "properties" : {
+          "aiLabel" : {
+            "type" : "string"
+          },
+          "at" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "confidence" : {
+            "type" : "number"
+          },
+          "moment" : {
+            "type" : "string"
+          },
+          "note" : {
+            "type" : "string"
+          },
+          "photoRef" : {
+            "type" : "string"
+          },
+          "presence" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "Family" : {
+        "properties" : {
+          "children" : {
+            "items" : {
+              "$ref" : "#/components/schemas/View"
+            },
+            "type" : "array"
+          },
+          "parent" : {
+            "$ref" : "#/components/schemas/View"
+          },
+          "self" : {
+            "$ref" : "#/components/schemas/View"
+          }
+        },
+        "type" : "object"
+      },
+      "ForceOpenRequest" : {
+        "properties" : {
+          "confirmed" : {
+            "type" : "boolean"
+          },
+          "reason" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "reason" ],
+        "type" : "object"
+      },
+      "HealthComponent" : {
+        "properties" : {
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "LedgerView" : {
+        "properties" : {
+          "anomaly" : {
+            "type" : "string"
+          },
+          "anomalyAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "anomalyReason" : {
+            "type" : "string"
+          },
+          "cabinetId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "compartmentId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "currentOrderId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "siteId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "siteName" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "stuckMinutes" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "MiniRefreshRequest" : {
+        "properties" : {
+          "refreshToken" : {
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [ "refreshToken" ],
+        "type" : "object"
+      },
+      "MiniTokenView" : {
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "expiresIn" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "refreshExpiresIn" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          },
+          "tokenType" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "OpsAnswer" : {
+        "properties" : {
+          "answer" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "OpsReport" : {
+        "properties" : {
+          "advice" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "crashArtifacts" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          },
+          "healthSummary" : {
+            "type" : "string"
+          },
+          "logFindings" : {
+            "items" : {
+              "type" : "string"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "OrderDetail" : {
+        "properties" : {
+          "aiReviewCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "bill" : {
+            "$ref" : "#/components/schemas/BillView"
+          },
+          "closeReason" : {
+            "type" : "string"
+          },
+          "commands" : {
+            "items" : {
+              "$ref" : "#/components/schemas/CommandLine"
+            },
+            "type" : "array"
+          },
+          "customerPhone" : {
+            "type" : "string"
+          },
+          "depositPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "disputeState" : {
+            "type" : "string"
+          },
+          "evidence" : {
+            "items" : {
+              "$ref" : "#/components/schemas/EvidenceLine"
+            },
+            "type" : "array"
+          },
+          "leftoverReported" : {
+            "type" : "boolean"
+          },
+          "remoteClosePoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "row" : {
+            "$ref" : "#/components/schemas/OrderRow"
+          },
+          "tempOpenCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "voucherLocked" : {
+            "type" : "boolean"
+          },
+          "voucherWrongCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "workOrders" : {
+            "items" : {
+              "$ref" : "#/components/schemas/WorkOrderLine"
+            },
+            "type" : "array"
+          }
+        },
+        "type" : "object"
+      },
+      "OrderRow" : {
+        "properties" : {
+          "arrearsPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "customerId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "customerName" : {
+            "type" : "string"
+          },
+          "finishedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "prepayPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "settledPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "siteName" : {
+            "type" : "string"
+          },
+          "sizeType" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "startedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "OrderSnapshot" : {
+        "properties" : {
+          "cabinetId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "customerId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "sizeType" : {
+            "type" : "string"
+          },
+          "slotId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "OrderView" : {
+        "properties" : {
+          "arrearsPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "expectedFinishAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "leftoverRetrievable" : {
+            "type" : "boolean"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "settledPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "sizeType" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "startedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "PageQuery" : {
+        "properties" : {
+          "asc" : {
+            "type" : "boolean"
+          },
+          "orderBy" : {
+            "type" : "string"
+          },
+          "pageNum" : {
+            "format" : "int64",
+            "minimum" : 1,
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "maximum" : 200,
+            "minimum" : 1,
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageResultArrearsView" : {
+        "properties" : {
+          "pageNum" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pages" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "records" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ArrearsView"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageResultDepositView" : {
+        "properties" : {
+          "pageNum" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pages" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "records" : {
+            "items" : {
+              "$ref" : "#/components/schemas/DepositView"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageResultLedgerView" : {
+        "properties" : {
+          "pageNum" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pages" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "records" : {
+            "items" : {
+              "$ref" : "#/components/schemas/LedgerView"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageResultOrderRow" : {
+        "properties" : {
+          "pageNum" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pages" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "records" : {
+            "items" : {
+              "$ref" : "#/components/schemas/OrderRow"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageResultUserView" : {
+        "properties" : {
+          "pageNum" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pages" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "records" : {
+            "items" : {
+              "$ref" : "#/components/schemas/UserView"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PageResultView" : {
+        "properties" : {
+          "pageNum" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pages" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "records" : {
+            "items" : {
+              "$ref" : "#/components/schemas/View"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "PhoneNoteCommand" : {
+        "properties" : {
+          "resultNote" : {
+            "maxLength" : 300,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "resultNote" ],
+        "type" : "object"
+      },
+      "PickupRequest" : {
+        "properties" : {
+          "phoneTail" : {
+            "minLength" : 1,
+            "pattern" : "\\d{4}",
+            "type" : "string"
+          },
+          "voucherCode" : {
+            "maxLength" : 16,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "phoneTail", "voucherCode" ],
+        "type" : "object"
+      },
+      "ProbeBody" : {
+        "properties" : {
+          "orderNo" : {
+            "minLength" : 1,
+            "type" : "string"
+          },
+          "password" : {
+            "type" : "string"
+          },
+          "phone" : {
+            "type" : "string"
+          }
+        },
+        "required" : [ "orderNo" ],
+        "type" : "object"
+      },
+      "RAgentReply" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/AgentReply"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RAvailability" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Availability"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RBillView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/BillView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RBrief" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Brief"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RCurrentAccountView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/CurrentAccountView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RCustomerLoginView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/CustomerLoginView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RCustomerView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/CustomerView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RDetail" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Detail"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RFamily" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/Family"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RHealthComponent" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/HealthComponent"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListCabinetView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/CabinetView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListClosableView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/ClosableView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListCustomerView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/CustomerView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListEventView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/EventView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListEvidenceView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/EvidenceView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListOrderView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/OrderView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListSiteView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/SiteView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListSummaryView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/SummaryView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/View"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RLong" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RMapStringObject" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "additionalProperties" : { },
+            "type" : "object"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RMiniTokenView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/MiniTokenView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ROpsAnswer" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/OpsAnswer"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ROpsReport" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/OpsReport"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ROrderDetail" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/OrderDetail"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RPageResultArrearsView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResultArrearsView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RPageResultDepositView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResultDepositView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RPageResultLedgerView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResultLedgerView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RPageResultOrderRow" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResultOrderRow"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RPageResultUserView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResultUserView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RPageResultView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResultView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RRechargeView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/RechargeView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RStorageOrderView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/StorageOrderView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RString" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "type" : "string"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RTokenView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/TokenView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/View"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RVoid" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : { },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RVoucherView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/VoucherView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RWalletView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/WalletView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "ReasonRequest" : {
+        "properties" : {
+          "reason" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "reason" ],
+        "type" : "object"
+      },
+      "RechargeCommand" : {
+        "properties" : {
+          "points" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "requestId" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "points", "requestId" ],
+        "type" : "object"
+      },
+      "RechargeView" : {
+        "properties" : {
+          "balance" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "channel" : {
+            "type" : "string"
+          },
+          "outTradeNo" : {
+            "type" : "string"
+          },
+          "points" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RefreshRequest" : {
+        "properties" : {
+          "refreshToken" : {
+            "minLength" : 1,
+            "type" : "string"
+          }
+        },
+        "required" : [ "refreshToken" ],
+        "type" : "object"
+      },
+      "ResolveCommand" : {
+        "properties" : {
+          "closeReason" : {
+            "enum" : [ "MANUAL", "FACT_RECOVERED", "USER_CONFIRMED", "MERGED", "CANCELLED" ],
+            "type" : "string"
+          },
+          "needOffline" : {
+            "type" : "boolean"
+          },
+          "requestId" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          },
+          "resultNote" : {
+            "maxLength" : 400,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "requestId", "resultNote" ],
+        "type" : "object"
+      },
+      "ResolveRequest" : {
+        "properties" : {
+          "note" : {
+            "maxLength" : 200,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        },
+        "required" : [ "note" ],
+        "type" : "object"
+      },
+      "SimilarCase" : {
+        "properties" : {
+          "resolvedAt" : {
+            "type" : "string"
+          },
+          "resultNote" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "SiteView" : {
+        "properties" : {
+          "address" : {
+            "type" : "string"
+          },
+          "cabinetCount" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "category" : {
+            "type" : "string"
+          },
+          "freeLarge" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "freeMedium" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "freeSmall" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "name" : {
+            "type" : "string"
+          },
+          "siteCode" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "SizeFree" : {
+        "properties" : {
+          "free" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "sizeType" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "StorageOrderView" : {
+        "properties" : {
+          "allocatedSize" : {
+            "type" : "string"
+          },
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "estimateMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "strategy" : {
+            "type" : "string"
+          },
+          "triedSlots" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "SummaryView" : {
+        "properties" : {
+          "anomaly" : {
+            "type" : "string"
+          },
+          "longestMinutes" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "rowsCount" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "TokenView" : {
+        "properties" : {
+          "accessToken" : {
+            "type" : "string"
+          },
+          "expiresIn" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "refreshExpiresIn" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "refreshToken" : {
+            "type" : "string"
+          },
+          "tokenType" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "UserView" : {
+        "properties" : {
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "lastLoginAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "phone" : {
+            "type" : "string"
+          },
+          "realName" : {
+            "type" : "string"
+          },
+          "status" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "username" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "View" : {
+        "properties" : {
+          "capDays" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "dailyCapHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "depositPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "effectiveAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "freeMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "publishedBy" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "reason" : {
+            "type" : "string"
+          },
+          "remoteCloseHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "siteId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "toleranceMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "unitLarge" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "unitMedium" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "unitSmall" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "version" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "VoucherView" : {
+        "properties" : {
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "locked" : {
+            "type" : "boolean"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "sizeType" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "voucherCode" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "WalletView" : {
+        "properties" : {
+          "activeOrders" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "arrearsPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "depositPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "frozenPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "points" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "unpaidOrders" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
+      "WorkOrderLine" : {
+        "properties" : {
+          "category" : {
+            "type" : "string"
+          },
+          "closeReason" : {
+            "type" : "string"
+          },
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "priority" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      }
+    }
+  },
+  "info" : {
+    "license" : {
+      "name" : "Private"
+    },
+    "title" : "暂存柜 SaaS 接口文档",
+    "version" : "0.0.1-SNAPSHOT"
+  },
+  "openapi" : "3.1.0",
+  "paths" : {
+    "/api/admin/auth/login" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AdminLoginRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RTokenView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-认证" ]
+      }
+    },
+    "/api/admin/auth/logout" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RefreshRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-认证" ]
+      }
+    },
+    "/api/admin/auth/me" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RCurrentAccountView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-认证" ]
+      }
+    },
+    "/api/admin/auth/refresh" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RTokenView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-认证" ]
+      }
+    },
+    "/api/admin/locker/arrears" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RPageResultArrearsView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/cabinets/{cabinetId}/free-set/rebuild" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "cabinetId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/compartments/anomalies" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        }, {
+          "in" : "query",
+          "name" : "anomaly",
+          "required" : false,
+          "schema" : {
+            "maxLength" : 24,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "siteId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RPageResultLedgerView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/compartments/anomalies/summary" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "siteId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListSummaryView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/compartments/{compartmentId}" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "compartmentId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RDetail"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/compartments/{compartmentId}/force-open" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "compartmentId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ForceOpenRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/compartments/{compartmentId}/resolve" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "compartmentId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/customers/{customerId}/status" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "customerId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CustomerStatusRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/locker/deposits/unrefunded" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RPageResultDepositView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-储物柜现场运营" ]
+      }
+    },
+    "/api/admin/ops/ask" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/AskCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ROpsAnswer"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-运维诊断" ]
+      }
+    },
+    "/api/admin/ops/diagnose" : {
+      "post" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ROpsReport"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-运维诊断" ]
+      }
+    },
+    "/api/admin/orders" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        }, {
+          "in" : "query",
+          "name" : "orderNo",
+          "required" : false,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "phone",
+          "required" : false,
+          "schema" : {
+            "maxLength" : 20,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "enum" : [ "INIT", "RESERVED", "OPENING", "STORED", "ACTIVE", "TEMP_OPEN", "SETTLING", "CLOSED", "CANCELLED", "ABNORMAL", "EXPIRED" ],
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "from",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "to",
+          "required" : false,
+          "schema" : {
+            "format" : "date",
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RPageResultOrderRow"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-订单" ]
+      }
+    },
+    "/api/admin/orders/{orderNo}" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/ROrderDetail"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-订单" ]
+      }
+    },
+    "/api/admin/pricing/effective" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "siteId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-计价策略" ]
+      }
+    },
+    "/api/admin/pricing/rules" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-计价策略" ]
+      },
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Draft"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-计价策略" ]
+      }
+    },
+    "/api/admin/pricing/rules/preview" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "siteId",
+          "required" : false,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/Draft"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RMapStringObject"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-计价策略" ]
+      }
+    },
+    "/api/admin/pricing/rules/{ruleId}/rollback" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "ruleId",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ReasonRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-计价策略" ]
+      }
+    },
+    "/api/admin/probe/authenticated" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "guarded-probe-controller" ]
+      }
+    },
+    "/api/admin/probe/permission" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "guarded-probe-controller" ]
+      }
+    },
+    "/api/admin/probe/role" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "guarded-probe-controller" ]
+      }
+    },
+    "/api/admin/users" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "keyword",
+          "required" : false,
+          "schema" : {
+            "maxLength" : 64,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "format" : "int32",
+            "maximum" : 1,
+            "minimum" : 0,
+            "type" : "integer"
+          }
+        }, {
+          "in" : "query",
+          "name" : "pageQuery",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RPageResultUserView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-账号" ]
+      }
+    },
+    "/api/admin/work-orders/field" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        }, {
+          "in" : "query",
+          "name" : "openOnly",
+          "required" : false,
+          "schema" : {
+            "default" : true,
+            "type" : "boolean"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RPageResultView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/notices/{id}/call-done" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CallDoneCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/online" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        }, {
+          "in" : "query",
+          "name" : "openOnly",
+          "required" : false,
+          "schema" : {
+            "default" : true,
+            "type" : "boolean"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RPageResultView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/pending-calls" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/triage/reload" : {
+      "post" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/ai-brief" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RBrief"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/claim" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/evidence" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListEvidenceView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/family" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RFamily"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/phone-note" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PhoneNoteCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/resolve" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ResolveCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RLong"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/sla/pause" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/sla/resume" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/admin/work-orders/{id}/timeline" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListEventView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-工单" ]
+      }
+    },
+    "/api/mini/auth/login" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CustomerLoginRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RCustomerLoginView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-认证" ]
+      }
+    },
+    "/api/mini/auth/logout" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MiniRefreshRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-认证" ]
+      }
+    },
+    "/api/mini/auth/me" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RCustomerView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-认证" ]
+      }
+    },
+    "/api/mini/auth/refresh" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/MiniRefreshRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RMiniTokenView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-认证" ]
+      }
+    },
+    "/api/mini/notices" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-消息" ]
+      }
+    },
+    "/api/mini/notices/{id}/read" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoid"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-消息" ]
+      }
+    },
+    "/api/mini/points/recharge" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/RechargeCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RRechargeView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-充值" ]
+      }
+    },
+    "/api/mini/storage/cabinets/{cabinetNo}/availability" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "cabinetNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RAvailability"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-柜机查询" ]
+      }
+    },
+    "/api/mini/storage/cabinets/{cabinetNo}/closable-slots" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "cabinetNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListClosableView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-代关" ]
+      }
+    },
+    "/api/mini/storage/cabinets/{cabinetNo}/slots/{slotNo}/closed-by-helper" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "cabinetNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }, {
+          "in" : "path",
+          "name" : "slotNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 16,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-代关" ]
+      }
+    },
+    "/api/mini/storage/orders" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListOrderView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-查询" ]
+      },
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/CreateOrderCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RStorageOrderView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-寄存" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/bill" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RBillView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-查询" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/door" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        }, {
+          "in" : "query",
+          "name" : "action",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 16,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RStorageOrderView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-寄存" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/leftover/open" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-遗留物取回" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/leftover/taken" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-遗留物取回" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/pickup" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PickupRequest"
+              }
+            }
+          }
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RStorageOrderView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-寄存" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/report-leftover" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RStorageOrderView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-寄存" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/voucher" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoucherView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-查询" ]
+      }
+    },
+    "/api/mini/storage/orders/{orderNo}/voucher/reset" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "orderNo",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RVoucherView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "用户端-寄存" ]
+      }
+    },
+    "/api/mini/storage/sites" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListSiteView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-查询" ]
+      }
+    },
+    "/api/mini/storage/sites/{siteCode}/cabinets" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "siteCode",
+          "required" : true,
+          "schema" : {
+            "maxLength" : 32,
+            "minLength" : 0,
+            "type" : "string"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListCabinetView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-查询" ]
+      }
+    },
+    "/api/mini/storage/wallet" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RWalletView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-查询" ]
+      }
+    },
+    "/api/mini/support/chat" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RAgentReply"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-智能客服" ]
+      }
+    },
+    "/api/mini/work-orders" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "limit",
+          "required" : false,
+          "schema" : {
+            "default" : 20,
+            "format" : "int32",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListCustomerView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-工单" ]
+      }
+    },
+    "/api/mini/work-orders/{id}" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RCustomerView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-工单" ]
+      }
+    },
+    "/api/mini/work-orders/{id}/confirm" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ConfirmCommand"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RLong"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "客户-工单" ]
+      }
+    },
+    "/api/public/probe/audit" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProbeBody"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "annotated-probe-controller" ]
+      }
+    },
+    "/api/public/probe/audit-failing" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProbeBody"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "annotated-probe-controller" ]
+      }
+    },
+    "/api/public/probe/audit-no-params" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProbeBody"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "annotated-probe-controller" ]
+      }
+    },
+    "/api/public/probe/idempotent" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProbeBody"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "annotated-probe-controller" ]
+      }
+    },
+    "/api/public/probe/idempotent-failing" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProbeBody"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "annotated-probe-controller" ]
+      }
+    },
+    "/api/public/probe/idempotent-fallback" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/ProbeBody"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "annotated-probe-controller" ]
+      }
+    },
+    "/api/public/probe/limited" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RString"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "annotated-probe-controller" ]
+      }
+    },
+    "/api/public/storage/pickup" : {
+      "post" : {
+        "requestBody" : {
+          "content" : {
+            "application/json" : {
+              "schema" : {
+                "$ref" : "#/components/schemas/PickupRequest"
+              }
+            }
+          },
+          "required" : true
+        },
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RStorageOrderView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "公开-凭码取件" ]
+      }
+    },
+    "/api/system/health" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RHealthComponent"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "系统自检" ]
+      }
+    }
+  },
+  "tags" : [ {
+    "name" : "客户-工单"
+  }, {
+    "name" : "后台-订单"
+  }, {
+    "name" : "客户-柜机查询"
+  }, {
+    "name" : "公开-凭码取件"
+  }, {
+    "name" : "后台-运维诊断"
+  }, {
+    "name" : "客户-查询"
+  }, {
+    "name" : "客户-遗留物取回"
+  }, {
+    "name" : "客户-智能客服"
+  }, {
+    "name" : "后台-工单"
+  }, {
+    "name" : "客户-代关"
+  }, {
+    "name" : "客户-消息"
+  } ]
+}
