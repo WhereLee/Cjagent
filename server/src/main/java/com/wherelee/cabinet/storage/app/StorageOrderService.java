@@ -68,8 +68,6 @@ public class StorageOrderService {
     private final com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper;
     /** 取件凭据的站内消息（第 25 刀）：下单发一条，重置改写同一条。 */
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
-    /** 容错期也可以按点位发布（第 14D 刀）；没发布时仍用配置默认值。 */
-    private final com.wherelee.cabinet.funds.app.PriceRuleService priceRules;
     /**
      * 取件码错次与锁定要用**独立事务**写：错码后要抛异常，外层事务会回滚，
      * 同一事务里写的计数与锁定会跟着消失——结果是“永远数不到第五次，永远锁不上”却看不出来。
@@ -131,7 +129,6 @@ public class StorageOrderService {
                                com.wherelee.cabinet.storage.api.FundPort funds,
                                SlotPort states,
                                com.wherelee.cabinet.locker.infra.BizLockerConsoleMapper consoleMapper,
-                               com.wherelee.cabinet.funds.app.PriceRuleService priceRules,
                                org.springframework.transaction.support.TransactionTemplate txTemplate,
                                org.springframework.beans.factory.ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
                                com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort,
@@ -147,7 +144,6 @@ public class StorageOrderService {
         this.workOrderPort = workOrderPort;
         this.notices = notices;
         this.consoleMapper = consoleMapper;
-        this.priceRules = priceRules;
         this.newTx = new org.springframework.transaction.support.TransactionTemplate(
                 txTemplate.getTransactionManager());
         this.newTx.setPropagationBehavior(
@@ -1089,8 +1085,8 @@ public class StorageOrderService {
      * 没发布过策略时退回配置默认值，与下单冻结时取价的回退路径一致。
      */
     private long toleranceOf(BizStorageOrder order) {
-        com.wherelee.cabinet.funds.domain.BizPriceRule rule = priceRules.effective(order.getSiteId());
-        return rule == null ? firstRemindMinutes : rule.getToleranceMinutes();
+        long configured = funds.toleranceMinutesOf(order.getSiteId());
+        return configured < 0 ? firstRemindMinutes : configured;
     }
 
     /** 登记“门开未关”看管，并把容错到期时刻定下来（两者是同一个时刻）。 */

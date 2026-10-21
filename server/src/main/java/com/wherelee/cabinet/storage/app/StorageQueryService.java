@@ -55,21 +55,17 @@ public class StorageQueryService {
     private final BizCabinetMapper cabinetMapper;
     private final BizCompartmentMapper slotMapper;
     private final BizStorageOrderMapper orderMapper;
-    private final BizPointTxnMapper txnMapper;
-    private final PointAccountService accounts;
-    private final PricingPolicy pricing;
+    /** 账单口径的资金能力（流水、快照参数、算价）从这里取。 */
+    private final com.wherelee.cabinet.storage.api.FundPort funds;
 
     public StorageQueryService(BizSiteMapper siteMapper, BizCabinetMapper cabinetMapper,
                                BizCompartmentMapper slotMapper, BizStorageOrderMapper orderMapper,
-                               BizPointTxnMapper txnMapper, PointAccountService accounts,
-                               PricingPolicy pricing) {
+                               com.wherelee.cabinet.storage.api.FundPort funds) {
         this.siteMapper = siteMapper;
         this.cabinetMapper = cabinetMapper;
         this.slotMapper = slotMapper;
         this.orderMapper = orderMapper;
-        this.txnMapper = txnMapper;
-        this.accounts = accounts;
-        this.pricing = pricing;
+        this.funds = funds;
     }
 
     /**
@@ -231,7 +227,7 @@ public class StorageQueryService {
     public WalletView wallet(Long customerId) {
         // 新注册客户在首次入账前没有点账户：钱包是只读视图，如实返回 0，
         // 不能在这里抛 NPE（实测：新用户第一次打开钱包会得到 500）。
-        var account = accounts.accountOf(customerId);
+        var account = funds.accountOf(customerId);
         // 不能 limit 50：下单拦截用的是全量 sum（BizLockerConsoleMapper.sumCustomerArrears），
         // 这里少算一张就会出现“钱包说没欠、下单却被拒”。只取欠费列，笔数由结果条数给出。
         List<BizStorageOrder> unpaid = orderMapper.selectList(Wrappers.<BizStorageOrder>lambdaQuery()
@@ -242,9 +238,9 @@ public class StorageQueryService {
         long activeOrders = orderMapper.selectCount(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getCustomerId, customerId)
                 .in(BizStorageOrder::getStatus, ACTIVE_STATES));
-        return new WalletView(account == null ? 0L : nvl(account.getPoints()),
-                account == null ? 0L : nvl(account.getFrozenPoints()),
-                account == null ? 0L : nvl(account.getDepositPoints()),
+        return new WalletView(account == null ? 0L : nvl(account.points()),
+                account == null ? 0L : nvl(account.frozenPoints()),
+                account == null ? 0L : nvl(account.depositPoints()),
                 arrears, unpaid.size(), activeOrders);
     }
 
@@ -285,18 +281,12 @@ public class StorageQueryService {
         LocalDateTime end = order.getFinishedAt() != null ? order.getFinishedAt() : LocalDateTime.now();
         long minutes = order.getStartedAt() == null ? 0L
                 : Math.max(0L, Duration.between(order.getStartedAt(), end).toMinutes());
-        var params = pricing.snapshotParams(order.getPricingSnapshot());
-        var quote = pricing.fromSnapshot(order.getPricingSnapshot(), minutes);
+        var params = funds.priceParamsOf(order.getPricingSnapshot());
+        var quote = funds.quoteOf(order.getPricingSnapshot(), minutes);
         // ref_type 不能省：idx_txn_ref 是 (ref_type, ref_id)，只给 ref_id 用不上索引，
         // 还会把其他单据类型下恰好同 id 的流水混进来。
-        java.util.List<BillLine> lines = txnMapper.selectList(Wrappers.<BizPointTxn>lambdaQuery()
-                        .eq(BizPointTxn::getRefType, com.wherelee.cabinet.funds.app.OrderFundService.REF_ORDER)
-                        .eq(BizPointTxn::getRefId, order.getId())
-                        .orderByAsc(BizPointTxn::getCreateTime)
-                        .last("limit 60"))
-                .stream()
-                .map(t -> new BillLine(t.getBizType() == null ? null : t.getBizType().name(),
-                        nvl(t.getAmount()), nvl(t.getBalanceAfter()), t.getRemark(), t.getCreateTime()))
+        java.util.List<BillLine> lines = funds.txnsOf(order.getId(), 60).stream()
+                .map(t -> new BillLine(t.bizType(), t.amount(), t.balanceAfter(), t.remark(), t.createTime()))
                 .toList();
         return new BillView(order.getOrderNo(),
                 order.getStatus() == null ? null : order.getStatus().name(),

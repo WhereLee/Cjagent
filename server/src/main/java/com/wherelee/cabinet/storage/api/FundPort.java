@@ -3,31 +3,52 @@ package com.wherelee.cabinet.storage.api;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderCloseReason;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 /**
- * 订单需要的资金能力（消费方定义的端口）。
+ * 资金端口：订单侧只描述“要做的资金动作”，不碰账户、流水与价策。
  *
- * <p>为什么端口放在 storage 而不是 funds：这四项是“订单流程要钱做什么”，由订单侧定义；
- * 资金服务负责实现。将来拆进程时，把实现换成 HTTP 客户端即可，订单侧一行不动。
- *
- * <p><b>仍然传实体的原因</b>：hold/settle 会在同一个事务里改订单的
- * prepay/settled/arrears 并落库（乐观锁在订单实体上）。改成“返回金额变更、由订单落库”
- * 需要重排事务与补扣路径，属于资金专项改造，不夹在结构搬迁里做。
- * 适配器放在 {@code funds.infra}，把这处临时耦合收在一个类里。
+ * <p>为什么入参还是订单实体：押金、预收、结算、欠费这几列就落在订单上，并且和订单状态
+ * 在同一事务、同一乐观锁版本里推进。换成 DTO 会把“同一行数据的两个写者”藏起来——
+ * 那比现在的显式耦合更危险。收口办法是：只有本端口的适配器允许碰这些列。
  */
 public interface FundPort {
 
-    /** 下单预收：从可用余额扣 4 小时费用，余额不足直接失败。 */
     void holdFunds(BizStorageOrder order);
 
-    /** 下单失败：预收全额退回。 */
     void cancelHold(BizStorageOrder order);
 
-    /** 结算：多退少补、落欠费、关单、释放格口。 */
     void settle(BizStorageOrder order, long actualMinutes, OrderCloseReason reason);
 
-    /** 快照里的封顶天数（订单侧算呆滞用，不把 PricingPolicy 泄进来）。 */
     int capDaysOf(String pricingSnapshot);
 
-    /** 押金退还重试（调度任务用）。 @return 实际退还的点数 */
     int refundHangingDeposit(BizStorageOrder order);
+
+    /** 计时容忍时长（分钟）：算价与计时必须同一版策略，不能各取一套。 */
+    int toleranceMinutesOf(Long siteId);
+
+    /** 账单快照里的计价参数：用户端与后台共用一份口径。 */
+    PriceParams priceParamsOf(String pricingSnapshot);
+
+    /** 按快照与实际用时算价（结算与账单展示同一套算法）。 */
+    PriceQuote quoteOf(String pricingSnapshot, long actualMinutes);
+
+    /** 这张单的资金流水（旧→新，最多 limit 条）。 */
+    List<TxnLine> txnsOf(Long orderId, int limit);
+
+    /** 钱包三栏（可用/冻结/押金）；新用户首次入账前没有账户行，返回 null。 */
+    AccountView accountOf(Long customerId);
+
+    record AccountView(Long points, Long frozenPoints, Long depositPoints) {
+    }
+
+    record PriceParams(long unitPointsPerHour, int freeMinutes, int dailyCapHours, int capDays) {
+    }
+
+    record PriceQuote(int billedHours, long consumePoints) {
+    }
+
+    record TxnLine(String bizType, long amount, long balanceAfter, String remark, LocalDateTime createTime) {
+    }
 }
