@@ -4,6 +4,7 @@ import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.assistant.infra.OpsTools;
+import com.wherelee.cabinet.device.api.FaultQueryPort;
 import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,6 +51,8 @@ class OpsFlowTest {
     private HealthEndpoint healthEndpoint;
     @Autowired
     private BizFaultEventMapper faultEvents;
+    @Autowired
+    private FaultQueryPort faultQueries;
 
     private JdbcTemplate jdbc;
     private Long siteId;
@@ -96,7 +99,7 @@ class OpsFlowTest {
     @Test
     @DisplayName("真实组合健康可展开：db/redis 等组件状态进文本（组合体递归的真实验证）")
     void realCompositeHealthFlattens() {
-        OpsTools tools = new OpsTools(healthEndpoint, faultEvents, "logs");
+        OpsTools tools = new OpsTools(healthEndpoint, faultQueries, "logs");
 
         String out = TenantContext.callAs(TENANT, tools::systemHealth);
 
@@ -112,7 +115,7 @@ class OpsFlowTest {
                 + "values (?, ?, ?, ?, 'OPEN_FAILED', 'MARK_UNAVAILABLE', 3, '运维诊断夹具：连续开门失败', NOW(3), NOW(3), 0)",
                 siteId + 9, TENANT, cabinetId, siteId + 2);
 
-        OpsTools tools = new OpsTools(healthEndpoint, faultEvents, "logs");
+        OpsTools tools = new OpsTools(healthEndpoint, faultQueries, "logs");
         String out = TenantContext.callAs(TENANT, tools::faultLedger);
 
         assertTrue(out.contains(String.valueOf(siteId + 2)), out);

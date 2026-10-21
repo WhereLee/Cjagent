@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.assistant.infra;
 
 import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
-import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
+import com.wherelee.cabinet.device.api.FaultQueryPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -35,12 +35,12 @@ public class MimoOpsAgent implements OpsDiagnosePort {
 
     private final ChatClient chatClient;
     private final HealthEndpoint healthEndpoint;
-    private final BizFaultEventMapper faultEvents;
+    private final FaultQueryPort faultEvents;
     private final String logDir;
     private final String systemPrompt;
 
     public MimoOpsAgent(ChatClient chatClient, HealthEndpoint healthEndpoint,
-                        BizFaultEventMapper faultEvents,
+                        FaultQueryPort faultEvents,
                         @Value("${cabinet.ops.log-dir:logs}") String logDir) {
         this.chatClient = chatClient;
         this.healthEndpoint = healthEndpoint;

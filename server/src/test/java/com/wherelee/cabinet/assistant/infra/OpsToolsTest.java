@@ -1,8 +1,6 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.wherelee.cabinet.device.domain.BizFaultEvent;
-import com.wherelee.cabinet.device.api.FaultType;
-import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
+import com.wherelee.cabinet.device.api.FaultQueryPort;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -17,7 +15,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -36,7 +34,7 @@ class OpsToolsTest {
     private static final String ERROR_FILE = "cabinet-server-error.log";
 
     private final HealthEndpoint healthEndpoint = mock(HealthEndpoint.class);
-    private final BizFaultEventMapper faultEvents = mock(BizFaultEventMapper.class);
+    private final FaultQueryPort faultEvents = mock(FaultQueryPort.class);
 
     @TempDir
     Path tempDir;
@@ -112,14 +110,12 @@ class OpsToolsTest {
     @Test
     @DisplayName("故障台账：空则明说，有则逐条列出")
     void faultLedgerListsRecentEvents() {
-        when(faultEvents.selectList(any())).thenReturn(List.of());
+        when(faultEvents.recent(anyInt())).thenReturn(List.of());
         assertTrue(tools().faultLedger().contains("为空"), "空台账要明说");
 
-        BizFaultEvent event = new BizFaultEvent();
-        event.setSlotId(88001L);
-        event.setAction(FaultType.Action.MARK_UNAVAILABLE);
-        event.setCreateTime(LocalDateTime.now());
-        when(faultEvents.selectList(any())).thenReturn(List.of(event));
+        FaultQueryPort.FaultSnapshot event = new FaultQueryPort.FaultSnapshot(88001L,
+                "MARK_UNAVAILABLE", LocalDateTime.now());
+        when(faultEvents.recent(anyInt())).thenReturn(List.of(event));
 
         String out = tools().faultLedger();
         assertTrue(out.contains("88001") && out.contains("MARK_UNAVAILABLE"), out);
@@ -130,7 +126,7 @@ class OpsToolsTest {
     void toolsAreReadOnly() throws Exception {
         writeErrorLog("some log");
         when(healthEndpoint.health()).thenReturn(Health.up().build());
-        when(faultEvents.selectList(any())).thenReturn(List.of());
+        when(faultEvents.recent(anyInt())).thenReturn(List.of());
 
         tools().systemHealth();
         tools().errorLogTail();
@@ -138,8 +134,7 @@ class OpsToolsTest {
         tools().crashArtifacts();
         tools().faultLedger();
 
-        verify(faultEvents, never()).insert(any(BizFaultEvent.class));
-        verify(faultEvents, never()).deleteById(1L);
-        verify(faultEvents, never()).updateById(any(BizFaultEvent.class));
+        // 台账只有只读端口：接口里根本没有写方法，“写一次都不许”退化成“拿不到写入口”
+        verify(faultEvents, never()).recent(-1);
     }
 }

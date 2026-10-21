@@ -1,8 +1,7 @@
 package com.wherelee.cabinet.assistant.infra;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.device.domain.BizFaultEvent;
-import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
+import com.wherelee.cabinet.device.api.FaultQueryPort;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.boot.actuate.health.CompositeHealth;
 import org.springframework.boot.actuate.health.Health;
@@ -37,10 +36,10 @@ public class OpsTools {
     private static final int FAULT_LIMIT = 20;
 
     private final HealthEndpoint healthEndpoint;
-    private final BizFaultEventMapper faultEvents;
+    private final FaultQueryPort faultEvents;
     private final Path logDir;
 
-    public OpsTools(HealthEndpoint healthEndpoint, BizFaultEventMapper faultEvents, String logDir) {
+    public OpsTools(HealthEndpoint healthEndpoint, FaultQueryPort faultEvents, String logDir) {
         this.healthEndpoint = healthEndpoint;
         this.faultEvents = faultEvents;
         this.logDir = Path.of(logDir == null || logDir.isBlank() ? "logs" : logDir);
@@ -113,17 +112,15 @@ public class OpsTools {
 
     @Tool(description = "查故障台账：最近20条设备故障事件（哪个格口、什么动作、什么时候），用于回答\"最近出过什么故障\"类问题。")
     public String faultLedger() {
-        List<BizFaultEvent> events = faultEvents.selectList(Wrappers.<BizFaultEvent>lambdaQuery()
-                .orderByDesc(BizFaultEvent::getId)
-                .last("limit " + FAULT_LIMIT));
+        List<FaultQueryPort.FaultSnapshot> events = faultEvents.recent(FAULT_LIMIT);
         if (events.isEmpty()) {
             return "故障台账为空：设备侧最近没有故障事件。";
         }
         StringBuilder sb = new StringBuilder("最近故障事件（新→旧，最多 ").append(FAULT_LIMIT).append(" 条）：");
-        for (BizFaultEvent event : events) {
-            sb.append("\n- slotId=").append(event.getSlotId())
-                    .append(" 动作=").append(event.getAction())
-                    .append(" at=").append(event.getCreateTime());
+        for (FaultQueryPort.FaultSnapshot event : events) {
+            sb.append("\n- slotId=").append(event.slotId())
+                    .append(" 动作=").append(event.action())
+                    .append(" at=").append(event.at());
         }
         return sb.toString();
     }

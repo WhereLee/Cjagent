@@ -1,5 +1,3 @@
-assistant->device:domain
-assistant->device:infra
 assistant->servicedesk:app
 assistant->servicedesk:domain
 assistant->servicedesk:infra
