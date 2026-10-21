@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
  * 详情固定六条等值查询（单/客户/账单/指令/证据/工单），不引入缓存。
  */
 @Service
-public class AdminOrderQueryService {
+public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.AdminOrderConsolePort {
 
     /** 允许前端自定义排序的字段（PageSupport 白名单）。 */
     private static final Set<String> ORDER_SORTABLE = Set.of("createTime", "finishedAt");
@@ -80,51 +80,6 @@ public class AdminOrderQueryService {
         this.storageQueries = storageQueries;
     }
 
-    /** 列表行：客服一眼要能对上“哪张单、在哪个柜子、欠不欠钱”。 */
-    public record OrderRow(Long id, String orderNo, String status, String sizeType,
-                           Long customerId, String customerName,
-                           String siteName, String cabinetNo, String slotNo,
-                           long prepayPoints, long settledPoints, long arrearsPoints,
-                           LocalDateTime createTime, LocalDateTime startedAt, LocalDateTime finishedAt) {
-    }
-
-    /** 一张指令流水：AI/客服判断“门到底开没开”靠的就是这一行。 */
-    public record CommandLine(String action, String state, int retryCount,
-                              LocalDateTime sentAt, LocalDateTime ackedAt, String lastError) {
-    }
-
-    /** 一次物检测量（只增不改的证据）。 */
-    public record EvidenceLine(String source, String presence, String moment,
-                               BigDecimal confidence, String aiLabel, String note,
-                               LocalDateTime at) {
-    }
-
-    /** 这张单开过的工单（让客服先看有没有人已经在处理）。 */
-    public record WorkOrderLine(Long id, String status, String category, String priority,
-                                String closeReason, String title, LocalDateTime createTime) {
-    }
-
-    /**
-     * 详情：单 + 钱 + 设备动作 + 证据 + 关联工单。
-     *
-     * <p>{@code customerPhone} 只在详情返回、不加 {@code @JsonMask}：与工单详情同一口径，
-     * 客服要能回拨；列表没有这个字段，避免翻页把全租户手机号带出去。
-     */
-    public record OrderDetail(OrderRow row, String customerPhone,
-                              String closeReason, String disputeState, int aiReviewCount,
-                              int tempOpenCount, int voucherWrongCount, boolean voucherLocked,
-                              boolean leftoverReported, long depositPoints, long remoteClosePoints,
-                              StorageQueryService.BillView bill,
-                              List<CommandLine> commands, List<EvidenceLine> evidence,
-                              List<WorkOrderLine> workOrders) {
-    }
-
-    /**
-     * 分页查询。所有条件都可选；一个都不传就是“按创建时间倒序看最近的单”。
-     *
-     * <p>手机号精确匹配、命中不到客户时返回空页而不是 400：
-     * “查不到”是正常结果，不是参数错误——报错会让客服以为系统坏了。
-     */
     public PageResult<OrderRow> list(String orderNo, String phone, OrderStatus status,
                                      LocalDate from, LocalDate to, PageQuery query) {
         var wrapper = Wrappers.<BizStorageOrder>lambdaQuery();

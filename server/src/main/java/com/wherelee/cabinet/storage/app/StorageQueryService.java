@@ -47,7 +47,7 @@ import java.util.stream.Collectors;
  * 读出来的人和判的人若各算一遍，就会出现"后台说没欠、下单却被拒"这种口径分裂。
  */
 @Service
-public class StorageQueryService {
+public class StorageQueryService implements com.wherelee.cabinet.storage.api.StorageQueryPort {
 
     /** 活动中的状态：这三档表示格子还归这名用户占着。 */
     private static final List<OrderStatus> ACTIVE_STATES =
@@ -88,30 +88,6 @@ public class StorageQueryService {
                 slot == null ? "-" : slot.slotNo(),
                 order.getSizeType().name(), order.getStatus().name(),
                 order.getVoucherCode(), order.getVoucherLockedAt() != null);
-    }
-
-    /** 点位：找地方需要的字段 + 各尺寸还剩多少正常格口（全异常就是 0）。 */
-    public record SiteView(String siteCode, String name, String category, String address, long cabinetCount,
-                           long freeSmall, long freeMedium, long freeLarge) {
-    }
-
-    /** 点位下的一台暂存柜。状态与在线情况原样读出来给人看，不在这里下判断。 */
-    public record CabinetView(String cabinetNo, String name, String status, String onlineState) {
-    }
-
-    /**
-     * 一张寄存单的可见信息（含柜机与格口编号，用户凭这两个字段才能在柜机前对上位置）。
-     * leftoverRetrievable：这张单的格口正有他的遗留物待取回（第 21 刀，与开门校验同一判据）。
-     */
-    public record OrderView(String orderNo, String cabinetNo, String slotNo, String sizeType, String status,
-                            LocalDateTime startedAt, LocalDateTime expectedFinishAt, LocalDateTime createTime,
-                            long settledPoints, long arrearsPoints,
-                            boolean leftoverRetrievable) {
-    }
-
-    /** 钱包：余额、冻结、押金栏（历史遗留栏，仍要如实读出来）、欠费合计与未支付笔数。 */
-    public record WalletView(long points, long frozenPoints, long depositPoints, long arrearsPoints,
-                             long unpaidOrders, long activeOrders) {
     }
 
     public List<SiteView> sites() {
@@ -234,10 +210,6 @@ public class StorageQueryService {
         return value == null ? 0L : value;
     }
 
-    /** 一笔资金流水（用户能逐笔核对“钱去哪了”）。 */
-    public record BillLine(String type, long amount, long balanceAfter, String remark, LocalDateTime at) {
-    }
-
     /**
      * 一张单的账单明细：参数、时长、应收、预收、实收、欠费，以每一笔流水。
      *
@@ -284,12 +256,4 @@ public class StorageQueryService {
                 lines);
     }
 
-    /** 账单明细视图。金额全部是点（1 点 = 1 分），不在此处换算成元。 */
-    public record BillView(String orderNo, String status, String sizeType,
-                           LocalDateTime startedAt, LocalDateTime finishedAt, long billedMinutes,
-                           long unitPointsPerHour, int freeMinutes, int dailyCapHours, int capDays,
-                           int billedHours, long chargePoints,
-                           long prepayPoints, long settledPoints, long arrearsPoints,
-                           java.util.List<BillLine> lines) {
-    }
 }

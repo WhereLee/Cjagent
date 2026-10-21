@@ -1,3 +1,0 @@
-﻿assistant->storage:app
-bff.admin->storage:app
-bff.mini->storage:app

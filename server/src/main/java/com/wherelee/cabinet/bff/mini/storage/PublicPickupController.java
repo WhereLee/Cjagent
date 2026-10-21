@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.storage;
 
-import com.wherelee.cabinet.storage.app.PublicPickupService;
+import com.wherelee.cabinet.storage.api.PublicPickupPort;
 import com.wherelee.cabinet.storage.api.StorageOrderView;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
@@ -29,9 +29,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/public/storage")
 public class PublicPickupController {
 
-    private final PublicPickupService pickupService;
+    private final PublicPickupPort pickupService;
 
-    public PublicPickupController(PublicPickupService pickupService) {
+    public PublicPickupController(PublicPickupPort pickupService) {
         this.pickupService = pickupService;
     }
 

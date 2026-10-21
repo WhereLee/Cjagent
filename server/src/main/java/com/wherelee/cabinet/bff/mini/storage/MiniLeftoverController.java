@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.storage;
 
-import com.wherelee.cabinet.storage.app.LeftoverRetrieveService;
+import com.wherelee.cabinet.storage.api.LeftoverPort;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.annotation.RateLimit;
@@ -33,9 +33,9 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class MiniLeftoverController {
 
-    private final LeftoverRetrieveService retrievals;
+    private final LeftoverPort retrievals;
 
-    public MiniLeftoverController(LeftoverRetrieveService retrievals) {
+    public MiniLeftoverController(LeftoverPort retrievals) {
         this.retrievals = retrievals;
     }
 

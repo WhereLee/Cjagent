@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.storage;
 
-import com.wherelee.cabinet.storage.app.StorageOrderFacade;
+import com.wherelee.cabinet.storage.api.StorageOrderCommandPort;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.storage.api.StorageOrderView;
@@ -41,9 +41,9 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class MiniStorageOrderController {
 
-    private final StorageOrderFacade storageOrderFacade;
+    private final StorageOrderCommandPort storageOrderFacade;
 
-    public MiniStorageOrderController(StorageOrderFacade storageOrderFacade) {
+    public MiniStorageOrderController(StorageOrderCommandPort storageOrderFacade) {
         this.storageOrderFacade = storageOrderFacade;
     }
 

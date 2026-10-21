@@ -39,7 +39,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 也不改订单状态——终态单就是终态，取回物这件事只记在格口、台账与工单流水上。
  */
 @Service
-public class LeftoverRetrieveService {
+public class LeftoverRetrieveService implements com.wherelee.cabinet.storage.api.LeftoverPort {
 
     private static final Logger log = LoggerFactory.getLogger(LeftoverRetrieveService.class);
 

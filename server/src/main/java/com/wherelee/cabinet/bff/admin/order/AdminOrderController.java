@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.admin.order;
 
-import com.wherelee.cabinet.storage.app.AdminOrderQueryService;
+import com.wherelee.cabinet.storage.api.AdminOrderConsolePort;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.R;
@@ -28,7 +28,7 @@ import java.time.LocalDate;
  * 这里只做“查得到、看得清”，不提供任何写操作——退款、减免、强制结束仍走原有入口。
  *
  * <p>不加 {@code @OperationLog}：只读请求进审计会把表立刻灌满（与账号列表同一理由）。
- * 返回的是应用层视图（{@link AdminOrderQueryService.OrderRow}），不回传实体（ArchUnit 会拦）。
+ * 返回的是应用层视图（{@link AdminOrderConsolePort.OrderRow}），不回传实体（ArchUnit 会拦）。
  */
 @Tag(name = "后台-订单", description = "按订单号/手机号/状态/时间查寄存单；只读，不改任何单")
 @RestController
@@ -36,9 +36,9 @@ import java.time.LocalDate;
 @Validated
 public class AdminOrderController {
 
-    private final AdminOrderQueryService orders;
+    private final AdminOrderConsolePort orders;
 
-    public AdminOrderController(AdminOrderQueryService orders) {
+    public AdminOrderController(AdminOrderConsolePort orders) {
         this.orders = orders;
     }
 
@@ -46,7 +46,7 @@ public class AdminOrderController {
             description = "默认按创建时间倒序；所有条件可选。手机号精确匹配，命中不到返回空页")
     @PreAuthorize("hasAuthority('order:list')")
     @GetMapping
-    public R<PageResult<AdminOrderQueryService.OrderRow>> list(
+    public R<PageResult<AdminOrderConsolePort.OrderRow>> list(
             @Valid PageQuery query,
             @RequestParam(required = false) @Size(max = 32) String orderNo,
             @RequestParam(required = false) @Size(max = 20) String phone,
@@ -60,7 +60,7 @@ public class AdminOrderController {
             description = "状态、资金与账单流水、设备动作、格口证据、关联工单；跨租户查不到与不存在同一处理")
     @PreAuthorize("hasAuthority('order:list')")
     @GetMapping("/{orderNo}")
-    public R<AdminOrderQueryService.OrderDetail> detail(
+    public R<AdminOrderConsolePort.OrderDetail> detail(
             @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(orders.detail(orderNo));
     }

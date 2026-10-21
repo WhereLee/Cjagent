@@ -31,7 +31,7 @@ import org.springframework.stereotype.Service;
  * 码真而尾号错，则照记不误——那正是有人拿着真码在试尾号。
  */
 @Service
-public class PublicPickupService {
+public class PublicPickupService implements com.wherelee.cabinet.storage.api.PublicPickupPort {
 
     private static final Logger log = LoggerFactory.getLogger(PublicPickupService.class);
 

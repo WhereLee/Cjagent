@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.wherelee.cabinet.storage.app.StorageOrderFacade;
-import com.wherelee.cabinet.storage.app.StorageQueryService;
+import com.wherelee.cabinet.storage.api.StorageOrderCommandPort;
+import com.wherelee.cabinet.storage.api.StorageQueryPort;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderHandoffPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderIntakePort;
@@ -43,8 +43,8 @@ public class MimoSupportAgent implements SupportAgentPort {
             回答用简体中文：先结论、后下一步，不超过 5 句，不用感叹号。""";
 
     private final ChatClient chatClient;
-    private final StorageQueryService queries;
-    private final StorageOrderFacade doors;
+    private final StorageQueryPort queries;
+    private final StorageOrderCommandPort doors;
     private final WorkOrderIntakePort intake;
     private final BizStorageOrderMapper orderMapper;
     private final WorkOrderPort workOrderPort;
@@ -52,7 +52,7 @@ public class MimoSupportAgent implements SupportAgentPort {
     private final String systemPrompt;
 
     public MimoSupportAgent(ChatClient chatClient,
-                            StorageQueryService queries, StorageOrderFacade doors,
+                            StorageQueryPort queries, StorageOrderCommandPort doors,
                             WorkOrderIntakePort intake, BizStorageOrderMapper orderMapper,
                             WorkOrderPort workOrderPort, WorkOrderHandoffPort handoffs) {
         this.chatClient = chatClient;

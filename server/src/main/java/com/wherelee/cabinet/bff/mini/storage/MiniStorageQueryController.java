@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.storage;
 
-import com.wherelee.cabinet.storage.app.StorageQueryService;
+import com.wherelee.cabinet.storage.api.StorageQueryPort;
 import com.wherelee.cabinet.common.api.R;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.platform.security.Caller;
@@ -31,9 +31,9 @@ import java.util.List;
 @RequestMapping("/api/mini/storage")
 public class MiniStorageQueryController {
 
-    private final StorageQueryService queries;
+    private final StorageQueryPort queries;
 
-    public MiniStorageQueryController(StorageQueryService queries) {
+    public MiniStorageQueryController(StorageQueryPort queries) {
         this.queries = queries;
     }
 
@@ -41,7 +41,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/sites")
-    public R<List<StorageQueryService.SiteView>> sites() {
+    public R<List<StorageQueryPort.SiteView>> sites() {
         return R.ok(queries.sites());
     }
 
@@ -49,7 +49,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/sites/{siteCode}/cabinets")
-    public R<List<StorageQueryService.CabinetView>> cabinets(
+    public R<List<StorageQueryPort.CabinetView>> cabinets(
             @PathVariable @NotBlank @Size(max = 32) String siteCode) {
         return R.ok(queries.cabinets(siteCode));
     }
@@ -58,7 +58,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/orders")
-    public R<List<StorageQueryService.OrderView>> myOrders(@AuthenticationPrincipal Caller current,
+    public R<List<StorageQueryPort.OrderView>> myOrders(@AuthenticationPrincipal Caller current,
                                                            @RequestParam(defaultValue = "20") int limit) {
         return R.ok(queries.myOrders(current.subjectId(), limit));
     }
@@ -68,7 +68,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/orders/{orderNo}/bill")
-    public R<StorageQueryService.BillView> bill(@AuthenticationPrincipal Caller current,
+    public R<StorageQueryPort.BillView> bill(@AuthenticationPrincipal Caller current,
                                                 @PathVariable @NotBlank @Size(max = 32) String orderNo) {
         return R.ok(queries.bill(current.subjectId(), orderNo));
     }
@@ -90,7 +90,7 @@ public class MiniStorageQueryController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping("/wallet")
-    public R<StorageQueryService.WalletView> wallet(@AuthenticationPrincipal Caller current) {
+    public R<StorageQueryPort.WalletView> wallet(@AuthenticationPrincipal Caller current) {
         return R.ok(queries.wallet(current.subjectId()));
     }
 }

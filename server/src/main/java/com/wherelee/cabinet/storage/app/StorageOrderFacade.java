@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
  * 由 {@link AsyncStorageOrderAppService#cancelQueued} 处理"取消先于落库"的赛跑）。
  */
 @Service
-public class StorageOrderFacade {
+public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.StorageOrderCommandPort {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(StorageOrderFacade.class);
 

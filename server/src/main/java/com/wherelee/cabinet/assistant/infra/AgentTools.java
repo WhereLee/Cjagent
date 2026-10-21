@@ -1,8 +1,8 @@
 package com.wherelee.cabinet.assistant.infra;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.storage.app.StorageOrderFacade;
-import com.wherelee.cabinet.storage.app.StorageQueryService;
+import com.wherelee.cabinet.storage.api.StorageOrderCommandPort;
+import com.wherelee.cabinet.storage.api.StorageQueryPort;
 import com.wherelee.cabinet.assistant.api.SupportAgentPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderHandoffPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderIntakePort;
@@ -42,8 +42,8 @@ public class AgentTools {
     private static final int DETECTION_MAX = 400;
     private static final int TITLE_MAX = 80;
 
-    private final StorageQueryService queries;
-    private final StorageOrderFacade doors;
+    private final StorageQueryPort queries;
+    private final StorageOrderCommandPort doors;
     private final WorkOrderIntakePort intake;
     private final BizStorageOrderMapper orderMapper;
     private final WorkOrderPort workOrderPort;
@@ -58,7 +58,7 @@ public class AgentTools {
     private String ticketNo;
     private final WorkOrderHandoffPort handoffs;
 
-    public AgentTools(StorageQueryService queries, StorageOrderFacade doors,
+    public AgentTools(StorageQueryPort queries, StorageOrderCommandPort doors,
                       WorkOrderIntakePort intake, BizStorageOrderMapper orderMapper,
                       WorkOrderPort workOrderPort,
                       WorkOrderHandoffPort handoffs,
@@ -86,12 +86,12 @@ public class AgentTools {
             + "与本次对话关联的订单排在第一个并带[本次相关]标记。查不到就说明用户名下没有寄存单。")
     public String myOrderOverview() {
         try {
-            List<StorageQueryService.OrderView> views = queries.myOrders(customerId, 10);
+            List<StorageQueryPort.OrderView> views = queries.myOrders(customerId, 10);
             if (views.isEmpty()) {
                 return "该用户名下没有寄存单。";
             }
             StringBuilder sb = new StringBuilder("共 ").append(views.size()).append(" 张（按时间倒序）：");
-            for (StorageQueryService.OrderView v : views) {
+            for (StorageQueryPort.OrderView v : views) {
                 sb.append("\n- orderNo=").append(v.orderNo())
                         .append(" 柜机=").append(nullSafe(v.cabinetNo()))
                         .append(" 格口=").append(nullSafe(v.slotNo()))

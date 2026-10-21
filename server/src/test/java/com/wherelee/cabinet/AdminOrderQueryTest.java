@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.storage.app.AdminOrderQueryService;
+import com.wherelee.cabinet.storage.api.AdminOrderConsolePort;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.context.TenantContext;
@@ -52,7 +52,7 @@ class AdminOrderQueryTest {
     @Autowired
     private DataSource dataSource;
     @Autowired
-    private AdminOrderQueryService orders;
+    private AdminOrderConsolePort orders;
 
     private JdbcTemplate jdbc;
     private Long siteId;
@@ -139,7 +139,7 @@ class AdminOrderQueryTest {
     @Test
     @DisplayName("按订单号与手机号都能查到；查不到是空页，不是报错")
     void listByOrderNoAndPhone() {
-        PageResult<AdminOrderQueryService.OrderRow> byNo = TenantContext.callAs(TENANT,
+        PageResult<AdminOrderConsolePort.OrderRow> byNo = TenantContext.callAs(TENANT,
                 () -> orders.list(activeOrderNo, null, null, null, null, new PageQuery()));
         assertEquals(1, byNo.total());
         assertEquals(activeOrderNo, byNo.records().get(0).orderNo());
@@ -147,11 +147,11 @@ class AdminOrderQueryTest {
         assertEquals("订单查询测试点位", byNo.records().get(0).siteName());
         assertEquals("CAB-AD-", byNo.records().get(0).cabinetNo().substring(0, 7));
 
-        PageResult<AdminOrderQueryService.OrderRow> byPhone = TenantContext.callAs(TENANT,
+        PageResult<AdminOrderConsolePort.OrderRow> byPhone = TenantContext.callAs(TENANT,
                 () -> orders.list(null, PHONE, null, null, null, new PageQuery()));
         assertEquals(2, byPhone.total(), "同一手机号的两张单都要能被找出来");
 
-        PageResult<AdminOrderQueryService.OrderRow> none = TenantContext.callAs(TENANT,
+        PageResult<AdminOrderConsolePort.OrderRow> none = TenantContext.callAs(TENANT,
                 () -> orders.list(null, "13000000000", null, null, null, new PageQuery()));
         assertEquals(0, none.total());
         assertTrue(none.records().isEmpty());
@@ -160,12 +160,12 @@ class AdminOrderQueryTest {
     @Test
     @DisplayName("状态与创建时间范围能过滤：查旧单时不会把今天的单混进来")
     void statusAndTimeFilter() {
-        PageResult<AdminOrderQueryService.OrderRow> closed = TenantContext.callAs(TENANT,
+        PageResult<AdminOrderConsolePort.OrderRow> closed = TenantContext.callAs(TENANT,
                 () -> orders.list(null, null, OrderStatus.CLOSED, null, null, new PageQuery()));
         assertEquals(1, closed.total());
         assertEquals(closedOrderNo, closed.records().get(0).orderNo());
 
-        PageResult<AdminOrderQueryService.OrderRow> yesterday = TenantContext.callAs(TENANT,
+        PageResult<AdminOrderConsolePort.OrderRow> yesterday = TenantContext.callAs(TENANT,
                 () -> orders.list(null, null, null, LocalDate.now().minusDays(1), LocalDate.now(),
                         new PageQuery()));
         assertEquals(1, yesterday.total(), "三天前那张不该落进‘昨天到今天’的范围");
@@ -177,7 +177,7 @@ class AdminOrderQueryTest {
     void tenantIsolation() {
         assertThrows(BizException.class,
                 () -> TenantContext.callAs(OTHER_TENANT, () -> orders.detail(activeOrderNo)));
-        PageResult<AdminOrderQueryService.OrderRow> other = TenantContext.callAs(OTHER_TENANT,
+        PageResult<AdminOrderConsolePort.OrderRow> other = TenantContext.callAs(OTHER_TENANT,
                 () -> orders.list(null, PHONE, null, null, null, new PageQuery()));
         assertEquals(0, other.total());
     }
@@ -185,7 +185,7 @@ class AdminOrderQueryTest {
     @Test
     @DisplayName("详情带齐账单、设备动作与关联工单；证据为空时返回空列表")
     void detailCarriesBillCommandsAndWorkOrders() {
-        AdminOrderQueryService.OrderDetail detail = TenantContext.callAs(TENANT,
+        AdminOrderConsolePort.OrderDetail detail = TenantContext.callAs(TENANT,
                 () -> orders.detail(activeOrderNo));
 
         assertEquals(PHONE, detail.customerPhone(), "客服要能回拨");
@@ -221,7 +221,7 @@ class AdminOrderQueryTest {
         String listReturn = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("list")).findFirst().orElseThrow()
                 .getGenericReturnType().getTypeName();
-        assertTrue(listReturn.contains("AdminOrderQueryService$OrderRow"),
+        assertTrue(listReturn.contains("AdminOrderConsolePort$OrderRow"),
                 "列表必须返回应用层视图：" + listReturn);
         assertFalse(listReturn.contains("BizStorageOrder"), "接口层不得回传实体");
     }
