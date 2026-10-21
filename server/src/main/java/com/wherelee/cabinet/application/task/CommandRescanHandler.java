@@ -3,6 +3,7 @@ package com.wherelee.cabinet.application.task;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.storage.api.FundPort;
+import com.wherelee.cabinet.device.app.CommandRescanService;
 import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
@@ -45,13 +46,13 @@ public class CommandRescanHandler implements TaskHandler {
 
     private static final Logger log = LoggerFactory.getLogger(CommandRescanHandler.class);
 
-    private final DeviceCommandService devices;
+    private final CommandRescanService rescans;
     private final BizDeviceCommandMapper commandMapper;
     private final StorageOrderService orders;
 
-    CommandRescanHandler(DeviceCommandService devices, BizDeviceCommandMapper commandMapper,
+    CommandRescanHandler(CommandRescanService rescans, BizDeviceCommandMapper commandMapper,
                          StorageOrderService orders) {
-        this.devices = devices;
+        this.rescans = rescans;
         this.commandMapper = commandMapper;
         this.orders = orders;
     }
@@ -68,7 +69,7 @@ public class CommandRescanHandler implements TaskHandler {
 
     @Override
     public boolean handle(BizDelayTask task) {
-        DeviceCommandService.RescanResult result = devices.rescan(task.getBizKey());
+        CommandRescanService.RescanResult result = rescans.rescan(task.getBizKey());
         if (result.outcome() == null) {
             return false;
         }
@@ -80,7 +81,7 @@ public class CommandRescanHandler implements TaskHandler {
         // 又超时且还有重试预算 → 让 worker 续排下一轮。不能指望 rescan 内部“顺手再登记”：
         // 此刻它自己的任务行还是 RUNNING，登记会走“不动”那一支，而 markDone 在后——
         // 不返 true 就等于只重试一次就断链（本刀实测）。
-        return result.action() == DeviceCommandService.RescanAction.REDISPATCHED
+        return result.action() == CommandRescanService.RescanAction.REDISPATCHED
                 && result.outcome() != null
                 && result.outcome().state() == com.wherelee.cabinet.device.api.CommandState.TIMEOUT;
     }

@@ -1,6 +1,7 @@
 package com.wherelee.cabinet;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wherelee.cabinet.device.app.CommandRescanService;
 import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.funds.app.PointAccountService;
 import com.wherelee.cabinet.storage.app.StorageOrderService;
@@ -91,6 +92,8 @@ class CommandRescanTest {
     private PointAccountService points;
     @Autowired
     private DeviceCommandService devices;
+    @Autowired
+    private CommandRescanService rescans;
     @Autowired
     private SimulatedCabinetChannel simulator;
     @Autowired
@@ -245,10 +248,10 @@ class CommandRescanTest {
                 "{\"requestId\":\"" + requestId + "\",\"success\":true,\"sensorConfirmed\":true,"
                         + "\"executedSlotId\":" + order.getSlotId() + "}");
 
-        DeviceCommandService.RescanResult result = TenantContext.callAs(TENANT,
-                () -> devices.rescan(requestId));
+        CommandRescanService.RescanResult result = TenantContext.callAs(TENANT,
+                () -> rescans.rescan(requestId));
 
-        assertEquals(DeviceCommandService.RescanAction.CONVERGED_FROM_REPORT, result.action(),
+        assertEquals(CommandRescanService.RescanAction.CONVERGED_FROM_REPORT, result.action(),
                 "有流水就必须走重放，而不是再下发一次");
         assertEquals(CommandState.SUCCEEDED, command(requestId).getStatus(), "迟到的回执要能把状态修正");
         assertEquals(0, command(requestId).getRetryCount().intValue(),
@@ -353,10 +356,10 @@ class CommandRescanTest {
         String requestId = order.getOrderNo() + ":OPEN:1";
         assertEquals(CommandState.SUCCEEDED, command(requestId).getStatus());
 
-        DeviceCommandService.RescanResult result = TenantContext.callAs(TENANT,
-                () -> devices.rescan(requestId));
+        CommandRescanService.RescanResult result = TenantContext.callAs(TENANT,
+                () -> rescans.rescan(requestId));
 
-        assertEquals(DeviceCommandService.RescanAction.SETTLED, result.action());
+        assertEquals(CommandRescanService.RescanAction.SETTLED, result.action());
         assertEquals(0, command(requestId).getRetryCount().intValue(), "已经成功的指令不该被再动一次");
     }
 }
