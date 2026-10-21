@@ -63,6 +63,8 @@ class SupportFlowTest {
     private BizStorageOrderMapper orderMapper;
     @Autowired
     private BizWorkOrderMapper workOrderMapper;
+    @Autowired
+    private com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort;
 
     private JdbcTemplate jdbc;
     private Long cabinetId;
@@ -130,7 +132,7 @@ class SupportFlowTest {
     @Test
     @DisplayName("AI 转报走统一开单入口：快照补齐、类型落库正确；重复转报幂等合并")
     void raiseTicketGoesThroughIntakeAndMergesIdempotently() {
-        AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+        AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
                 new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "取件时门打不开"));
         String attempt = TenantContext.callAs(TENANT, tools::retryMyDoor);
@@ -169,7 +171,7 @@ class SupportFlowTest {
         assertNotNull(created.get("trace_id"), "AI 动作必须带对话追踪号");
 
         // 再转一次：幂等合并到同一张，记 REPEATED，不重复建
-        AgentTools again = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+        AgentTools again = new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
                 new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "还是打不开"));
         TenantContext.runAs(TENANT, again::retryMyDoor);
@@ -184,7 +186,7 @@ class SupportFlowTest {
     @Test
     @DisplayName("归属守卫：别人的单转报一律“未找到”，一张单都不建")
     void raiseTicketRejectsForeignOrder() {
-        AgentTools intruder = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+        AgentTools intruder = new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
                 new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(FOREIGN, orderNo, "这是我的柜子"));
 

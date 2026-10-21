@@ -1,6 +1,4 @@
 assistant->servicedesk:app
-assistant->servicedesk:domain
-assistant->servicedesk:infra
 assistant->storage:app
 bff.admin->funds:app
 bff.admin->identity:app

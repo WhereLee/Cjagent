@@ -121,6 +121,25 @@ class ModuleBoundaryTest {
     }
 
     private static Set<String> layerViolations() {
+        return layerViolations(false);
+    }
+
+    /**
+     * 硬规则：跨服务不得直接碰对方的 domain/infra。<b>没有基线、零容忍</b>。
+     *
+     * <p>这一条与上面两条的区别：上面允许“先把现状冻住再逐条换端口”，
+     * 而实体与 Mapper 直连是“拆不开”的硬伤（改一张表就击穿两个服务），
+     * 所以它必须是空的——空了之后任何一条新增都会当场红。
+     */
+    @Test
+    @DisplayName("跨服务不得直接依赖对象的 domain/infra（零容忍）")
+    void crossServiceMustNotTouchDomainOrInfra() {
+        Set<String> actual = layerViolations(true);
+        assertTrue(actual.isEmpty(),
+                "出现了跨服务的 domain/infra 依赖（必须改走 api 端口）：" + actual);
+    }
+
+    private static Set<String> layerViolations(boolean onlyDomainOrInfra) {
         Set<String> out = new TreeSet<>();
         for (JavaClass clazz : PRODUCTION_CLASSES) {
             Module from = moduleAndLayer(clazz.getPackageName());
@@ -134,6 +153,9 @@ class ModuleBoundaryTest {
                 }
                 // 对方的 api 是契约，允许；剩下的都是“拆不开”的地方
                 if ("api".equals(to.layer())) {
+                    continue;
+                }
+                if (onlyDomainOrInfra && !("domain".equals(to.layer()) || "infra".equals(to.layer()))) {
                     continue;
                 }
                 out.add(from.name() + "->" + to.name() + ":" + to.layer());

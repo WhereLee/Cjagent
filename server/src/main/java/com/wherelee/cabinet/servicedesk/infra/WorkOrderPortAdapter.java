@@ -51,7 +51,28 @@ public class WorkOrderPortAdapter implements WorkOrderPort {
                         .last("limit " + Math.max(1, Math.min(limit, 100))))
                 .stream()
                 .map(w -> new WorkOrderBrief(w.getId(), name(w.getStatus()), name(w.getCategory()),
-                        name(w.getPriority()), name(w.getCloseReason()), w.getTitle(), w.getCreateTime()))
+                        name(w.getPriority()), name(w.getCloseReason()), w.getTitle(), w.getCreateTime(),
+                        name(w.getType()), w.getResolveDueAt()))
+                .toList();
+    }
+
+    @Override
+    public List<WorkOrderBrief> openOfCustomer(Long customerId, String orderNo, int limit) {
+        if (customerId == null) {
+            return List.of();
+        }
+        var query = com.baomidou.mybatisplus.core.toolkit.Wrappers.<BizWorkOrder>lambdaQuery()
+                .eq(BizWorkOrder::getCustomerId, customerId)
+                .eq(BizWorkOrder::getActiveFlag, 1)
+                .orderByDesc(BizWorkOrder::getCreateTime)
+                .last("limit " + Math.max(1, Math.min(limit, 50)));
+        if (orderNo != null && !orderNo.isBlank()) {
+            query.eq(BizWorkOrder::getOrderNo, orderNo);
+        }
+        return workOrderMapper.selectList(query).stream()
+                .map(w -> new WorkOrderBrief(w.getId(), name(w.getStatus()), name(w.getCategory()),
+                        name(w.getPriority()), name(w.getCloseReason()), w.getTitle(), w.getCreateTime(),
+                        name(w.getType()), w.getResolveDueAt()))
                 .toList();
     }
 

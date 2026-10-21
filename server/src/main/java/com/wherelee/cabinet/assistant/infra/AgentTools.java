@@ -7,13 +7,12 @@ import com.wherelee.cabinet.assistant.api.SupportAgentPort;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
 import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 
@@ -46,7 +45,7 @@ public class AgentTools {
     private final StorageOrderFacade doors;
     private final WorkOrderIntake intake;
     private final BizStorageOrderMapper orderMapper;
-    private final BizWorkOrderMapper workOrderMapper;
+    private final WorkOrderPort workOrderPort;
     private final Long customerId;
     private final String orderNo;
     /** 本次对话的追踪号：AI 动作留痕要和人工/系统动作分开。 */
@@ -60,14 +59,14 @@ public class AgentTools {
 
     public AgentTools(StorageQueryService queries, StorageOrderFacade doors,
                       WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
-                      BizWorkOrderMapper workOrderMapper,
+                      WorkOrderPort workOrderPort,
                       com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService handoffs,
                       SupportAgentPort.SupportSession session) {
         this.queries = queries;
         this.doors = doors;
         this.intake = intake;
         this.orderMapper = orderMapper;
-        this.workOrderMapper = workOrderMapper;
+        this.workOrderPort = workOrderPort;
         this.handoffs = handoffs;
         this.customerId = session.customerId();
         this.orderNo = session.orderNo();
@@ -214,27 +213,19 @@ public class AgentTools {
             + "不返回工单内部备注。关联了订单时只查该订单，没有关联订单时查本人全部未关单。")
     public String myTicketStatus() {
         try {
-            var query = Wrappers.<BizWorkOrder>lambdaQuery()
-                    .eq(BizWorkOrder::getCustomerId, customerId)
-                    .eq(BizWorkOrder::getActiveFlag, 1)
-                    .orderByDesc(BizWorkOrder::getCreateTime)
-                    .last("limit 5");
-            if (!noOrder()) {
-                query.eq(BizWorkOrder::getOrderNo, orderNo);
-            }
-            List<BizWorkOrder> list = workOrderMapper.selectList(query);
+            List<WorkOrderPort.WorkOrderBrief> list = workOrderPort.openOfCustomer(customerId,
+                    noOrder() ? null : orderNo, 5);
             if (list.isEmpty()) {
                 return "当前没有未关闭的工单。";
             }
             StringBuilder sb = new StringBuilder("当前未关闭工单：");
-            for (BizWorkOrder o : list) {
-                sb.append("\n- 工单号=").append(o.getId())
-                        .append(" 类型=").append(o.getCategory() == null
-                                ? (o.getType() == null ? "-" : o.getType().name()) : o.getCategory().name())
-                        .append(" 状态=").append(o.getStatus() == null ? "-" : o.getStatus().name())
-                        .append(" 优先级=").append(o.getPriority() == null ? "-" : o.getPriority().name())
-                        .append(" 要求处理=").append(o.getResolveDueAt() == null ? "未设置" : o.getResolveDueAt())
-                        .append(" 标题=").append(nullSafe(o.getTitle()));
+            for (WorkOrderPort.WorkOrderBrief o : list) {
+                sb.append("\n- 工单号=").append(o.id())
+                        .append(" 类型=").append(o.category() == null ? (o.type() == null ? "-" : o.type()) : o.category())
+                        .append(" 状态=").append(o.status() == null ? "-" : o.status())
+                        .append(" 优先级=").append(o.priority() == null ? "-" : o.priority())
+                        .append(" 要求处理=").append(o.resolveDueAt() == null ? "未设置" : o.resolveDueAt())
+                        .append(" 标题=").append(nullSafe(o.title()));
             }
             return sb.toString();
         } catch (Exception e) {

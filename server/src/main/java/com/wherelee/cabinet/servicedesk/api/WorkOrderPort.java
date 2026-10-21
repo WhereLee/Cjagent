@@ -40,8 +40,15 @@ public interface WorkOrderPort {
     /** 某张寄存单关联的工单摘要（新→旧，最多 limit 条），运营台订单详情用。 */
     List<WorkOrderBrief> byStorageId(Long storageOrderId, int limit);
 
-    /** 工单摘要：运营台只需要这些字段，不需要工单实体。 */
+    /**
+     * 某客户名下未关闭的工单（可按单号过滤，新→旧）：AI 客服回答“我的工单到哪了”用。
+     *
+     * <p>只回未关闭（active_flag=1）：已关闭的结论由图库/详情页回答，不在这里拼。
+     */
+    List<WorkOrderBrief> openOfCustomer(Long customerId, String orderNo, int limit);
+
+    /** 工单摘要：运营台与 AI 客服只需要这些字段，不需要工单实体。 */
     record WorkOrderBrief(Long id, String status, String category, String priority, String closeReason,
-                          String title, LocalDateTime createTime) {
+                          String title, LocalDateTime createTime, String type, LocalDateTime resolveDueAt) {
     }
 }

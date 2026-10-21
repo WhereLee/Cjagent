@@ -17,7 +17,7 @@ import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderStatus;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -57,7 +58,7 @@ class AgentToolsTest {
     private StorageOrderFacade doors;
     private WorkOrderIntake intake;
     private BizStorageOrderMapper orderMapper;
-    private BizWorkOrderMapper workOrderMapper;
+    private WorkOrderPort workOrderPort;
 
     @BeforeEach
     void setUp() {
@@ -65,11 +66,11 @@ class AgentToolsTest {
         doors = mock(StorageOrderFacade.class);
         intake = mock(WorkOrderIntake.class);
         orderMapper = mock(BizStorageOrderMapper.class);
-        workOrderMapper = mock(BizWorkOrderMapper.class);
+        workOrderPort = mock(WorkOrderPort.class);
     }
 
     private AgentTools tools(String orderNo) {
-        return new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+        return new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
                 new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportSession(CUSTOMER, orderNo, "帮我看看"));
     }
@@ -196,15 +197,10 @@ class AgentToolsTest {
     @Test
     @DisplayName("工单进度只读：返回状态与标题，不泄露内部备注")
     void ticketStatusOmitsInternalNote() {
-        BizWorkOrder order = new BizWorkOrder();
-        order.setId(42L);
-        order.setKind(WorkOrderKind.REQUEST);
-        order.setStatus(WorkOrderStatus.PENDING);
-        order.setPriority(WorkOrderPriority.P2);
-        order.setResolveDueAt(LocalDateTime.now().plusHours(2));
-        order.setTitle("格口 A-01 门打不开");
-        order.setResultNote("内部备注：不要给用户看");
-        when(workOrderMapper.selectList(any())).thenReturn(List.of(order));
+        WorkOrderPort.WorkOrderBrief brief = new WorkOrderPort.WorkOrderBrief(42L,
+                WorkOrderStatus.PENDING.name(), null, WorkOrderPriority.P2.name(), null,
+                "格口 A-01 门打不开", LocalDateTime.now(), null, LocalDateTime.now().plusHours(2));
+        when(workOrderPort.openOfCustomer(any(), any(), anyInt())).thenReturn(List.of(brief));
 
         String out = tools(ORDER_NO).myTicketStatus();
 

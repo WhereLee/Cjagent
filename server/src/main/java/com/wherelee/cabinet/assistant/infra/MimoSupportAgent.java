@@ -6,7 +6,7 @@ import com.wherelee.cabinet.assistant.api.SupportAgentPort;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService;
 import com.wherelee.cabinet.servicedesk.app.WorkOrderIntake;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.servicedesk.infra.BizWorkOrderMapper;
+import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -47,20 +47,20 @@ public class MimoSupportAgent implements SupportAgentPort {
     private final StorageOrderFacade doors;
     private final WorkOrderIntake intake;
     private final BizStorageOrderMapper orderMapper;
-    private final BizWorkOrderMapper workOrderMapper;
+    private final WorkOrderPort workOrderPort;
     private final WorkOrderHandoffService handoffs;
     private final String systemPrompt;
 
     public MimoSupportAgent(ChatClient chatClient,
                             StorageQueryService queries, StorageOrderFacade doors,
                             WorkOrderIntake intake, BizStorageOrderMapper orderMapper,
-                            BizWorkOrderMapper workOrderMapper, WorkOrderHandoffService handoffs) {
+                            WorkOrderPort workOrderPort, WorkOrderHandoffService handoffs) {
         this.chatClient = chatClient;
         this.queries = queries;
         this.doors = doors;
         this.intake = intake;
         this.orderMapper = orderMapper;
-        this.workOrderMapper = workOrderMapper;
+        this.workOrderPort = workOrderPort;
         this.handoffs = handoffs;
         this.systemPrompt = SYSTEM_PROMPT + "\n\n" + WikiLoader.wiki();
         log.info("AI 客服已就绪：wiki={} 字符", systemPrompt.length());
@@ -69,7 +69,7 @@ public class MimoSupportAgent implements SupportAgentPort {
     @Override
     public AgentReply chat(SupportSession session) {
         try {
-            AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderMapper,
+            AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
                     handoffs, session);
             String user = "用户消息：" + session.message()
                     + "\n关联订单号：" + (session.orderNo() == null || session.orderNo().isBlank()
