@@ -1,5 +1,7 @@
-package com.wherelee.cabinet.application.task;
+package com.wherelee.cabinet.storage.jobs;
 
+import com.wherelee.cabinet.infrastructure.task.TaskOrders;
+import com.wherelee.cabinet.platform.scheduling.TaskHandler;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.storage.api.FundPort;
@@ -46,18 +48,18 @@ public class OverduePickupHandler implements TaskHandler {
     private static final Logger log = LoggerFactory.getLogger(OverduePickupHandler.class);
 
     private final BizStorageOrderMapper orderMapper;
-    private final PricingPolicy pricing;
+    private final com.wherelee.cabinet.storage.api.FundPort pricing;
     private final MeterRegistry meterRegistry;
-    private final com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake;
-    private final com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders;
+    private final com.wherelee.cabinet.servicedesk.api.WorkOrderIntakePort intake;
+    private final com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort workOrders;
 
     @Value("${cabinet.scheduler.stranded-days:7}")
     private long strandedDays;
 
-    OverduePickupHandler(BizStorageOrderMapper orderMapper, PricingPolicy pricing,
+    OverduePickupHandler(BizStorageOrderMapper orderMapper, com.wherelee.cabinet.storage.api.FundPort pricing,
                          MeterRegistry meterRegistry,
-                         com.wherelee.cabinet.servicedesk.app.WorkOrderIntake intake,
-                         com.wherelee.cabinet.servicedesk.app.WorkOrderService workOrders) {
+                         com.wherelee.cabinet.servicedesk.api.WorkOrderIntakePort intake,
+                         com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort workOrders) {
         this.orderMapper = orderMapper;
         this.pricing = pricing;
         this.meterRegistry = meterRegistry;

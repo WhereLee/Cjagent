@@ -165,6 +165,7 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
      * <p>返回工单 ID：新建的返回新 ID，幂等合并的返回已存在那张的 ID。
      * AI 客服转报建单（第 22 刀）靠它把单号回给用户，其余调用方不关心返回值，不受影响。
      */
+    @Override
     public Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
                              String detection, String title, LocalDateTime dueAt) {
         return onOrderEvent(order, type, urgent, detection, title, dueAt,

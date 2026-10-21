@@ -1,5 +1,7 @@
-package com.wherelee.cabinet.application.task;
+package com.wherelee.cabinet.storage.jobs;
 
+import com.wherelee.cabinet.infrastructure.task.TaskOrders;
+import com.wherelee.cabinet.platform.scheduling.TaskHandler;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.storage.api.FundPort;
@@ -8,7 +10,8 @@ import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
 import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
-import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.device.api.CommandPort;
+import com.wherelee.cabinet.storage.api.StorageOrderCommandPort;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -46,16 +49,16 @@ public class SlotReleaseHandler implements TaskHandler {
     private static final Logger log = LoggerFactory.getLogger(SlotReleaseHandler.class);
 
     private final BizStorageOrderMapper orderMapper;
-    private final StorageOrderService orders;
-    private final com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper;
+    private final StorageOrderCommandPort orders;
+    private final CommandPort deviceCommands;
     private final com.wherelee.cabinet.locker.api.SlotPort states;
 
-    SlotReleaseHandler(BizStorageOrderMapper orderMapper, StorageOrderService orders,
-                       com.wherelee.cabinet.device.infra.BizDeviceCommandMapper commandMapper,
+    SlotReleaseHandler(BizStorageOrderMapper orderMapper, StorageOrderCommandPort orders,
+                       CommandPort deviceCommands,
                        com.wherelee.cabinet.locker.api.SlotPort states) {
         this.orderMapper = orderMapper;
         this.orders = orders;
-        this.commandMapper = commandMapper;
+        this.deviceCommands = deviceCommands;
         this.states = states;
     }
 
@@ -66,13 +69,7 @@ public class SlotReleaseHandler implements TaskHandler {
 
     /** 这张单上是否有一条**成功的**开门指令（不管是首次投件还是临时开柜）。 */
     private boolean anyOpenSucceeded(Long orderId) {
-        return commandMapper.selectCount(Wrappers.<com.wherelee.cabinet.device.domain.BizDeviceCommand>lambdaQuery()
-                .eq(com.wherelee.cabinet.device.domain.BizDeviceCommand::getOrderId, orderId)
-                .in(com.wherelee.cabinet.device.domain.BizDeviceCommand::getAction,
-                        com.wherelee.cabinet.device.api.CommandAction.OPEN,
-                        com.wherelee.cabinet.device.api.CommandAction.OPEN_TEMP)
-                .eq(com.wherelee.cabinet.device.domain.BizDeviceCommand::getStatus,
-                        com.wherelee.cabinet.device.api.CommandState.SUCCEEDED)) > 0;
+        return deviceCommands.anyOpenSucceeded(orderId);
     }
 
     @Override

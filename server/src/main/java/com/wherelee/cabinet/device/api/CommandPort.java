@@ -23,4 +23,7 @@ public interface CommandPort {
 
     /** 一张单的指令历史（运营台详情用），新→旧。 */
     List<CommandSnapshot> byOrder(Long orderId, int limit);
+
+    /** 这张单是否已有一次成功的开门（首次投件或临时开柜）。 */
+    boolean anyOpenSucceeded(Long orderId);
 }

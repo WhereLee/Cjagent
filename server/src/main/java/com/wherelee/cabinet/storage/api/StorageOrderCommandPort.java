@@ -1,6 +1,8 @@
 package com.wherelee.cabinet.storage.api;
 
 import com.wherelee.cabinet.device.api.CommandAction;
+import com.wherelee.cabinet.device.api.CommandOutcome;
+import com.wherelee.cabinet.locker.api.Sensing;
 
 /**
  * 寄存单的写侧入口：下单/打开柜门/取件/取消/凭据重置/遗留物上报。
@@ -29,4 +31,10 @@ public interface StorageOrderCommandPort {
     VoucherView resetVoucher(Long customerId, String orderNo);
 
     String activeStrategy();
+
+    /** 门未关巡检的一轮收敛：返回 true 表示还要继续盯着。 */
+    boolean doorWatchTick(String orderNo, Sensing sensing);
+
+    /** 超时回扫后的订单收敛（设备动作 → 订单状态）。 */
+    void convergeDeviceOutcome(Long orderId, CommandAction action, CommandOutcome outcome);
 }

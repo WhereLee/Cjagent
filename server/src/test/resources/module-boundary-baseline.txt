@@ -101,3 +101,11 @@ task->locker
 task->notify
 task->servicedesk
 task->storage
+device->platform
+infra.task->infra.mapper
+task->infra.task
+task->platform
+device->storage
+funds->infra.task
+funds->platform
+storage->infra.task

@@ -1,7 +1,7 @@
-package com.wherelee.cabinet.infrastructure.task;
+package com.wherelee.cabinet.platform.scheduling;
 
-import com.wherelee.cabinet.application.task.DelayReminder;
-import com.wherelee.cabinet.application.task.DelayTaskService;
+import com.wherelee.cabinet.platform.scheduling.DelayReminder;
+import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.domain.enums.TaskType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

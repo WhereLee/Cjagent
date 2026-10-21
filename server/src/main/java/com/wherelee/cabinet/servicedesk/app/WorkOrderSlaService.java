@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.servicedesk.app;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.application.task.DelayTaskService;
+import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.domain.enums.TaskType;

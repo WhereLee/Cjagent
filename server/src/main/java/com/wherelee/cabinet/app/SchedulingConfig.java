@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.app;
 
-import com.wherelee.cabinet.application.task.DelayTaskService;
+import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.domain.enums.TaskType;
 import com.wherelee.cabinet.infrastructure.mapper.SysTenantMapper;
 import com.wherelee.cabinet.domain.entity.SysTenant;

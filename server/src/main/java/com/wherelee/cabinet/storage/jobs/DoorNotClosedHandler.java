@@ -1,5 +1,7 @@
-package com.wherelee.cabinet.application.task;
+package com.wherelee.cabinet.storage.jobs;
 
+import com.wherelee.cabinet.infrastructure.task.TaskOrders;
+import com.wherelee.cabinet.platform.scheduling.TaskHandler;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.storage.api.FundPort;
@@ -8,7 +10,7 @@ import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
 import com.wherelee.cabinet.locker.api.SlotPort;
 import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
-import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.storage.api.StorageOrderCommandPort;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -46,15 +48,15 @@ public class DoorNotClosedHandler implements TaskHandler {
     private static final Logger log = LoggerFactory.getLogger(DoorNotClosedHandler.class);
 
     private final BizStorageOrderMapper orderMapper;
-    private final BizFaultEventMapper faultMapper;
-    private final StorageOrderService orders;
+    private final com.wherelee.cabinet.device.api.FaultPort faults;
+    private final StorageOrderCommandPort orders;
     private final SlotPort states;
-    private final PricingPolicy pricing;
+    private final com.wherelee.cabinet.storage.api.FundPort pricing;
 
-    DoorNotClosedHandler(BizStorageOrderMapper orderMapper, BizFaultEventMapper faultMapper,
-                         StorageOrderService orders, SlotPort states, PricingPolicy pricing) {
+    DoorNotClosedHandler(BizStorageOrderMapper orderMapper, com.wherelee.cabinet.device.api.FaultPort faults,
+                         StorageOrderCommandPort orders, SlotPort states, com.wherelee.cabinet.storage.api.FundPort pricing) {
         this.orderMapper = orderMapper;
-        this.faultMapper = faultMapper;
+        this.faults = faults;
         this.orders = orders;
         this.states = states;
         this.pricing = pricing;
@@ -92,14 +94,7 @@ public class DoorNotClosedHandler implements TaskHandler {
     }
 
     private void recordFault(BizStorageOrder order, String reason) {
-        BizFaultEvent event = new BizFaultEvent();
-        event.setCabinetId(order.getCabinetId());
-        event.setSlotId(order.getSlotId());
-        event.setFaultType(FaultType.DOOR_NOT_CLOSED);
-        event.setAction(FaultType.Action.ALARM);
-        event.setFailCount(0);
-        event.setReason(reason);
-        faultMapper.insert(event);
+        faults.record(order.getCabinetId(), order.getSlotId(), FaultType.Action.ALARM, 0, reason);
     }
 }
 

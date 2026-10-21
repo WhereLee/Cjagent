@@ -8,7 +8,7 @@ import com.wherelee.cabinet.device.api.CommandSnapshot;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.application.task.DelayTaskService;
+import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.domain.enums.TaskType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -119,6 +119,14 @@ public class DeviceCommandService implements CommandPort {
         }
         return commandMapper.selectCount(Wrappers.<BizDeviceCommand>lambdaQuery()
                 .likeRight(BizDeviceCommand::getRequestId, requestIdPrefix));
+    }
+
+    @Override
+    public boolean anyOpenSucceeded(Long orderId) {
+        return commandMapper.selectCount(Wrappers.<BizDeviceCommand>lambdaQuery()
+                .eq(BizDeviceCommand::getOrderId, orderId)
+                .in(BizDeviceCommand::getAction, CommandAction.OPEN, CommandAction.OPEN_TEMP)
+                .eq(BizDeviceCommand::getStatus, CommandState.SUCCEEDED)) > 0;
     }
 
     @Override

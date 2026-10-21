@@ -31,7 +31,7 @@ class ArchitectureTest {
     void domainIsPure() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".domain..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        ROOT + ".bff..", ROOT + ".application..",
+                        ROOT + ".bff..", ROOT + "..app..",
                         ROOT + ".infrastructure..", ROOT + ".app..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -42,7 +42,7 @@ class ArchitectureTest {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".common..")
                 .should().dependOnClassesThat().resideInAnyPackage(
                         ROOT + ".platform..", ROOT + ".app..", ROOT + ".bff..",
-                        ROOT + ".application..", ROOT + ".infrastructure..");
+                        ROOT + "..app..", ROOT + ".infrastructure..");
         rule.check(PRODUCTION_CLASSES);
     }
 
@@ -59,7 +59,7 @@ class ArchitectureTest {
     void commonStaysGeneric() {
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".common..")
                 .should().dependOnClassesThat().resideInAnyPackage(
-                        ROOT + ".bff..", ROOT + ".application..", ROOT + ".infrastructure..");
+                        ROOT + ".bff..", ROOT + "..app..", ROOT + ".infrastructure..");
         rule.check(PRODUCTION_CLASSES);
     }
 
@@ -129,7 +129,7 @@ class ArchitectureTest {
     @Test
     @DisplayName("application 不得反向依赖接口层（视图归 application）")
     void applicationDoesNotDependOnInterfaces() {
-        ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".application..")
+        ArchRule rule = noClasses().that().resideInAPackage(ROOT + "..app..")
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".bff..");
         rule.check(PRODUCTION_CLASSES);
     }
@@ -140,7 +140,7 @@ class ArchitectureTest {
         // 第 22 刀起 agent 依赖 Spring AI：SupportAgentPort 是业务端口，
         // 哪天换 LangChain4j 或自写循环，改的只是 infrastructure.ai 一个包
         ArchRule rule = noClasses().that().resideInAnyPackage(
-                        ROOT + ".domain..", ROOT + ".application..",
+                        ROOT + ".domain..", ROOT + "..app..",
                         ROOT + ".bff..", ROOT + ".common..")
                 .should().dependOnClassesThat().resideInAnyPackage("org.springframework.ai..");
         rule.check(PRODUCTION_CLASSES);

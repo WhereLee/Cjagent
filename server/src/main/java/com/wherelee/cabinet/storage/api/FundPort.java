@@ -23,6 +23,9 @@ public interface FundPort {
 
     int capDaysOf(String pricingSnapshot);
 
+    /** 这张单的计费是否已达封顶（门长开/逾期看管用它决定“再盯也不会多收一分”）。 */
+    boolean isCapped(String pricingSnapshot, long heldMinutes);
+
     int refundHangingDeposit(BizStorageOrder order);
 
     /** 计时容忍时长（分钟）：算价与计时必须同一版策略，不能各取一套。 */

@@ -55,6 +55,11 @@ public class FundPortAdapter implements FundPort {
     }
 
     @Override
+    public boolean isCapped(String pricingSnapshot, long heldMinutes) {
+        return pricing.isCapped(pricingSnapshot, heldMinutes);
+    }
+
+    @Override
     public int capDaysOf(String pricingSnapshot) {
         return funds.capDaysOf(pricingSnapshot);
     }

@@ -1,5 +1,7 @@
-package com.wherelee.cabinet.application.task;
+package com.wherelee.cabinet.funds.jobs;
 
+import com.wherelee.cabinet.infrastructure.task.TaskOrders;
+import com.wherelee.cabinet.platform.scheduling.TaskHandler;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.storage.api.FundPort;
@@ -41,48 +43,39 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Component
-public class FreeSetSyncHandler implements TaskHandler {
+public class DepositRefundHandler implements TaskHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(FreeSetSyncHandler.class);
+    private static final Logger log = LoggerFactory.getLogger(DepositRefundHandler.class);
 
-    private final BizCabinetMapper cabinetMapper;
-    private final BizCompartmentMapper slotMapper;
-    private final SlotPreDeductionService preDeduction;
+    private final BizStorageOrderMapper orderMapper;
+    private final FundPort funds;
 
-    FreeSetSyncHandler(BizCabinetMapper cabinetMapper, BizCompartmentMapper slotMapper,
-                       SlotPreDeductionService preDeduction) {
-        this.cabinetMapper = cabinetMapper;
-        this.slotMapper = slotMapper;
-        this.preDeduction = preDeduction;
+    DepositRefundHandler(BizStorageOrderMapper orderMapper, FundPort funds) {
+        this.orderMapper = orderMapper;
+        this.funds = funds;
     }
 
     @Override
     public TaskType type() {
-        return TaskType.FREE_SET_SYNC;
+        return TaskType.DEPOSIT_REFUND;
     }
 
     @Override
     public boolean handle(BizDelayTask task) {
-        List<BizCabinet> cabinets = cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
-                .eq(BizCabinet::getTenantId, TenantContext.current()));
-        for (BizCabinet cabinet : cabinets) {
-            for (SizeType size : SizeType.values()) {
-                // 共用同一条“可分配”判据：校准若把“门开着/有遗留物”的格口写回集合，
-                // 就是把“DB 已经拦住了”这件事又放回 Redis 里放行
-                List<Long> free = slotMapper.selectList(
-                                SlotCandidateQuery.assignable(cabinet.getId(), size))
-                        .stream().map(BizCompartment::getId).toList();
-                preDeduction.replaceFreeSet(cabinet.getId(), size, free);
-            }
+        BizStorageOrder order = TaskOrders.find(orderMapper, task.getBizKey());
+        if (order == null) {
+            return false;
         }
-        log.info("空闲集合校准完成，柜机数={}", cabinets.size());
-        return true;
+        if (!order.getStatus().isTerminal()) {
+            // 还没结束，钱本来就该继续冻着：重投到终态之后再处理，而不是判死
+            throw new BizException(ResultCode.BIZ_ERROR, "订单未终态，稍后再试 orderNo=" + order.getOrderNo());
+        }
+        int refunded = funds.refundHangingDeposit(order);
+        if (refunded > 0) {
+            log.warn("押金悬挂已回收 orderNo={} 退还点数={}", order.getOrderNo(), refunded);
+        }
+        return false;
     }
 }
 
-/**
- * 对账批次：调 {@link ReconcileService}，本类只负责“什么时候跑”与“要不要再排”。
- *
- * <p>为什么不在 handler 里写查询：对账逻辑还有第二个入口（后台人工触发、第 14 刀的修复提案），
- * 两处各写一遍差异判据，迟早出现“调度说平、后台说不平”——那时候没人能判断哪个对。
- */
+/** 空闲集合校准：把预扣造成的"少卖漂移"按 DB 真相拉回。 */

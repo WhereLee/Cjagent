@@ -1,9 +1,10 @@
-package com.wherelee.cabinet.application.task;
+package com.wherelee.cabinet.device.jobs;
 
+import com.wherelee.cabinet.platform.scheduling.TaskHandler;
+import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.storage.api.FundPort;
-import com.wherelee.cabinet.device.app.CommandRescanService;
 import com.wherelee.cabinet.device.app.DeviceCommandService;
 import com.wherelee.cabinet.funds.app.ReconcileReport;
 import com.wherelee.cabinet.funds.app.ReconcileService;
@@ -42,56 +43,47 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Component
-public class CommandRescanHandler implements TaskHandler {
+public class CommandSweepHandler implements TaskHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(CommandRescanHandler.class);
+    private static final Logger log = LoggerFactory.getLogger(CommandSweepHandler.class);
 
-    private final CommandRescanService rescans;
     private final BizDeviceCommandMapper commandMapper;
-    private final StorageOrderService orders;
+    private final org.springframework.beans.factory.ObjectProvider<DelayTaskService> taskScheduler;
 
-    CommandRescanHandler(CommandRescanService rescans, BizDeviceCommandMapper commandMapper,
-                         StorageOrderService orders) {
-        this.rescans = rescans;
+    @Value("${cabinet.scheduler.sweep-stale-minutes:2}")
+    private long staleMinutes;
+
+    @Value("${cabinet.scheduler.sweep-batch-size:50}")
+    private int sweepBatchSize;
+
+    CommandSweepHandler(BizDeviceCommandMapper commandMapper,
+                        org.springframework.beans.factory.ObjectProvider<DelayTaskService> taskScheduler) {
         this.commandMapper = commandMapper;
-        this.orders = orders;
+        this.taskScheduler = taskScheduler;
     }
 
     @Override
     public TaskType type() {
-        return TaskType.COMMAND_RESCAN;
-    }
-
-    @Override
-    public boolean transactional() {
-        return false;
+        return TaskType.COMMAND_SWEEP;
     }
 
     @Override
     public boolean handle(BizDelayTask task) {
-        CommandRescanService.RescanResult result = rescans.rescan(task.getBizKey());
-        if (result.outcome() == null) {
-            return false;
+        DelayTaskService scheduler = taskScheduler.getIfAvailable();
+        if (scheduler == null) {
+            log.warn("没有调度器，指令扫街本轮什么也不能做");
+            return true;
         }
-        BizDeviceCommand command = commandMapper.selectByRequestId(task.getBizKey());
-        if (command != null && command.getOrderId() != null) {
-            // 订单收敛交给业务侧：它才知道“这个动作失败后件在谁手里”
-            orders.convergeDeviceOutcome(command.getOrderId(), command.getAction(), result.outcome());
+        List<String> stuck = commandMapper.findStuckRequestIds(
+                LocalDateTime.now().minusMinutes(staleMinutes), sweepBatchSize);
+        LocalDateTime fireAt = LocalDateTime.now();
+        for (String requestId : stuck) {
+            scheduler.schedule(TaskType.COMMAND_RESCAN, requestId, task.getTenantId(), fireAt);
         }
-        // 又超时且还有重试预算 → 让 worker 续排下一轮。不能指望 rescan 内部“顺手再登记”：
-        // 此刻它自己的任务行还是 RUNNING，登记会走“不动”那一支，而 markDone 在后——
-        // 不返 true 就等于只重试一次就断链（本刀实测）。
-        return result.action() == CommandRescanService.RescanAction.REDISPATCHED
-                && result.outcome() != null
-                && result.outcome().state() == com.wherelee.cabinet.device.api.CommandState.TIMEOUT;
+        if (!stuck.isEmpty()) {
+            log.warn("扫到卡住的指令 {} 条，已登记回扫（单轮上限 {}）",
+                    stuck.size(), sweepBatchSize);
+        }
+        return true;
     }
 }
-
-/**
- * 指令扫街：把“卡在中间态”的指令重新推上回扫通道。
- *
- * <p>逐条登记只能盖住“超时”这一种；<b>下发写了、收敛还没跑进程就被杀</b>时，
- * 没有任何人会再提这条指令——没有这一层，第 11 刀拆开事务的代价就没人付。
- * 不直接重发而是登记 COMMAND_RESCAN：幂等键是 (类型, requestId)，重复扫到也不会堆任务，
- * 而收敛只有一处实现。
- */

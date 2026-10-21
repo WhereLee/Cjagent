@@ -1,6 +1,6 @@
 package com.wherelee.cabinet;
 
-import com.wherelee.cabinet.application.task.DelayTaskService;
+import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.domain.enums.TaskType;
 import org.junit.jupiter.api.AfterEach;

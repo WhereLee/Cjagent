@@ -13,6 +13,10 @@ import java.time.LocalDateTime;
  */
 public interface WorkOrderIntakePort {
 
+    /** 系统任务入口：只带“当时看到的事实”，kind/source 走默认 INCIDENT/SYSTEM。 */
+    Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
+                      String detection, String title, LocalDateTime dueAt);
+
     /**
      * 智能工单入口：AI 转报带 intent/handoff，系统任务传 null。
      *

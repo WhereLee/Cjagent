@@ -155,6 +155,17 @@ public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.Stor
         return syncService.resetVoucher(customerId, orderNo);
     }
 
+    @Override
+    public boolean doorWatchTick(String orderNo, com.wherelee.cabinet.locker.api.Sensing sensing) {
+        return syncService.doorWatchTick(orderNo, sensing);
+    }
+
+    @Override
+    public void convergeDeviceOutcome(Long orderId, com.wherelee.cabinet.device.api.CommandAction action,
+                                      com.wherelee.cabinet.device.api.CommandOutcome outcome) {
+        syncService.convergeDeviceOutcome(orderId, action, outcome);
+    }
+
     public String activeStrategy() {
         return strategy;
     }

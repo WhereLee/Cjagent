@@ -1,4 +1,4 @@
-package com.wherelee.cabinet.infrastructure.task;
+package com.wherelee.cabinet.platform.scheduling;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

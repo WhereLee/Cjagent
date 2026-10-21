@@ -74,7 +74,7 @@ public class StorageOrderService {
      * 用 ObjectProvider 把解析推迟到第一次使用时，而不是用 @Lazy 把设计问题遮起来：
      * 这个环本身是有意的（超时释放就是取消），但构造期不能互相依赖。
      */
-    private final ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler;
+    private final ObjectProvider<com.wherelee.cabinet.platform.scheduling.DelayTaskService> taskScheduler;
 
     private final OrderLookup lookup;
     private final OrderReleaseService release;
@@ -99,7 +99,7 @@ public class StorageOrderService {
                                OrderDeviceOutcomeService deviceOutcomes,
                                SlotPort states,
                                BizStorageOrderMapper arrearsMapper,
-                               ObjectProvider<com.wherelee.cabinet.application.task.DelayTaskService> taskScheduler,
+                               ObjectProvider<com.wherelee.cabinet.platform.scheduling.DelayTaskService> taskScheduler,
                                NoticePort notices,
                                OrderLookup lookup,
                                OrderReleaseService release,
