@@ -30,4 +30,12 @@ management:
 logging:
   level:
     com.wherelee.cabinet: debug
+    # SQL 明细：mapper 已按服务分散到各 *.infra（共享 mapper 仍在 infrastructure.mapper）
+    com.wherelee.cabinet.storage.infra: debug
+    com.wherelee.cabinet.locker.infra: debug
+    com.wherelee.cabinet.identity.infra: debug
+    com.wherelee.cabinet.funds.infra: debug
+    com.wherelee.cabinet.device.infra: debug
+    com.wherelee.cabinet.servicedesk.infra: debug
+    com.wherelee.cabinet.notify.infra: debug
     com.wherelee.cabinet.infrastructure.mapper: debug
