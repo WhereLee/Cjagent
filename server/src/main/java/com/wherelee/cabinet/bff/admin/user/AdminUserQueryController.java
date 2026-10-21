@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.admin.user;
 
-import com.wherelee.cabinet.identity.app.UserQueryService;
+import com.wherelee.cabinet.identity.api.UserQueryPort;
 import com.wherelee.cabinet.identity.api.UserView;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
@@ -33,9 +33,9 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class AdminUserQueryController {
 
-    private final UserQueryService userQueryService;
+    private final UserQueryPort userQueryService;
 
-    public AdminUserQueryController(UserQueryService userQueryService) {
+    public AdminUserQueryController(UserQueryPort userQueryService) {
         this.userQueryService = userQueryService;
     }
 

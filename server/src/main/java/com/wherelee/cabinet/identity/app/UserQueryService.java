@@ -21,7 +21,7 @@ import java.util.Set;
  * {@code sys_user} 不在白名单，SQL 会被自动加上 {@code tenant_id = 当前租户}。
  */
 @Service
-public class UserQueryService {
+public class UserQueryService implements com.wherelee.cabinet.identity.api.UserQueryPort {
 
     /**
      * 本接口允许排序的属性白名单。加字段前先想清楚：
@@ -36,6 +36,7 @@ public class UserQueryService {
         this.userMapper = userMapper;
     }
 
+    @Override
     public PageResult<UserView> page(String keyword, Integer status, PageQuery pageQuery) {
         Page<SysUser> page = PageSupport.toPage(pageQuery, SORTABLE);
         if (!pageQuery.hasSort()) {

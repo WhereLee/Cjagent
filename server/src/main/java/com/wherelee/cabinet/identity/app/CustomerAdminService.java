@@ -22,7 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 禁用是<b>人工判定、人工解除</b>，针对的是拒付与反复恶意行为。取件两边都不拦。
  */
 @Service
-public class CustomerAdminService {
+public class CustomerAdminService implements com.wherelee.cabinet.identity.api.CustomerAdminPort {
 
     private static final Logger log = LoggerFactory.getLogger(CustomerAdminService.class);
 
@@ -33,6 +33,7 @@ public class CustomerAdminService {
     }
 
     @Transactional
+    @Override
     public void changeCustomerStatus(Long customerId, Integer status, String reason) {
         if (status == null || (status != 0 && status != 1)) {
             throw new BizException(ResultCode.PARAM_INVALID, "状态只能是 1（正常）或 0（禁用）");

@@ -47,10 +47,10 @@ public class AdminLockerController {
     private final LockerConsoleService console;
     private final OrderPersistPort asyncOrders;
     /** 客户禁用/启用是身份的事：控制器只转发，不在柜机服务里改客户表。 */
-    private final com.wherelee.cabinet.identity.app.CustomerAdminService customers;
+    private final com.wherelee.cabinet.identity.api.CustomerAdminPort customers;
 
     public AdminLockerController(LockerConsoleService console, OrderPersistPort asyncOrders,
-                                 com.wherelee.cabinet.identity.app.CustomerAdminService customers) {
+                                 com.wherelee.cabinet.identity.api.CustomerAdminPort customers) {
         this.console = console;
         this.asyncOrders = asyncOrders;
         this.customers = customers;

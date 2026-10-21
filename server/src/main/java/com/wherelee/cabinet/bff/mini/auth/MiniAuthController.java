@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.auth;
 
-import com.wherelee.cabinet.identity.app.CustomerAuthService;
+import com.wherelee.cabinet.identity.api.CustomerAuthPort;
 import com.wherelee.cabinet.identity.api.CustomerLoginRequest;
 import com.wherelee.cabinet.identity.api.CustomerLoginView;
 import com.wherelee.cabinet.identity.api.CustomerView;
@@ -34,9 +34,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/mini/auth")
 public class MiniAuthController {
 
-    private final CustomerAuthService customerAuthService;
+    private final CustomerAuthPort customerAuthService;
 
-    public MiniAuthController(CustomerAuthService customerAuthService) {
+    public MiniAuthController(CustomerAuthPort customerAuthService) {
         this.customerAuthService = customerAuthService;
     }
 

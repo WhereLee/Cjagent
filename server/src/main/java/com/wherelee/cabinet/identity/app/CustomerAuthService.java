@@ -36,7 +36,7 @@ import java.time.LocalDateTime;
  * 第 15 刀做用户端扫码流程时替换归属解析这一环。
  */
 @Service
-public class CustomerAuthService {
+public class CustomerAuthService implements com.wherelee.cabinet.identity.api.CustomerAuthPort {
 
     private static final Logger log = LoggerFactory.getLogger(CustomerAuthService.class);
 
@@ -58,6 +58,7 @@ public class CustomerAuthService {
         this.properties = properties;
     }
 
+    @Override
     public CustomerLoginView login(CustomerLoginRequest request) {
         String openId = miniAppClient.resolveOpenId(request.code());
         BizCustomer customer = customerMapper.selectByOpenId(openId);
@@ -125,10 +126,12 @@ public class CustomerAuthService {
         }
     }
 
+    @Override
     public TokenPair refresh(String refreshToken) {
         return tokenIssuer.refresh(AuthConstants.END_MINI, refreshToken);
     }
 
+    @Override
     public void logout(Caller currentAccess, String refreshToken) {
         tokenIssuer.logout(AuthConstants.END_MINI, currentAccess, refreshToken);
     }
@@ -139,6 +142,7 @@ public class CustomerAuthService {
      * <p>回的是 {@link CustomerView} 而不是实体：openId / unionId 属于服务端侧身份标识，
      * 下发给客户端没有任何用处，却把一个稳定主键泄露到了前端与日志里。
      */
+    @Override
     public CustomerView currentProfile(Caller current) {
         BizCustomer customer = customerMapper.selectById(current.subjectId());
         if (customer == null) {

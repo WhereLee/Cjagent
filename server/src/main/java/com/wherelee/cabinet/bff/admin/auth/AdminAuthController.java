@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.admin.auth;
 
-import com.wherelee.cabinet.identity.app.AdminAuthService;
+import com.wherelee.cabinet.identity.api.AdminAuthPort;
 import com.wherelee.cabinet.identity.api.AdminLoginRequest;
 import com.wherelee.cabinet.identity.api.CurrentAccountView;
 import com.wherelee.cabinet.common.annotation.OperationLog;
@@ -30,9 +30,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin/auth")
 public class AdminAuthController {
 
-    private final AdminAuthService authService;
+    private final AdminAuthPort authService;
 
-    public AdminAuthController(AdminAuthService authService) {
+    public AdminAuthController(AdminAuthPort authService) {
         this.authService = authService;
     }
 

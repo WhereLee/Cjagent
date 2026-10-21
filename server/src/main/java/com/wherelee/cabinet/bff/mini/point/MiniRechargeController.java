@@ -1,6 +1,6 @@
 package com.wherelee.cabinet.bff.mini.point;
 
-import com.wherelee.cabinet.funds.app.RechargeService;
+import com.wherelee.cabinet.funds.api.RechargePort;
 import com.wherelee.cabinet.funds.api.RechargeView;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
@@ -41,9 +41,9 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class MiniRechargeController {
 
-    private final RechargeService recharge;
+    private final RechargePort recharge;
 
-    public MiniRechargeController(RechargeService recharge) {
+    public MiniRechargeController(RechargePort recharge) {
         this.recharge = recharge;
     }
 

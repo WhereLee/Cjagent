@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.funds.app;
 
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.wherelee.cabinet.funds.api.RechargePort;
 import com.wherelee.cabinet.funds.api.RechargeView;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
@@ -31,7 +32,7 @@ import java.time.LocalDateTime;
  * （可由对账与查单补），也不能让点数被凭空造出来——后者是平台资损，而且是静默的。
  */
 @Service
-public class RechargeService {
+public class RechargeService implements RechargePort {
 
     private static final Logger log = LoggerFactory.getLogger(RechargeService.class);
 
@@ -56,6 +57,7 @@ public class RechargeService {
         this.channelProvider = channelProvider;
     }
 
+    @Override
     public RechargeView recharge(Long customerId, long requestPoints) {
         if (requestPoints <= 0) {
             throw new BizException(ResultCode.PARAM_INVALID, "充值点数必须为正数");

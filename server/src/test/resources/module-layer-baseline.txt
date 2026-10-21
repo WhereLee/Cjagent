@@ -1,12 +1,8 @@
-assistant->servicedesk:app
+﻿assistant->servicedesk:app
 assistant->storage:app
-bff.admin->funds:app
-bff.admin->identity:app
 bff.admin->locker:app
 bff.admin->servicedesk:app
 bff.admin->storage:app
-bff.mini->funds:app
-bff.mini->identity:app
 bff.mini->locker:app
 bff.mini->servicedesk:app
 bff.mini->storage:app

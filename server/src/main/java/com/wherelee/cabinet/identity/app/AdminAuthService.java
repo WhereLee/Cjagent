@@ -37,7 +37,7 @@ import org.springframework.stereotype.Service;
  * </ul>
  */
 @Service
-public class AdminAuthService {
+public class AdminAuthService implements com.wherelee.cabinet.identity.api.AdminAuthPort {
 
     private static final Logger log = LoggerFactory.getLogger(AdminAuthService.class);
 
@@ -59,6 +59,7 @@ public class AdminAuthService {
         this.permissionService = permissionService;
     }
 
+    @Override
     public TokenPair login(AdminLoginRequest request) {
         SysTenant tenant = tenantGuard.requireUsableByCode(request.tenantCode());
 
@@ -85,15 +86,18 @@ public class AdminAuthService {
         return pair;
     }
 
+    @Override
     public TokenPair refresh(String refreshToken) {
         return tokenIssuer.refresh(AuthConstants.END_ADMIN, refreshToken);
     }
 
+    @Override
     public void logout(Caller currentAccess, String refreshToken) {
         tokenIssuer.logout(AuthConstants.END_ADMIN, currentAccess, refreshToken);
     }
 
     /** 当前账号信息（前端启动时拉菜单用）。权限走缓存，所以这个方法很轻。 */
+    @Override
     public CurrentAccountView me(Caller current) {
         return new CurrentAccountView(current.subjectId(), current.username(), current.tenantId(),
                 current.end(), permissionService.resolve(current.subjectId()));
