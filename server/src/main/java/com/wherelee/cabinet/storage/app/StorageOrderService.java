@@ -341,7 +341,8 @@ public class StorageOrderService {
             if (order.getStatus() == OrderStatus.OPENING) {
                 order.transitTo(OrderStatus.ACTIVE);
             }
-            LocalDateTime start = order.getToleranceUntil() == null ? LocalDateTime.now() : order.getToleranceUntil();
+            // 容错期必非空：上面已经拿它为 null 的情况提前 return 了，这里再判一次就是不可达分支
+            LocalDateTime start = order.getToleranceUntil();
             deviceOutcomes.startBilling(order, start);
             // 到这里才真的是异常：门开着已超出容错、计费已经起计，必须进台账而不是只进日志
             states.markDoorOpenPastTolerance(order.getSlotId(),

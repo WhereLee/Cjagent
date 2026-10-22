@@ -16,16 +16,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 模块边界基线：<b>只允许收紧，不允许新增</b>。
  *
- * <p>现在的项目是"按层分包"（application/domain/infrastructure），业务边界靠自觉：
- * 订单服务可以随手 import 柜机、设备、资金、工单的 Mapper。重构的第一步不是搬文件，
- * 而是把现状冻成一份清单——之后每搬完一个服务，就删掉一批条目；清单归零那天，
- * 8 个业务服务的边界才真的成立。
+ * <p>这份清单是重构起点把"谁还认识谁"冻下来的结果：当时项目按层分包
+ * （application/domain/infrastructure），业务边界全靠自觉——订单服务可以随手 import
+ * 柜机、设备、资金、工单的 Mapper。做法是先把现状冻成清单，之后每搬完一个服务就删掉一批条目。
+ *
+ * <p>搬包已经完成（8 个业务服务各自 api/app/domain/infra，加上 platform 与 bff），
+ * 清单也按实测收紧过：指向已不存在的顶层 {@code task} 包的 5 条，
+ * 以及 {@code servicedesk->assistant}、{@code storage->funds} 两条已消失的依赖都删掉了
+ * （后者现在是反向的 {@code funds->storage}：storage 只在自己 api 包里暴露 FundPort，由 funds 实现）。
+ * 剩下的条目说的是"还认识"，不是"该认识"——清单归零那天，8 个服务的边界才真的成立。
  *
  * <p>为什么用 ArchUnit 而不是 grep import：依赖不只是 import，还有字段类型、方法参数、
  * 继承和注解。grep 会漏掉"我把 Mapper 当字段类型"这种更隐蔽的耦合。
  *
- * <p>基线数字来自重构前的实测（见 {@link #BASELINE}）。新增一条就红，删除不算红——
- * 但请顺手把对应条目从 BASELINE 删掉，别让清单变成"永远不会变的遗物"。
+ * <p>新增一条就红，删除不算红——但请顺手把对应条目从 BASELINE 删掉，
+ * 别让清单变成"永远不会变的遗物"。取实际依赖全集的办法：把基线文件临时清空后跑
+ * {@link #noNewCrossModuleDependency}，断言消息里会打印"当前全部依赖对"。
  */
 class ModuleBoundaryTest {
 
@@ -36,10 +42,11 @@ class ModuleBoundaryTest {
             .importPackages(ROOT);
 
     /**
-     * 重构起点：当前存在的跨模块依赖对（忽略条数，只看“有没有”）。
+     * 当前仍存在的跨模块依赖对（忽略条数，只看“有没有”）。
      *
-     * <p>条目形如 {@code app.storage->domain}。P1 起只减不增：每搜完一个服务，
-     * 就删掉对应的一批行；这个块清空那天，8 个业务服务的边界才算真的成立。
+     * <p>条目形如 {@code storage->domain}：箭头左边是源模块、右边是目标模块，
+     * 模块名由 {@link #moduleOf} 从包名归一而来。只减不增——每换掉一处直接依赖，
+     * 就删掉对应的一批行；这个文件清空那天，8 个业务服务的边界才算真的成立。
      */
     private static final Set<String> BASELINE = loadBaseline("/module-boundary-baseline.txt");
 
@@ -196,8 +203,8 @@ class ModuleBoundaryTest {
     /**
      * 包名 → <b>目标服务名</b>。
      *
-     * <p>不能按当前包名统计：P3 会把 {@code application.storage} 搬成 {@code storage}，
-     * 键名一变，基线就看不出“到底拆没拆”。所以这里把新旧位置归一到同一个服务名，
+     * <p>为什么要有这层映射而不是直接拿包名当键：包名会随重构搬家，键名一变，
+     * 基线就看不出“到底拆没拆”——数字下降可能只是改了个包名。归一到服务名之后，
      * 搬迁前后键不变，数字只会在“真的不再依赖”时下降。
      */
     private static String moduleOf(String packageName) {
@@ -212,26 +219,14 @@ class ModuleBoundaryTest {
         String head = parts[0];
         String sub = parts.length > 1 ? parts[1] : "";
         return switch (head) {
-            // 根包 app 是启动/装配层（原 config），与 application 的缩写撞名，单独叫 boot
+            // 根包 app 是启动/装配层（原 config），单独叫 boot：
+            // 不区分就会与各服务自己的 app 层混成同一个名字
             case "app" -> "boot";
-            case "application" -> serviceName(sub);
-            case "interfaces" -> "bff." + sub;
             case "infrastructure" -> "infra." + sub;
             case "identity", "locker", "storage", "funds", "device", "servicedesk", "notify", "assistant" -> head;
             case "bff" -> "bff." + sub;
             case "platform" -> "platform";
             default -> head;
-        };
-    }
-    
-    /** 旧包名到目标服务名的映射：搬迁前后保持同一个键。 */
-    private static String serviceName(String legacy) {
-        return switch (legacy) {
-            case "auth", "user" -> "identity";
-            case "point", "billing", "reconcile" -> "funds";
-            case "workorder" -> "servicedesk";
-            case "support", "ops" -> "assistant";
-            default -> legacy;
         };
     }
 }

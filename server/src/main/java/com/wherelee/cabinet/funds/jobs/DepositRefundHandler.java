@@ -2,46 +2,31 @@ package com.wherelee.cabinet.funds.jobs;
 
 import com.wherelee.cabinet.infrastructure.task.TaskOrders;
 import com.wherelee.cabinet.platform.scheduling.TaskHandler;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.funds.app.PricingPolicy;
 import com.wherelee.cabinet.storage.api.FundPort;
-import com.wherelee.cabinet.device.app.DeviceCommandService;
-import com.wherelee.cabinet.funds.app.ReconcileReport;
-import com.wherelee.cabinet.funds.app.ReconcileService;
-import com.wherelee.cabinet.locker.api.SlotPort;
-import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
-import com.wherelee.cabinet.storage.app.StorageOrderService;
 import com.wherelee.cabinet.common.api.ResultCode;
-import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.locker.domain.BizCabinet;
-import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
-import com.wherelee.cabinet.funds.domain.BizDeposit;
-import com.wherelee.cabinet.device.domain.BizDeviceCommand;
-import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.funds.api.DepositStatus;
-import com.wherelee.cabinet.device.api.FaultType;
-import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.locker.api.SlotStatus;
-import com.wherelee.cabinet.locker.api.SizeType;
 import com.wherelee.cabinet.domain.enums.TaskType;
-import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
-import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
-import com.wherelee.cabinet.funds.infra.BizDepositMapper;
-import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
-import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import java.time.LocalDateTime;
-import java.util.List;
 
+/**
+ * 押金悬挂安全网（不变量 4）：订单已终态而押金还挂着，就把它退回去。
+ *
+ * <p><b>它现在只服务存量单</b>：定-1 把“每单押金”换成了“预收 4 小时”，新单不再写
+ * {@code biz_deposit}，所以正常路径不会再产生悬挂。但表、押金栏与本 handler 都保留着——
+ * 存量单还没走完，删了它们那些单就永远退不出钱（同理，删押金流水枚举会让旧账读不出来、
+ * 删账户押金栏会让对账不变量算不平）。
+ *
+ * <p>“什么算悬挂”的判据不在这里另写一份：对账侧是 {@code ReconcileService.HANGING_DEPOSIT}，
+ * 退钱侧是 {@code FundPort.refundHangingDeposit}，本类只负责“到点去叫它”。
+ *
+ * <p>未终态时<b>抛异常而不是返回 false</b>：抛了才会进退避重试，等单走到终态再处理；
+ * 返回 false 会被调度当成“这件事做完了”，那笔押金就再也没人来退。
+ */
 @Component
 public class DepositRefundHandler implements TaskHandler {
 
@@ -77,5 +62,3 @@ public class DepositRefundHandler implements TaskHandler {
         return false;
     }
 }
-
-/** 空闲集合校准：把预扣造成的"少卖漂移"按 DB 真相拉回。 */
