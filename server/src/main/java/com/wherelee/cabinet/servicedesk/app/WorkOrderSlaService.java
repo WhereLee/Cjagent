@@ -104,14 +104,25 @@ public class WorkOrderSlaService {
                 ? null : order.getResolveDueAt().plusMinutes(pausedMinutes);
         int accumulated = (order.getSlaPausedMinutes() == null ? 0 : order.getSlaPausedMinutes())
                 + (int) pausedMinutes;
-        orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
+        // .isNotNull 与 pause 的 .isNull 对称。这一层守卫是唯一的并发保护：
+        // lambdaUpdate 传的 entity 是 null，MyBatis-Plus 的乐观锁拦截器不会给它加 version 条件。
+        if (orders.update(null, Wrappers.<BizWorkOrder>lambdaUpdate()
                 .eq(BizWorkOrder::getId, workOrderId)
+                .isNotNull(BizWorkOrder::getSlaPausedAt)
                 .set(BizWorkOrder::getSlaPausedAt, null)
                 .set(BizWorkOrder::getSlaPauseReason, null)
                 .set(BizWorkOrder::getSlaPausedMinutes, accumulated)
                 .set(BizWorkOrder::getResponseDueAt, responseDue)
                 .set(BizWorkOrder::getResolveDueAt, resolveDue)
-                .set(BizWorkOrder::getDueAt, resolveDue));
+                .set(BizWorkOrder::getDueAt, resolveDue)) == 0) {
+            // 影响 0 行说明并发对手已经恢复过（或工单刚被关闭）。
+            // 今天写的是 Java 侧算好的绝对值，两个并发 resume 从同一份陈旧读算出同一个值、
+            // 互相覆盖不会累加，所以现状无害；但下面那套 schedule + journal.note
+            // 会重复登记到点任务与事件流水。而如果哪天有人把绝对值改成 SQL 侧自增
+            // （set x = x + delta，那个改动看起来完全无害），暂停时长就会被双计。
+            log.info("SLA 恢复被并发抢先或工单已关闭，本次不重复补时限 workOrderId={}", workOrderId);
+            return;
+        }
         // 取消时任务落成 DONE，register 会把它当作新一轮重新排上。
         order.setSlaPausedAt(null);
         order.setSlaPauseReason(null);
