@@ -9,6 +9,7 @@ import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.locker.domain.BizCabinet;
 import com.wherelee.cabinet.locker.domain.BizCompartment;
+import com.wherelee.cabinet.funds.api.DepositStatus;
 import com.wherelee.cabinet.funds.domain.BizDeposit;
 import com.wherelee.cabinet.locker.domain.BizSite;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
@@ -32,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import javax.sql.DataSource;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -161,6 +163,37 @@ class ReconcileBatchTest {
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }
 
+    /**
+     * 造一张“历史每单押金”的单。定-1 之后新单不再写 {@code biz_deposit}，但表、押金栏与
+     * 安全网代码都为存量单保留着（删枚举旧流水读不出来、删栏位对账不变量算不平）——
+     * 没有这个夹具，那部分代码就永远没有测试覆盖，而它管的是真金白银。
+     *
+     * <p>钱走<b>冻结</b>两笔（FREEZE_OUT + FREEZE_IN）而不是押金栏：{@code refundHangingDeposit}
+     * 退的就是冻结栏，{@code biz_deposit} 只是凭证（heldTxnId 指向 FREEZE_IN 那一笔）。
+     * 用 {@code points.freeze} 造而不是手插流水，账本才会自洽——{@code verifyLedger} 的断言要靠它。
+     *
+     * <p>{@code DelayTaskTest} 里有一份同形状的夹具。两边各自持有而不抽公共类：
+     * 两个类的租户、账户与清理逻辑都是各自的，抽出来要引入的依赖比省下的重复更贵。
+     */
+    private BizStorageOrder newLegacyDepositOrder(Long customerId, long depositPoints) {
+        BizStorageOrder order = newOrder(customerId);
+        var frozen = TenantContext.callAs(TENANT, () -> points.freeze(customerId, depositPoints,
+                "ORDER", order.getId(), order.getOrderNo() + ":legacy-deposit", "历史每单押金夹具"));
+        BizDeposit deposit = new BizDeposit();
+        deposit.setOrderId(order.getId());
+        deposit.setCustomerId(customerId);
+        deposit.setPoints(depositPoints);
+        deposit.setStatus(DepositStatus.HELD);
+        deposit.setHeldTxnId(frozen.txnId());
+        deposit.setHeldAt(LocalDateTime.now());
+        TenantContext.runAs(TENANT, () -> depositMapper.insert(deposit));
+        // 冻结栏压在订单上：安全网判的就是“订单终态了而 frozen_points 还大于 0”
+        jdbc.update("update biz_storage_order set frozen_points = ? where id = ?",
+                depositPoints, order.getId());
+        order.setFrozenPoints(depositPoints);
+        return order;
+    }
+
     private ReconcileReport run() {
         return reconcile.reconcile(TENANT);
     }
@@ -208,13 +241,11 @@ class ReconcileBatchTest {
                 "流水侧一行都没有时 sum 必须按 0 参与比较，而不是跳过这一账户");
     }
 
-    @org.junit.jupiter.api.Disabled("每单押金已随定-1 作废：新单不再写 biz_deposit，本用例需改成先造一行历史 HELD 凭证再跑对账"
-            + "（安全网代码仍为历史单保留）。宁可显式关掉，不要悄悄变绿")
     @Test
     @DisplayName("活动单的 HELD 押金是正常态：判据写宽就等于把真问题埋掉")
     void heldDepositOnLiveOrderIsNotHanging() {
         Long customerId = newCustomer();
-        BizStorageOrder order = newOrder(customerId);
+        BizStorageOrder order = newLegacyDepositOrder(customerId, 200L);
 
         // 押金确实在挂着，但单还活着 —— 这是设计内状态
         BizDeposit deposit = TenantContext.callAs(TENANT, () -> depositMapper.selectOne(

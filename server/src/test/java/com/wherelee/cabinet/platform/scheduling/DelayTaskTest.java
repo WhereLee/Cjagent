@@ -205,6 +205,37 @@ class DelayTaskTest {
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }
 
+    /**
+     * 造一张“历史每单押金”的单：定-1 之后新单不再写 {@code biz_deposit}，但表、押金栏与
+     * {@code DepositRefundHandler} 都为存量单保留着。没有这个夹具，“重跑不重复退钱”
+     * 这条真金白银的幂等判据就永远没有测试覆盖。
+     *
+     * <p>钱走<b>冻结</b>两笔（FREEZE_OUT + FREEZE_IN）而不是押金栏：{@code refundHangingDeposit}
+     * 退的就是冻结栏，{@code biz_deposit} 只是凭证（heldTxnId 指向 FREEZE_IN 那一笔）。
+     * 用 {@code points.freeze} 造而不是手插流水，账本才会自洽——本用例末尾的
+     * {@code verifyLedger} 断言要靠它。
+     *
+     * <p>{@code ReconcileBatchTest} 里有一份同形状的夹具（那边判悬挂、这边判退款幂等）。
+     */
+    private BizStorageOrder newLegacyDepositOrder(Long customerId, long depositPoints) {
+        BizStorageOrder order = newOrder(customerId);
+        var frozen = TenantContext.callAs(TENANT, () -> points.freeze(customerId, depositPoints,
+                "ORDER", order.getId(), order.getOrderNo() + ":legacy-deposit", "历史每单押金夹具"));
+        BizDeposit deposit = new BizDeposit();
+        deposit.setOrderId(order.getId());
+        deposit.setCustomerId(customerId);
+        deposit.setPoints(depositPoints);
+        deposit.setStatus(DepositStatus.HELD);
+        deposit.setHeldTxnId(frozen.txnId());
+        deposit.setHeldAt(LocalDateTime.now());
+        TenantContext.runAs(TENANT, () -> depositMapper.insert(deposit));
+        // 冻结栏压在订单上：安全网判的就是“订单终态了而 frozen_points 还大于 0”
+        jdbc.update("update biz_storage_order set frozen_points = ? where id = ?",
+                depositPoints, order.getId());
+        order.setFrozenPoints(depositPoints);
+        return order;
+    }
+
     private void scheduleNow(TaskType type, String bizKey) {
         // fire_at 放到过去：等价于"闹钟已经响了"，测的是执行而不是等待
         TenantContext.runAs(TENANT, () -> tasks.schedule(type, bizKey, TENANT, LocalDateTime.now().minusSeconds(5)));
@@ -630,13 +661,11 @@ class DelayTaskTest {
                 "attempt 必须真实累加，否则退避形同不存在");
     }
 
-    @org.junit.jupiter.api.Disabled("每单押金已随定-1 作废（新单不再产生押金行），本用例要重写为“历史单”场景："
-            + "先插一行 HELD 凭证 + 带押金的冻结与流水，再跑安全网。重写完之前宁可显式关掉，也不让它默默变绿")
     @Test
     @DisplayName("押金悬挂安全网：终态单被回收，重跑不重复退钱")
     void depositSafetyNetIsIdempotent() {
         Long customerId = newCustomer();
-        BizStorageOrder order = newOrder(customerId);
+        BizStorageOrder order = newLegacyDepositOrder(customerId, 200L);
         BizDeposit deposit = TenantContext.callAs(TENANT, () -> depositMapper.selectOne(
                 Wrappers.<BizDeposit>lambdaQuery().eq(BizDeposit::getOrderId, order.getId())));
         assertNotNull(deposit);
