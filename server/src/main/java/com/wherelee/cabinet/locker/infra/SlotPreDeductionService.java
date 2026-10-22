@@ -1,12 +1,12 @@
 package com.wherelee.cabinet.locker.infra;
 
 import com.wherelee.cabinet.locker.api.SizeType;
+import com.wherelee.cabinet.locker.api.SlotPoolPort;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -25,21 +25,26 @@ import java.util.List;
  *
  * <p>已知代价（这套设计的账，第 13 刀调度结清）：
  * <ul>
- *   <li>预占之后、订单事务提交之前进程崩溃 → 该格口在 TTL 内"悬空"（既没卖给别人也没落库）。
- *       方向是<b>少卖</b>不是超卖，靠 hold 标记过期 + 重新同步收敛；</li>
+ *   <li>弹出之后、订单事务提交之前进程崩溃 → 该格口"悬空"（既没卖给别人也不在集合里）。
+ *       方向是<b>少卖</b>不是超卖，靠 {@code FREE_SET_SYNC} 按 DB 真相重建收敛；</li>
  *   <li>Redis 与 DB 之间没有事务，二者短暂不一致是设计内状态，不是 bug；</li>
  *   <li>Redis 故障必须 <b>fail-closed</b>（拿不到就拒单）。它与限流相反：限流挂了放行只是少一层保护，
  *       预占挂了放行等于把全部压力直接砸到热点行上，那才是雪崩。</li>
  * </ul>
+ *
+ * <p>这里曾经还有一套"占位标记 + 租约 TTL"（{@code cab:alloc:hold:*} 加一个负责收尾的 lua）。
+ * 它是为异步落库设计的：那时预占与落库隔着一次 MQ 往返，需要标记说明"这个位正在被谁处理"，
+ * 也需要 TTL 让崩掉的预占自动过期。改成同一个请求、同一个事务里"弹出 + 条件更新"之后，
+ * 中间没有任何窗口，标记失去了保护对象；而事务回滚时标记早已被删掉，那时要补的是
+ * {@link #addFree}（DB 侧格口已回 FREE，集合里就该有它），不是"归还预占"。
+ * 留着它每单要多三次 Redis 往返，而 prealloc 存在的理由就是快。
  */
 @Service
 public class SlotPreDeductionService {
 
     private static final String FREE_PREFIX = "cab:alloc:free:";
-    private static final String HOLD_PREFIX = "cab:alloc:hold:";
 
-    private static final DefaultRedisScript<String> PRE_ALLOC = load("lua/slot-prealloc.lua", String.class);
-    private static final DefaultRedisScript<Long> HOLD_DONE = load("lua/slot-hold.lua", Long.class);
+    private static final DefaultRedisScript<String> POP_FREE = load("lua/slot-prealloc.lua", String.class);
 
     private final StringRedisTemplate redis;
 
@@ -56,30 +61,18 @@ public class SlotPreDeductionService {
     }
 
     /**
-     * @param size    实际分配到的尺寸（可能比请求大，因为按偏好降级）
-     * @param slotId  从空闲集合里原子弹出的格口 ID
-     * @param freeKey 当初命中的集合 key（归还时必须放回**同一个**集合）
-     */
-    public record PreDeduct(SizeType size, Long slotId, String freeKey) {
-    }
-
-    /**
-     * 按偏好顺序预占一个具体格口。
+     * 按偏好顺序弹出一个具体格口。
      *
      * @param preference {@code SizeType.acceptanceOrder(required)} 的顺序，即“最小满足优先”
-     * @param holdKey    占位标记的键（同一逻辑操作唯一即可，调用方决定用什么）
-     * @return 命中的格口；{@code null} 表示无空闲
+     * @return 弹到的格口；{@code null} 表示无空闲
      */
-    public PreDeduct tryPreDeduct(Long cabinetId, List<SizeType> preference, String holdKey,
-                                  Duration holdTtl) {
-        List<String> keys = new ArrayList<>(preference.size() + 1);
+    public SlotPoolPort.Popped pop(Long cabinetId, List<SizeType> preference) {
+        List<String> keys = new ArrayList<>(preference.size());
         for (SizeType size : preference) {
             keys.add(freeKey(cabinetId, size));
         }
-        keys.add(HOLD_PREFIX + holdKey);
 
-        String hit = redis.execute(PRE_ALLOC, keys,
-                String.valueOf(preference.size()), String.valueOf(holdTtl.toSeconds()));
+        String hit = redis.execute(POP_FREE, keys, String.valueOf(preference.size()));
         if (hit == null) {
             return null;
         }
@@ -93,24 +86,7 @@ public class SlotPreDeductionService {
         if (index < 0 || index >= preference.size()) {
             throw new IllegalStateException("预占脚本返回越界序号: " + hit);
         }
-        SizeType size = preference.get(index);
-        return new PreDeduct(size, Long.valueOf(hit.substring(sep + 1)), freeKey(cabinetId, size));
-    }
-
-    /** 落定：只删标记，格口不回空闲集合（它已经在 DB 里绑给订单了）。 */
-    public boolean commit(PreDeduct deducted, String holdKey) {
-        return finish(deducted.freeKey(), holdKey, deducted.slotId(), "COMMIT");
-    }
-
-    /** 不认领：删标记并把格口放回空闲集合（幂等）。 */
-    public boolean release(PreDeduct deducted, String holdKey) {
-        return finish(deducted.freeKey(), holdKey, deducted.slotId(), "RELEASE");
-    }
-
-    private boolean finish(String freeKey, String holdKey, Long slotId, String action) {
-        Long done = redis.execute(HOLD_DONE, List.of(HOLD_PREFIX + holdKey, freeKey),
-                action, String.valueOf(slotId));
-        return done != null && done == 1L;
+        return new SlotPoolPort.Popped(preference.get(index), Long.valueOf(hit.substring(sep + 1)));
     }
 
     /**
@@ -136,7 +112,7 @@ public class SlotPreDeductionService {
     /**
      * 把格口放回空闲集合（SADD 天然幂等）。
      *
-     * <p>给“同步路径取消”用：同步路径的真相在 DB，格口一旦回 FREE，Redis 里就必须有它，
+     * <p>给“格口空出来”的路径用：同步路径的真相在 DB，格口一旦回 FREE，Redis 里就必须有它，
      * 否则这个位置从此“谁也算不到”（少卖）。调用方要容忍本方法失败：它只影响准入精度，
      * 不影响正确性，校准会补回来。
      */

@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
 import com.wherelee.cabinet.domain.enums.TaskType;
-import com.wherelee.cabinet.locker.api.SlotHoldPort;
+import com.wherelee.cabinet.locker.api.SlotPoolPort;
 import com.wherelee.cabinet.locker.domain.BizCabinet;
 import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
 import com.wherelee.cabinet.platform.scheduling.TaskHandler;
@@ -34,11 +34,11 @@ public class FreeSetSyncHandler implements TaskHandler {
     private static final Logger log = LoggerFactory.getLogger(FreeSetSyncHandler.class);
 
     private final BizCabinetMapper cabinetMapper;
-    private final SlotHoldPort slotHold;
+    private final SlotPoolPort slotPool;
 
-    FreeSetSyncHandler(BizCabinetMapper cabinetMapper, SlotHoldPort slotHold) {
+    FreeSetSyncHandler(BizCabinetMapper cabinetMapper, SlotPoolPort slotPool) {
         this.cabinetMapper = cabinetMapper;
-        this.slotHold = slotHold;
+        this.slotPool = slotPool;
     }
 
     @Override
@@ -51,7 +51,7 @@ public class FreeSetSyncHandler implements TaskHandler {
         List<BizCabinet> cabinets = cabinetMapper.selectList(Wrappers.<BizCabinet>lambdaQuery()
                 .eq(BizCabinet::getTenantId, TenantContext.current()));
         for (BizCabinet cabinet : cabinets) {
-            slotHold.syncAllFreeSets(cabinet.getId());
+            slotPool.syncAllFreeSets(cabinet.getId());
         }
         log.info("空闲集合校准完成，柜机数={}", cabinets.size());
         return true;

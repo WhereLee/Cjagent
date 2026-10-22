@@ -2,8 +2,10 @@ package com.wherelee.cabinet.locker;
 
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.locker.api.SizeType;
-import com.wherelee.cabinet.locker.api.SlotHoldPort;
+import com.wherelee.cabinet.locker.api.SlotPoolPort;
+import com.wherelee.cabinet.locker.api.SlotStatus;
 import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
+import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,10 +16,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
-import java.util.Set;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Redis 预占策略下的分配行为。
@@ -25,9 +27,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>与其他三个策略跑<b>完全相同</b>的不变量断言（继承基类），只有配置不同——
  * 这样四组的差异才只能来自并发控制方式本身，而不是测试写法不同。
  *
- * <p>本类额外补两条只有预占才存在的断言：占位标记必须落定即清（不留悬空租约），
- * 以及集合落后于 DB 时校准必须能按 DB 真相补回（少卖可收敛）。这两条是
- * {@code SlotAllocator} 契约 ② 要求"绕过事务的写必须自带收敛路径"的取证。
+ * <p>本类额外补两条只有预占才存在的断言：分配成功时集合与 DB 必须同步减一，
+ * 以及集合落后于 DB 时校准必须能按 DB 真相补回。这两条是 {@code SlotAllocator} 契约 ②
+ * 要求"绕过事务的写必须自带收敛路径"的取证——基类的不变量只查 DB，
+ * 查不到"弹出了却没绑上"（少卖）与"绑上了却没弹出"（超卖）这两种两边脱节。
  */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
@@ -35,10 +38,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class PreallocAllocationTest extends AbstractAllocationBehaviourTest {
 
     private static final String FREE_KEY_PREFIX = "cab:alloc:free:";
-    private static final String HOLD_KEY_PATTERN = "cab:alloc:hold:*";
 
     @Autowired
-    private SlotHoldPort slotHold;
+    private SlotPoolPort slotPool;
     @Autowired
     private SlotPreDeductionService preDeduction;
     @Autowired
@@ -52,10 +54,10 @@ class PreallocAllocationTest extends AbstractAllocationBehaviourTest {
      */
     @BeforeEach
     void syncFreeSets() {
-        TenantContext.runAs(TENANT, () -> slotHold.syncAllFreeSets(currentCabinetId()));
+        TenantContext.runAs(TENANT, () -> slotPool.syncAllFreeSets(currentCabinetId()));
     }
 
-    /** 柜机 ID 每个用例都不同，但集合键留在 Redis 里会越积越多；租约标记有 TTL 会自己消失。 */
+    /** 柜机 ID 每个用例都不同，但集合键留在 Redis 里会越积越多。 */
     @AfterEach
     void clearFreeSets() {
         Long cabinetId = currentCabinetId();
@@ -75,21 +77,29 @@ class PreallocAllocationTest extends AbstractAllocationBehaviourTest {
     }
 
     @Test
-    @DisplayName("预占落定即清标记：并发抢位之后不留悬空租约")
-    void noDanglingHoldAfterContention() throws Exception {
-        runConcurrentRequests(THREADS, SizeType.LARGE);
+    @DisplayName("分配成功后集合与 DB 同步减一：弹出与绑定不许脱节")
+    void popAndReserveStayInSync() {
+        long setBefore = preDeduction.freeCount(currentCabinetId(), SizeType.LARGE);
+        int dbBefore = countByStatus(SlotStatus.FREE);
+        assertEquals(LARGE_SLOTS, setBefore, "前置条件：集合里应有全部大格口");
 
-        // 抢到的那 6 个走 commit 删标记，抢不到的在 SPOP 阶段就拿不到格口、根本没建标记。
-        // 所以这里残留任何一条都意味着有路径漏了收尾，那个格口会在 TTL 内少卖。
-        Set<String> dangling = redis.keys(HOLD_KEY_PATTERN);
-        assertTrue(dangling == null || dangling.isEmpty(),
-                "预占标记必须在落定或放弃时删掉，残留会让格口在 TTL 内少卖：" + dangling);
+        fund(900888L);
+        var view = TenantContext.callAs(TENANT, () -> storageOrderService.create(900888L,
+                new CreateOrderCommand("sync-" + UUID.randomUUID(), currentCabinetNo(), "LARGE", 60)));
+        assertNotNull(view.orderNo());
+
+        // 两边各减一。集合少而 DB 没少 = 弹出了没绑上（少卖，白占一个位）；
+        // DB 少而集合没少 = 绑上了没弹出（下一个人还能弹到它，那就是超卖的前奏）
+        assertEquals(setBefore - 1, preDeduction.freeCount(currentCabinetId(), SizeType.LARGE),
+                "分配成功后集合必须少一个成员");
+        assertEquals(dbBefore - 1, countByStatus(SlotStatus.FREE),
+                "分配成功后 DB 侧必须少一个 FREE 格口");
     }
 
     @Test
     @DisplayName("集合落后于 DB 时，校准按 DB 真相补回（少卖可收敛）")
     void calibrationConvergesUnderSell() {
-        // 人为清空集合，模拟"预占成功但订单事务回滚"留下的少卖状态：
+        // 人为清空集合，模拟"弹出成功但订单事务回滚"留下的少卖状态：
         // DB 里格口是 FREE，Redis 集合里却没有它
         for (SizeType size : SizeType.values()) {
             redis.delete(freeKey(currentCabinetId(), size));
@@ -97,7 +107,7 @@ class PreallocAllocationTest extends AbstractAllocationBehaviourTest {
         assertEquals(0, preDeduction.freeCount(currentCabinetId(), SizeType.LARGE),
                 "前置条件：集合应先被清空");
 
-        TenantContext.runAs(TENANT, () -> slotHold.syncAllFreeSets(currentCabinetId()));
+        TenantContext.runAs(TENANT, () -> slotPool.syncAllFreeSets(currentCabinetId()));
 
         // 夹具刚建、还没人下单，所以 LARGE 全 FREE，数量就是基类声明的容量
         assertEquals(LARGE_SLOTS, preDeduction.freeCount(currentCabinetId(), SizeType.LARGE),

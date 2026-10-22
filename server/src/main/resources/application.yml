@@ -105,11 +105,8 @@ cabinet:
     #   cas         — 无锁读候选 + 按偏好逐个条件 UPDATE（能区分“没位/抢输”）
     #   redisson    — 分柜机分布式锁（锁必须活过事务提交，见 RedissonSlotAllocator）
     #   prealloc    — Redis 集合预占 + DB 条件更新绑定（谁抢到在进 DB 之前就已经定了，
-    #                 代价是多一份事务外的集合状态，靠 hold-ttl 与 FREE_SET_SYNC 收敛）
+    #                 代价是多一份事务外的集合状态，靠 FREE_SET_SYNC 按 DB 真相校准收敛）
     strategy: pessimistic
-    # prealloc 的占位租约：要覆盖“预占 → 订单事务提交”这一段。进程崩在中间时标记到期自消失，
-    # 悬空的格口由 FREE_SET_SYNC 按 DB 真相补回集合（方向是少卖不是超卖）
-    hold-ttl: 180s
     # redisson 等锁上限：拿不到不排长队，直接回 10410 让客户端重试或换柜机
     lock-wait-ms: 800
   device:

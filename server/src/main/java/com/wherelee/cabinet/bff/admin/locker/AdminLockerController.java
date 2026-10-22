@@ -1,7 +1,7 @@
 package com.wherelee.cabinet.bff.admin.locker;
 
 import com.wherelee.cabinet.locker.api.LockerConsolePort;
-import com.wherelee.cabinet.locker.api.SlotHoldPort;
+import com.wherelee.cabinet.locker.api.SlotPoolPort;
 import com.wherelee.cabinet.common.annotation.Idempotent;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.common.api.PageQuery;
@@ -46,14 +46,14 @@ public class AdminLockerController {
 
     private final LockerConsolePort console;
     /** 空闲集合校准是预占策略的运行时结构，归 locker 管；不预占的策略下它只是空转。 */
-    private final SlotHoldPort slotHold;
+    private final SlotPoolPort slotPool;
     /** 客户禁用/启用是身份的事：控制器只转发，不在柜机服务里改客户表。 */
     private final com.wherelee.cabinet.identity.api.CustomerAdminPort customers;
 
-    public AdminLockerController(LockerConsolePort console, SlotHoldPort slotHold,
+    public AdminLockerController(LockerConsolePort console, SlotPoolPort slotPool,
                                  com.wherelee.cabinet.identity.api.CustomerAdminPort customers) {
         this.console = console;
-        this.slotHold = slotHold;
+        this.slotPool = slotPool;
         this.customers = customers;
     }
 
@@ -129,7 +129,7 @@ public class AdminLockerController {
     @PreAuthorize("hasAuthority('locker:freeset:rebuild')")
     @PostMapping("/cabinets/{cabinetId}/free-set/rebuild")
     public R<Void> rebuildFreeSet(@PathVariable Long cabinetId) {
-        slotHold.syncAllFreeSets(cabinetId);
+        slotPool.syncAllFreeSets(cabinetId);
         return R.ok();
     }
 
