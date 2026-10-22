@@ -172,7 +172,11 @@ public class DeviceCommandService implements CommandPort {
             commandMapper.insert(command);
             command.transitTo(CommandState.SENT);
             command.setSentAt(LocalDateTime.now());
-            commandMapper.updateById(command);
+            // 刚 insert 的行、同一个事务里紧接着推 SENT：落空只可能是 version 初值这类编程错误。
+            // 不能静默——SENT 没写上，回扫就认不出"这条该扫"，指令会永远停在 PENDING。
+            if (commandMapper.updateById(command) == 0) {
+                throw new BizException(ResultCode.SYSTEM_ERROR, "指令下发状态未能写入 requestId=" + requestId);
+            }
             return command.getId();
         });
 
@@ -210,7 +214,9 @@ public class DeviceCommandService implements CommandPort {
         if (receipt == null) {
             transit(command, CommandState.TIMEOUT);
             command.setLastError("回执超时");
-            commandMapper.updateById(command);
+            if (!claimTransition(command)) {
+                return convergedElsewhere(command);
+            }
             faultTracker.recordFault(cabinet.id(), slotId, FaultType.NO_REPORT, FaultType.Action.ALARM,
                     faultTracker.failureCount(cabinet.id()) + 1, "回执超时，等待重试或人工");
             int fails = faultTracker.countFailure(cabinet.id());
@@ -246,7 +252,9 @@ public class DeviceCommandService implements CommandPort {
         if (receipt.executedSlotId() != null && !receipt.executedSlotId().equals(slotId)) {
             transit(command, CommandState.FAILED);
             command.setLastError("回执格口与指令不符");
-            commandMapper.updateById(command);
+            if (!claimTransition(command)) {
+                return convergedElsewhere(command);
+            }
             faultTracker.recordFault(cabinet.id(), slotId, FaultType.TARGET_MISMATCH, FaultType.Action.MARK_UNAVAILABLE,
                     faultTracker.failureCount(cabinet.id()) + 1,
                     "设备操作了 slot " + receipt.executedSlotId() + " 而非指令目标 " + slotId);
@@ -258,7 +266,9 @@ public class DeviceCommandService implements CommandPort {
         if (!receipt.success()) {
             transit(command, CommandState.FAILED);
             command.setLastError(receipt.detail());
-            commandMapper.updateById(command);
+            if (!claimTransition(command)) {
+                return convergedElsewhere(command);
+            }
             if (command.getAction() == CommandAction.PREPARE) {
                 // 预备开失败（定-23，用户 2026-10-11 定“不计入”）：归类仍报 OPEN_FAILED，
                 // 因为业务要靠它判“确认坏了”；但**不进 recordFault/maybeDisable**：
@@ -280,7 +290,9 @@ public class DeviceCommandService implements CommandPort {
         // 这两种"成功"必须分开——把谎报当成功，件就会在没人知道的情况下锁在柜里。
         if (!receipt.sensorConfirmed()) {
             transit(command, CommandState.SUCCEEDED);
-            commandMapper.updateById(command);
+            if (!claimTransition(command)) {
+                return convergedElsewhere(command);
+            }
             faultTracker.clearFailure(cabinet.id());
             faultTracker.recordFault(cabinet.id(), slotId, FaultType.DOOR_NOT_CLOSED, FaultType.Action.ALARM,
                     faultTracker.failureCount(cabinet.id()), "设备称已关门，传感器未确认");
@@ -291,7 +303,9 @@ public class DeviceCommandService implements CommandPort {
         transit(command, CommandState.SUCCEEDED);
         command.setAckedAt(LocalDateTime.now());
         command.setLastError(null);
-        commandMapper.updateById(command);
+        if (!claimTransition(command)) {
+            return convergedElsewhere(command);
+        }
         if (command.getAction() == CommandAction.PREPARE) {
             // “不计入”的另一半（用户 2026-10-11 定）：预备开成功**也不清**连续失败计数。
             // 它只是柜机应了一句“我能动”，既不该给停用计数加一笔，也不该把别人攻下的账抹掉：
@@ -334,6 +348,55 @@ public class DeviceCommandService implements CommandPort {
             command.initStatus();
         }
         command.transitTo(target);
+    }
+
+    /**
+     * 抢占本次状态推进：影响 0 行说明<b>另一条路径已经收敛过同一条指令</b>，本次必须让位。
+     *
+     * <p>对手是谁：{@link CommandRescanService} 用迟到流水重放收敛（{@code :112}）、
+     * 重发后再收敛（{@code :138}），以及租约过期被接管后的重跑——
+     * {@code TaskHandler} 的类注释写明「租约保证不了'一生只执行一次'」，所以重跑是设计内场景。
+     *
+     * <p>为什么必须判：{@link DeviceFaultTracker#countFailure} 是 Redis INCR、
+     * {@link DeviceFaultTracker#recordFault} 是 DB insert，两者都不幂等。
+     * 同一条指令被收敛两次，连续失败计数就虚高一倍，虚高到 {@code fail-threshold}
+     * 会把一台没坏的柜机停用（{@code maybeDisable}）——故障台账也会留下重复事件行。
+     * 这正是 {@code converge} 被抽成实时与回扫共用一段时想避免的"同事件不同结果"，
+     * 只是漏洞不在判据表上，而在副作用被执行了几次。
+     *
+     * <p>手法沿用 {@code CommandRescanService:122-133} 占用重试名额那一处：条件更新影响 0 行即让位。
+     */
+    private boolean claimTransition(BizDeviceCommand command) {
+        return commandMapper.updateById(command) == 1;
+    }
+
+    /**
+     * 让位之后回放什么：<b>按 DB 真实状态回答，且不执行任何故障计数与台账副作用</b>。
+     *
+     * <p>标 {@code stale=true} 是因为 {@code OrderDeviceOutcomeService.apply:78-81} 见到 stale
+     * 就不改订单状态——本次调用方不该拿一个"别人已经处置过"的事件再推一次状态。
+     *
+     * <p>{@code faultType} 一律给 null：判不出另一条路径当时归的是哪一类故障
+     * （FAILED 可能是串位也可能是开柜失败，DB 里只留了文案没留类型），
+     * 而猜错代价更高——{@code OrderDoorSessionService.prepareOnce} 拿 {@code faultType == OPEN_FAILED} 当
+     * "柜机自己确认坏了"的唯一判据，误报成它会触发重试→换格→退单。
+     * 给 null 让上层落到 SILENT（"我们不知道"），按定-23 的口径就是不动钱不动单。
+     */
+    private CommandOutcome convergedElsewhere(BizDeviceCommand command) {
+        BizDeviceCommand fresh = commandMapper.selectById(command.getId());
+        if (fresh == null) {
+            throw new BizException(ResultCode.SYSTEM_ERROR, "指令记录消失，需要人工核对 id=" + command.getId());
+        }
+        log.info("指令已被并发路径收敛，本次不重复记故障计数与台账 requestId={} status={}",
+                fresh.getRequestId(), fresh.getStatus());
+        boolean success = fresh.getStatus() == CommandState.SUCCEEDED && fresh.getAckedAt() != null;
+        String message = switch (fresh.getStatus()) {
+            case SUCCEEDED -> success ? "柜门已开启。" : "柜门状态未确认，需要核验";
+            case FAILED -> "开柜失败，请重试或换一台柜机";
+            case TIMEOUT -> "开柜超时，请稍后重试或联系工作人员";
+            default -> "指令已由并发路径处置";
+        };
+        return new CommandOutcome(fresh.getId(), fresh.getStatus(), success, true, null, message);
     }
 
     private BizDeviceCommand newCommand(CabinetSnapshot cabinet, Long slotId, CommandAction action,
