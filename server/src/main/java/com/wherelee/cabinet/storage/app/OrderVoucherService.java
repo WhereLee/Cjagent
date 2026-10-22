@@ -101,7 +101,15 @@ public class OrderVoucherService {
             // 不然随后的 finish 会用陈旧的计数把零盖回去）
             if (order.getVoucherWrongCount() != null && order.getVoucherWrongCount() > 0) {
                 order.setVoucherWrongCount(0);
-                orderMapper.updateById(order);
+                // 判返回值：对手是并发的 registerWrong——它走 REQUIRES_NEW（newTx）并且里面重读了
+                // fresh，提交后 DB 的 version 就领先于这里手里的快照。落空意味着“码验对了
+                // 但错次没归零”，残留的错次会让这张单比实际更早被锁。取件本身不受影响
+                // （码已经验对），所以不抛；但内存对象已经改成 0，随后的 finish 会带着 0
+                // 再写一次，多数情况下这一轮就补上了——补不上的那一次得有人看得见。
+                if (orderMapper.updateById(order) == 0) {
+                    log.warn("取件码验对后清零错次落空，错次可能残留 orderNo={} 待后续写入补齐",
+                            order.getOrderNo());
+                }
             }
             return;
         }

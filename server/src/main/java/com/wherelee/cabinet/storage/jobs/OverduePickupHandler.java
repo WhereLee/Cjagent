@@ -97,7 +97,18 @@ public class OverduePickupHandler implements TaskHandler {
 
         if (order.getStatus() == OrderStatus.ACTIVE || order.getStatus() == OrderStatus.TEMP_OPEN) {
             order.transitTo(OrderStatus.EXPIRED);
-            orderMapper.updateById(order);
+            // 必须判返回值：并发对手是用户取件（pickup 写同一行、version +1）。落空说明用户已经赢了，
+            // 此时下面的 counter、ERROR 与滞留工单全都不能做——否则用户已经把东西取走了，
+            // 系统却开出一张“需人工到场处置”的工单、打一条 ERROR、还记脏两个指标。
+            // 而下面的 capped 只看 heldMinutes（从 startedAt 算），与 version 无关，
+            // 所以不拦住就会真的走到开单那一步。
+            // 返回 true 让下一轮重读：真终态会被上面的终态守卫收掉，若只是别的并发写则下一轮重来。
+            if (orderMapper.updateById(order) == 0) {
+                BizStorageOrder now = orderMapper.selectById(order.getId());
+                log.info("逾期推进 EXPIRED 落空，订单已被并发处置，本轮不记指标也不开单 orderNo={} 现状={}",
+                        order.getOrderNo(), now == null ? "已不存在" : now.getStatus());
+                return true;
+            }
             meterRegistry.counter("cabinet.order.overdue", "size", order.getSizeType().name()).increment();
             log.info("订单逾期转 EXPIRED orderNo={} 逾期点={} 已逾 {} 分钟", order.getOrderNo(),
                     order.getExpectedFinishAt(), overdueMinutes);

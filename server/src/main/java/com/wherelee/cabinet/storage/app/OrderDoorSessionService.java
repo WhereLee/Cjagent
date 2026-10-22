@@ -106,7 +106,12 @@ public class OrderDoorSessionService {
 
         if (opening) {
             order.transitTo(OrderStatus.OPENING);
-            orderMapper.updateById(order);
+            // 推 OPENING 是"我要开门了"的占位。落空说明并发对手（10 分钟待收敛回收、
+            // 门未关巡检）已经改过这行，而上面 :88 的 RESERVED 守卫是用陈旧快照过的——
+            // 此时再下发指令就是往一个状态未知的单上开门。
+            if (orderMapper.updateById(order) == 0) {
+                throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + orderNo);
+            }
         }
 
         long attempts = countAttempts(orderNo, action);
@@ -120,7 +125,17 @@ public class OrderDoorSessionService {
             // 用户既重试不了，也没人来推它——这就是“每个异常路径都要回答下一步能做什么”。
             if (opening) {
                 order.transitTo(OrderStatus.RESERVED);
-                orderMapper.updateById(order);
+                if (orderMapper.updateById(order) == 0) {
+                    // 退回没成功。不能在这里抛：那会用一个新异常盖住真正的下发失败原因，
+                    // 而用户该看到的是"柜机离线"而不是"并发冲突"。重读确认现状：
+                    // 对手已经把它推出 OPENING 就不用管，否则它会真的卡在那里，
+                    // 必须留一条 ERROR——10 分钟待收敛回收会兜底，但兜底不等于没人知道。
+                    BizStorageOrder now = orderMapper.selectById(order.getId());
+                    if (now != null && now.getStatus() == OrderStatus.OPENING) {
+                        log.error("下发失败后退回 RESERVED 也没成功，订单卡在 OPENING 等待收敛回收 orderNo={}",
+                                orderNo);
+                    }
+                }
             }
             throw e;
         }
@@ -234,13 +249,48 @@ public class OrderDoorSessionService {
         }
         Long oldSlotId = order.getSlotId();
         order.setSlotId(swapped.id());
-        orderMapper.updateById(order);
+        if (!writeSwappedSlot(order)) {
+            // 换格没写进订单行：{@link SlotSwapPort} 只有 swapIn 没有逆操作，
+            // 新格口已经绑给这张单了，所以这里既不能报"已改用格口 X"（现场不是），
+            // 也不能假装换成功。返回 false 让上层走退单——门肯定没开过，退预收是安全的；
+            // 悬空的新格口由 FREE_SET_SYNC 与 10 分钟待收敛回收兜底，但必须留一条 ERROR。
+            log.error("换格写库失败，新格口可能悬空需核对 orderNo={} old={} new={}",
+                    order.getOrderNo(), oldSlotId, swapped.id());
+            return false;
+        }
         log.warn("预备开失败判定格口故障并换格 old={} new={} orderNo={}",
                 oldSlotId, swapped.id(), order.getOrderNo());
         workOrderPort.openDeviceFault(order,
                 true, "预备开自动重试 " + (1 + (int) openRetries) + " 次柜机均回报开不了，旧格口已摘出可分配池",
                 "格口打不开，已改用格口 " + swapped.slotNo(), java.time.LocalDateTime.now().plusHours(2));
         return true;
+    }
+
+    /**
+     * 把换格结果写进订单行，落空则重读再试一次。
+     *
+     * <p>为什么重读而不是直接抛：{@code openDoor:103-104} 已经写明这条链上
+     * 「握手过程中可能已换过格口：必须重读，不能拿着旧对象往下写（会撞 @Version）」——
+     * 落空的原因就是手里这份快照陈旧，重读拿到新 version 再写一次即可，不需要惊动用户。
+     *
+     * <p>重试仍落空说明对手在持续写同一行（待收敛回收与门未关巡检都会写它），
+     * 交给调用方按"没换成"处理，不能无限重试。
+     */
+    private boolean writeSwappedSlot(BizStorageOrder order) {
+        if (orderMapper.updateById(order) == 1) {
+            return true;
+        }
+        BizStorageOrder fresh = orderMapper.selectById(order.getId());
+        if (fresh == null) {
+            return false;
+        }
+        if (order.getSlotId().equals(fresh.getSlotId())) {
+            // 对手写的正是同一个新格口（例如上一轮换格的重跑）：结果已经在了，算成功
+            return true;
+        }
+        // 用重读到的行写：保留对手对其它字段（状态、容错期）的改动，只补上格口
+        fresh.setSlotId(order.getSlotId());
+        return orderMapper.updateById(fresh) == 1;
     }
 
     /**
