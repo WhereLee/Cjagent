@@ -104,16 +104,14 @@ cabinet:
     #   pessimistic — SELECT … FOR UPDATE 锁候选行 + 锁内条件更新（默认，正确性最好证）
     #   cas         — 无锁读候选 + 按偏好逐个条件 UPDATE（能区分“没位/抢输”）
     #   redisson    — 分柜机分布式锁（锁必须活过事务提交，见 RedissonSlotAllocator）
-    #   prealloc    — Redis 集合预扣 + MQ 异步落库（请求路径上无 DB 事务，代价是最终一致）
+    #   prealloc    — Redis 集合预占 + DB 条件更新绑定（谁抢到在进 DB 之前就已经定了，
+    #                 代价是多一份事务外的集合状态，靠 hold-ttl 与 FREE_SET_SYNC 收敛）
     strategy: pessimistic
-    # prealloc 的占位租约：到期未被提交也未归还 = 悬空（少卖），由同步校准收敛
+    # prealloc 的占位租约：要覆盖“预占 → 订单事务提交”这一段。进程崩在中间时标记到期自消失，
+    # 悬空的格口由 FREE_SET_SYNC 按 DB 真相补回集合（方向是少卖不是超卖）
     hold-ttl: 180s
     # redisson 等锁上限：拿不到不排长队，直接回 10410 让客户端重试或换柜机
     lock-wait-ms: 800
-  mq:
-    # 订单“待落库”消息；tag 固定 order，同一 topic 后续可接超时释放、结算等语义分流
-    order-persist-topic: storage-order-persist
-    send-timeout-ms: 3000
   device:
     # 等设备回执的上限。这个值不是“越快越好”：它同时决定了“多快把异常告知用户”
     # 与“一次挂死的设备能拖住多少用户”。等待期间不开事务、不占连接

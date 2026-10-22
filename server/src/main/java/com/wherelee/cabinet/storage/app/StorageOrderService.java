@@ -251,12 +251,6 @@ public class StorageOrderService {
         return allocator.strategy();
     }
 
-    /** 订单行是否已存在（异步路径的“创建中”判定靠它，不区分归属）。 */
-    public boolean orderExists(String orderNo) {
-        return orderMapper.exists(Wrappers.<BizStorageOrder>lambdaQuery()
-                .eq(BizStorageOrder::getOrderNo, orderNo));
-    }
-
     /**
      * 重置取件码（第 25 刀，用户 2026-10-14 拍板）：本人登录态的凭据自救与锁定出路。
      *

@@ -9,28 +9,27 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * 格口预扣（Redis 集合模型）。
+ * 格口预占（Redis 集合模型）。
  *
  * <p><b>它只负责"准入"，不是库存真相源</b>：真相在 {@code biz_compartment.status} 与
- * {@code uk_order_active_slot}。预扣的意义是把竞争挡在数据库之前，让 DB 事务不再位于关键路径
- * （第 9 刀压测算出的瓶颈正是"连接池 10 × 事务 1.6s"）。
+ * {@code uk_order_active_slot}。预占的意义是把竞争挡在数据库之前——热点柜机上所有请求
+ * 都去撞同一批候选行时，"谁抢到"在 Redis 的单线程原子性里就有了答案，DB 侧只剩一次
+ * 不会失败的条件更新（第 9 刀压测算出的瓶颈正是"连接池 10 × 事务 1.6s"）。
  *
  * <p>为什么是集合而不是计数：计数会漂移——重复归还凭空造出可卖位（等于超卖），
- * 崩溃/漏消费让计数长期偏低（少卖）。集合成员只能由 {@link #replaceFreeSet} 从 DB 真相同步，
+ * 崩溃让计数长期偏低（少卖）。集合成员只能由 {@link #replaceFreeSet} 从 DB 真相同步，
  * <b>多卖在结构上做不到</b>，少卖靠再次同步收敛。
  *
  * <p>已知代价（这套设计的账，第 13 刀调度结清）：
  * <ul>
- *   <li>预扣后进程崩溃或消息未消费 → 该格口在 TTL 内"悬空"（既没卖给别人也没落库）。
+ *   <li>预占之后、订单事务提交之前进程崩溃 → 该格口在 TTL 内"悬空"（既没卖给别人也没落库）。
  *       方向是<b>少卖</b>不是超卖，靠 hold 标记过期 + 重新同步收敛；</li>
  *   <li>Redis 与 DB 之间没有事务，二者短暂不一致是设计内状态，不是 bug；</li>
  *   <li>Redis 故障必须 <b>fail-closed</b>（拿不到就拒单）。它与限流相反：限流挂了放行只是少一层保护，
- *       预扣挂了放行等于把全部压力直接砸到热点行上，那才是雪崩。</li>
+ *       预占挂了放行等于把全部压力直接砸到热点行上，那才是雪崩。</li>
  * </ul>
  */
 @Service
@@ -65,22 +64,22 @@ public class SlotPreDeductionService {
     }
 
     /**
-     * 按偏好顺序预扣一个具体格口。
+     * 按偏好顺序预占一个具体格口。
      *
      * @param preference {@code SizeType.acceptanceOrder(required)} 的顺序，即“最小满足优先”
+     * @param holdKey    占位标记的键（同一逻辑操作唯一即可，调用方决定用什么）
      * @return 命中的格口；{@code null} 表示无空闲
      */
-    public PreDeduct tryPreDeduct(Long cabinetId, List<SizeType> preference, String orderNo,
-                                  Duration holdTtl, Long customerId) {
+    public PreDeduct tryPreDeduct(Long cabinetId, List<SizeType> preference, String holdKey,
+                                  Duration holdTtl) {
         List<String> keys = new ArrayList<>(preference.size() + 1);
         for (SizeType size : preference) {
             keys.add(freeKey(cabinetId, size));
         }
-        keys.add(HOLD_PREFIX + orderNo);
+        keys.add(HOLD_PREFIX + holdKey);
 
         String hit = redis.execute(PRE_ALLOC, keys,
-                String.valueOf(preference.size()), String.valueOf(holdTtl.toSeconds()),
-                String.valueOf(customerId));
+                String.valueOf(preference.size()), String.valueOf(holdTtl.toSeconds()));
         if (hit == null) {
             return null;
         }
@@ -88,49 +87,28 @@ public class SlotPreDeductionService {
         // 脚本返回 "序号:格口ID"，序号是 1-based 的偏好下标
         int sep = hit.indexOf(':');
         if (sep <= 0) {
-            throw new IllegalStateException("预扣脚本返回格式异常: " + hit);
+            throw new IllegalStateException("预占脚本返回格式异常: " + hit);
         }
         int index = Integer.parseInt(hit.substring(0, sep)) - 1;
         if (index < 0 || index >= preference.size()) {
-            throw new IllegalStateException("预扣脚本返回越界序号: " + hit);
+            throw new IllegalStateException("预占脚本返回越界序号: " + hit);
         }
         SizeType size = preference.get(index);
         return new PreDeduct(size, Long.valueOf(hit.substring(sep + 1)), freeKey(cabinetId, size));
     }
 
-    /** 落库成功后收尾：只删标记，格口不回空闲集合。 */
-    public boolean commit(PreDeduct deducted, String orderNo) {
-        return finish(deducted.freeKey(), orderNo, deducted.slotId(), "COMMIT");
+    /** 落定：只删标记，格口不回空闲集合（它已经在 DB 里绑给订单了）。 */
+    public boolean commit(PreDeduct deducted, String holdKey) {
+        return finish(deducted.freeKey(), holdKey, deducted.slotId(), "COMMIT");
     }
 
-    /** 失败/取消收尾：删标记并把格口放回空闲集合（幂等）。 */
-    public boolean release(PreDeduct deducted, String orderNo) {
-        return finish(deducted.freeKey(), orderNo, deducted.slotId(), "RELEASE");
+    /** 不认领：删标记并把格口放回空闲集合（幂等）。 */
+    public boolean release(PreDeduct deducted, String holdKey) {
+        return finish(deducted.freeKey(), holdKey, deducted.slotId(), "RELEASE");
     }
 
-    /** 按 hold 里记录的原始集合 key 归还（用于“取消先于落库”：那时调用方手里没有 PreDeduct）。 */
-    public boolean releaseByKey(String freeKey, String orderNo, Long slotId) {
-        return finish(freeKey, orderNo, slotId, "RELEASE");
-    }
-
-    /**
-     * 消费者手上只有“柜机 + 尺寸 + 格口”，用它重建收尾所需的上下文。
-     * 集合 key 由命名规则推导，但规则只居在本类里（而不是泄到调用方手上拼字符串）。
-     */
-    public PreDeduct rehydrate(Long cabinetId, SizeType size, Long slotId) {
-        return new PreDeduct(size, slotId, freeKey(cabinetId, size));
-    }
-
-    /** 读占位标记（取消排队中的单时用它做归属校验与归还定位）。 */
-    public Map<String, String> holdOf(String orderNo) {
-        Map<Object, Object> raw = redis.opsForHash().entries(HOLD_PREFIX + orderNo);
-        Map<String, String> result = new LinkedHashMap<>(raw.size());
-        raw.forEach((k, v) -> result.put(String.valueOf(k), String.valueOf(v)));
-        return result;
-    }
-
-    private boolean finish(String freeKey, String orderNo, Long slotId, String action) {
-        Long done = redis.execute(HOLD_DONE, List.of(HOLD_PREFIX + orderNo, freeKey),
+    private boolean finish(String freeKey, String holdKey, Long slotId, String action) {
+        Long done = redis.execute(HOLD_DONE, List.of(HOLD_PREFIX + holdKey, freeKey),
                 action, String.valueOf(slotId));
         return done != null && done == 1L;
     }
@@ -153,10 +131,6 @@ public class SlotPreDeductionService {
     public long freeCount(Long cabinetId, SizeType size) {
         Long count = redis.opsForSet().size(freeKey(cabinetId, size));
         return count == null ? 0L : count;
-    }
-
-    public boolean hasHold(String orderNo) {
-        return Boolean.TRUE.equals(redis.hasKey(HOLD_PREFIX + orderNo));
     }
 
     /**

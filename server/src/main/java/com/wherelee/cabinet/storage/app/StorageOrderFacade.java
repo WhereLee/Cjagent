@@ -1,53 +1,43 @@
 package com.wherelee.cabinet.storage.app;
-import com.wherelee.cabinet.locker.api.CabinetLockPort;
 
+import com.wherelee.cabinet.device.api.CommandAction;
+import com.wherelee.cabinet.locker.api.CabinetLockPort;
 import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.storage.api.StorageOrderView;
-import com.wherelee.cabinet.common.api.ResultCode;
-import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.device.api.CommandAction;
-import com.wherelee.cabinet.domain.enums.OrderStatus;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
- * 寄存用例的统一入口：按策略决定走"同步落库"还是"预扣 + 异步落库"。
+ * 寄存用例的统一入口。
  *
- * <p>有了它，Controller 不需要知道有四种策略、也不需要每个接口都写一遍分支；
+ * <p>有了它，Controller 不需要知道有四种格口分配策略、也不需要每个接口都写一遍分支；
  * 而压测切策略时，<b>业务代码一个字都不用改</b>——这是第 9 刀"复制粘贴出来的对比不可信"
- * 那条判断的落地形式。
+ * 那条判断的落地形式。策略差异全部收敛在 {@code SlotAllocator} 的四个实现里
+ * （悲观锁 / CAS / Redisson / Redis 预占），由 {@code cabinet.alloc.strategy} 选一个装配。
  *
- * <p>取消不分流：无论哪条路径，取消都以 DB 里的订单行为准（异步路径下若行还不存在，
- * 由 {@link AsyncStorageOrderAppService#cancelQueued} 处理"取消先于落库"的赛跑）。
+ * <p>本类自己只承担两件不属于任何单一服务的事：redisson 策略下把锁包在建单事务<b>外面</b>
+ * （锁必须包住整个事务，在事务里加锁等于没锁），以及"存件 = 建单 + 紧接着开门"这一步合并。
+ *
+ * <p>这里曾经按策略分流到一条"预占 + 异步落库"的平行下单路径，已删除：
+ * 那条路径绕过了本类的建单流程，于是欠费拦截、一人一单校验、超时释放任务登记与取件码
+ * 站内消息四件事在它上面都不存在；而它返回的中间态与"下单即开门"互斥，
+ * 存件接口在该策略下 100% 失败。预占的价值（把热点行竞争挡在 DB 之前）已经收进
+ * {@code PreallocSlotAllocator}，下单只有一条路径。
  */
 @Service
 public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.StorageOrderCommandPort {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(StorageOrderFacade.class);
 
-    private static final String STRATEGY_PREALLOC = "prealloc";
-
     private final StorageOrderService syncService;
-    private final AsyncStorageOrderAppService asyncService;
     /** 只有 redisson 策略会真的加锁；其他策略下 active() 为 false。 */
     private final CabinetLockPort cabinetLock;
-    private final String strategy;
 
-    public StorageOrderFacade(StorageOrderService syncService,
-                              AsyncStorageOrderAppService asyncService,
-                              CabinetLockPort cabinetLock,
-                              @Value("${cabinet.alloc.strategy:pessimistic}") String strategy) {
+    public StorageOrderFacade(StorageOrderService syncService, CabinetLockPort cabinetLock) {
         this.syncService = syncService;
-        this.asyncService = asyncService;
         this.cabinetLock = cabinetLock;
-        this.strategy = strategy;
     }
 
     public StorageOrderView create(Long customerId, CreateOrderCommand command) {
-        if (STRATEGY_PREALLOC.equalsIgnoreCase(strategy)) {
-            return asyncService.createAsync(customerId, command);
-        }
         if (!cabinetLock.active()) {
             return syncService.create(customerId, command);
         }
@@ -71,7 +61,7 @@ public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.Stor
         try {
             return openDoor(customerId, created.orderNo(), CommandAction.OPEN);
         } catch (RuntimeException e) {
-            // 门没开成：这单不应留下任何东西。释放走业务取消路径（含柜内检查与预扣集合同步），
+            // 门没开成：这单不应留下任何东西。释放走业务取消路径（含柜内检查与预占集合同步），
             // 不重写一遍。释放失败只记日志不能掩盖原始失败：格口会由待收敛回收器兜底。
             try {
                 cancel(customerId, created.orderNo());
@@ -84,28 +74,10 @@ public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.Stor
     }
 
     public StorageOrderView cancel(Long customerId, String orderNo) {
-        try {
-            return syncService.cancel(customerId, orderNo);
-        } catch (BizException e) {
-            // 异步路径下“取消先于落库”：行还不存在，只能归还占位。
-            // 这个分支不能反过来——已落库的单必须走同步取消，否则格口在 DB 里永远不会释放。
-            if (STRATEGY_PREALLOC.equalsIgnoreCase(strategy)
-                    && e.getResultCode() == ResultCode.RESOURCE_NOT_FOUND
-                    && asyncService.cancelQueued(orderNo, customerId)) {
-                return new StorageOrderView(orderNo, "-", "-", "-",
-                        OrderStatus.CANCELLED.name(), null, 0, strategy, null);
-            }
-            throw e;
-        }
+        return syncService.cancel(customerId, orderNo);
     }
 
     public StorageOrderView openDoor(Long customerId, String orderNo, CommandAction action) {
-        // 开柜必须面对已落库的订单。异步路径下“消息已发、行还没写”的短暂窗口里，
-        // 去操作一个不存在的订单没有意义（格口可能正在被别人拿走），直接回“创建中、请重试”。
-        // 把这个窗口暴露给用户而不是粉饰太平：它本来就是异步设让的代价。
-        if (STRATEGY_PREALLOC.equalsIgnoreCase(strategy) && !syncService.orderExists(orderNo)) {
-            throw new BizException(ResultCode.SYSTEM_ERROR, "寄存单创建中，请稍候重试");
-        }
         return syncService.openDoor(customerId, orderNo, action);
     }
 
@@ -117,7 +89,6 @@ public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.Stor
      * 取件，可带上取件码（定-6）。
      *
      * <p>码为空就是原来的主路径（登录态）；带码时校验、计错次、达阈就锁定该单开柜。
-     * 不分流到异步：它要看当前的门磁与物检读数，而异步窗口里这些全部未知。
      */
     public StorageOrderView pickup(Long customerId, String orderNo, String voucherCode) {
         return syncService.pickup(customerId, orderNo, voucherCode);
@@ -134,8 +105,7 @@ public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.Stor
     }
 
     /**
-     * 重置取件码（第 25 刀）：换码 + 错次清零 + 解锁。不分流到异步：它要面对已落库的行，
-     * 与 pickup 同一个理由（异步窗口里这些全部未知）。
+     * 重置取件码（第 25 刀）：换码 + 错次清零 + 解锁。
      */
     public com.wherelee.cabinet.storage.api.VoucherView resetVoucher(Long customerId, String orderNo) {
         return syncService.resetVoucher(customerId, orderNo);
@@ -152,7 +122,9 @@ public class StorageOrderFacade implements com.wherelee.cabinet.storage.api.Stor
         syncService.convergeDeviceOutcome(orderId, action, outcome);
     }
 
+    /** 当前生效的策略名。真相在分配器上——它才是被 {@code cabinet.alloc.strategy} 选中的那个实现。 */
+    @Override
     public String activeStrategy() {
-        return strategy;
+        return syncService.activeStrategy();
     }
 }
