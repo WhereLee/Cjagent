@@ -244,6 +244,12 @@ cabinet:
       P4:
         response-minutes: 480
         resolve-minutes: 4320
+  outbox:
+    # 待投递事实（biz_outbox）的中继区间。与调度轮询同一节奏，积压时按 batch-size 分批。
+    # 退避与判死沿用 cabinet.scheduler.backoff-base-seconds（不另造一套节奏）
+    poll-interval-ms: 15000
+    initial-delay-ms: 20000
+    batch-size: 50
   scheduler:
     # 触发方式：poll（纯 DB 轮询，默认）| zset（Redis 索引加速）| mq（RocketMQ 延迟消息）。
     # 三者都只起“提醒”作用，能不能执行由 biz_delay_task 上的租约条件更新决定（跳存储无事务）

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import com.wherelee.cabinet.locker.jobs.OutboxRelay;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -128,9 +129,15 @@ class LeftoverRetrieveFlowTest {
         return jdbc.queryForList(sql, args);
     }
 
+    @Autowired
+    private OutboxRelay outboxRelay;
+
     private void markLeftover() {
         com.wherelee.cabinet.common.context.TenantContext.runAs(TENANT,
                 () -> states.markContentLeft(slotId, "取物关门后复检到物品"));
+        // 工单与物主通知现在由 outbox 中继投递（批 4）：标异常只写一行待投递事实，
+        // 集成测试里调度是关掉的，所以夹具显式投递一次
+        outboxRelay.deliverBatch();
     }
 
     @Test

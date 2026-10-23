@@ -26,6 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import com.wherelee.cabinet.locker.jobs.OutboxRelay;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -136,8 +137,14 @@ class WorkOrderFlowTest {
         return jdbc.queryForList(sql, args);
     }
 
+    @Autowired
+    private OutboxRelay outboxRelay;
+
     private void markDoorOpen() {
         TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 11));
+        // 工单与消息现在由 outbox 中继投递（批 4）：标异常只写一行待投递事实。
+        // 集成测试里调度是关掉的，所以夹具显式投递一次，让用例看到“扇出已完成”的现场。
+        outboxRelay.deliverBatch();
     }
 
     @Test
@@ -254,6 +261,7 @@ class WorkOrderFlowTest {
                 Boolean.class, TENANT, slotId), "有物的门未关就是紧急异常（用户口径）");
 
         TenantContext.runAs(TENANT, () -> states.markContentLeft(slotId, "结束后物检报有物"));
+        outboxRelay.deliverBatch();
         List<Map<String, Object>> left = rows(
                 "select type, urgent, snapshot_json from biz_work_order where tenant_id = ? and type = 'ITEM_LEFT'", TENANT);
         assertEquals(1, left.size());
@@ -383,6 +391,7 @@ class WorkOrderFlowTest {
         markDoorOpen();
         TenantContext.runAs(TENANT, () -> states.markContentLeft(slotId, "结束后检出物品"));
         TenantContext.runAs(TENANT, () -> states.markSensorConflict(slotId, "门磁与物检矛盾"));
+        outboxRelay.deliverBatch();
 
         PageQuery first = new PageQuery();
         first.setPageSize(2);
@@ -448,6 +457,7 @@ class WorkOrderFlowTest {
     void anomalyWithoutOrderStillOpensWorkOrder() {
         jdbc.update("update biz_compartment set current_order_id = null, status = 'FREE' where id = ?", slotId);
         TenantContext.runAs(TENANT, () -> states.markSensorConflict(slotId, "门磁与物检矛盾"));
+        outboxRelay.deliverBatch();
 
         List<Map<String, Object>> list = rows(
                 "select type, urgent, order_no, customer_id from biz_work_order where tenant_id = ? and slot_id = ?",
@@ -456,6 +466,38 @@ class WorkOrderFlowTest {
         assertEquals("DEVICE_FAULT", list.get(0).get("type"));
         assertEquals(Boolean.FALSE, list.get(0).get("urgent"), "传感器矛盾按普通排队：它不影响钱");
         assertEquals(null, list.get(0).get("order_no"), "没有一个活着的单时，工单只指向格口");
+    }
+
+    @Test
+    @DisplayName("扇出失败不回滚事实：工单投不出去，异常态与流水照样在")
+    void fanOutFailureDoesNotRollBackTheFact() {
+        // 改造前这里根本走不到：同步调工单时下游一抛异常，标异常与写流水全部回滚，
+        // 用户的操作（上报遗留物/取件）也跟着失败。现在业务事实先提交，派生动作落后一步。
+        TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 11));
+
+        assertEquals("DOOR_OPEN", jdbc.queryForObject(
+                        "select anomaly from biz_compartment where id = ?", String.class, slotId),
+                "异常态必须已经提交，与工单投递成败无关");
+        assertEquals(1, rows("select id from biz_fault_event where slot_id = ?", slotId).size(),
+                "故障流水必须已经提交");
+
+        // 把载荷弄坏，模拟“工单侧投递失败”
+        jdbc.update("update biz_outbox set payload = '{broken' where tenant_id = ? and status = 'PENDING'", TENANT);
+        assertEquals(0, outboxRelay.deliverBatch(), "载荷坏掉时投不出去");
+
+        Map<String, Object> failed = jdbc.queryForMap(
+                "select status, attempt, last_error from biz_outbox where tenant_id = ? order by id desc limit 1",
+                TENANT);
+        assertEquals("FAILED", String.valueOf(failed.get("status")), "投递失败要进退避，不能丢");
+        assertEquals(1L, ((Number) failed.get("attempt")).longValue());
+        assertNotNull(failed.get("last_error"), "失败原因要留下来，否则没人知道为什么没投出去");
+
+        // 判死：把 attempt 顶到上限的前一次，下一轮失败就该 DEAD 等人工
+        jdbc.update("update biz_outbox set attempt = 4, next_attempt_at = now(3) where tenant_id = ?", TENANT);
+        outboxRelay.deliverBatch();
+        assertEquals("DEAD", jdbc.queryForObject(
+                        "select status from biz_outbox where tenant_id = ? order by id desc limit 1", String.class, TENANT),
+                "重试预算用尽要判死等人工，不能无限重试（与延迟任务同一个上限）");
     }
 
     @Test

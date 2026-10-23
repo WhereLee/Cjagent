@@ -10,11 +10,11 @@ import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.locker.api.CompartmentAnomaly;
+import com.wherelee.cabinet.locker.api.OutboxPort;
 import com.wherelee.cabinet.locker.api.Presence;
 import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
 import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
 import org.slf4j.Logger;
@@ -42,8 +42,11 @@ public class SlotAnomalyPublisher {
     private final FaultPort faults;
     private final WorkOrderPort workOrders;
     private final EvidencePort evidence;
-    /** 遗留物通知（第 21 刀）：物主收到的站内消息走它，一张未关闭工单只发一条。 */
-    private final NoticePort notices;
+    /**
+     * 待投递的事实（批 4）：开工单与发通知都不再同步调，改为入队由中继投递。
+     * 这两条链的入口多在业务事务里，同步调时下游失败会把上游事实一起回滚。
+     */
+    private final OutboxPort outbox;
     /** 遗留物归因：发现遗留物时活动单早已结束，能指认的就是这个格口最近一张终态单的主人。 */
     private final BizStorageOrderMapper orderMapper;
 
@@ -59,13 +62,13 @@ public class SlotAnomalyPublisher {
     private int repeatRemindTimes;
 
     public SlotAnomalyPublisher(BizCompartmentMapper slotMapper, FaultPort faults,
-                                WorkOrderPort workOrders, EvidencePort evidence, NoticePort notices,
+                                WorkOrderPort workOrders, EvidencePort evidence, OutboxPort outbox,
                                 BizStorageOrderMapper orderMapper) {
         this.slotMapper = slotMapper;
         this.faults = faults;
         this.workOrders = workOrders;
         this.evidence = evidence;
-        this.notices = notices;
+        this.outbox = outbox;
         this.orderMapper = orderMapper;
     }
 
@@ -183,9 +186,10 @@ public class SlotAnomalyPublisher {
         faults.record(slot.getCabinetId(), slot.getId(),
                 anomaly.autoRecoverable() ? FaultType.Action.ALARM : FaultType.Action.MARK_UNAVAILABLE, 0, reason);
         // 19B：异常一旦落下就同时开一张工单（开单幂等，重复标同一种异常不会刷出多张）。
-        // 放在写完当前态与流水之后：工单是“有人该管”，不是异常本身的一部分，
-        // 它失败不能让格口不回写（否则开单问提会拖挂主链路）。
-        workOrders.openForAnomaly(slotId, anomaly, reason);
+        // 走 outbox 而不是直接调：这条链的入口多在业务事务里（上报遗留物、取件、取消、握手收敛），
+        // 同步调时下游一抛异常会把共享的物理事务标成 rollback-only——加 try/catch 也挡不住，
+        // 于是“格口有异常”这个事实连同用户的操作一起消失。现在只写一行本地表，投递交给中继。
+        outbox.appendWorkOrderAnomaly(slotId, anomaly, reason, slotId + ":" + anomaly + ":" + now);
     }
 
     /**
@@ -261,7 +265,9 @@ public class SlotAnomalyPublisher {
             if (workOrderId == null) {
                 return;
             }
-            notices.emit(slot.getTenantId(), NoticeChannel.SYSTEM_MESSAGE, "LEFTOVER_OWNER",
+            // 发消息同样走 outbox：本方法的入口是“关门复检 / 代关 / 下一位上报”，
+            // 多在业务事务里；通知失败不能把物主的那张单一起带走。
+            outbox.appendOwnerNotice(NoticeChannel.SYSTEM_MESSAGE, "LEFTOVER_OWNER",
                     "WO" + workOrderId + ":OWNER_MSG",
                     "你的暂存柜格口 " + slot.getSlotNo() + " 检测到遗留物品，请到柜取回。"
                             + "取回路径：小程序-我的寄存单-该订单-取回物品",
