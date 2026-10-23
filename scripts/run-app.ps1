@@ -12,7 +12,10 @@
 # pre-push scan pattern.
 
 param(
-    [string]$Profile = 'dev'
+    [string]$Profile = 'dev',
+    # Extra Spring Boot args, e.g. "--cabinet.alloc.strategy=prealloc".
+    # Which allocator to run is a smoke/stress concern; this launcher only forwards it.
+    [string]$AppArgs = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,7 +38,13 @@ Write-Output "profile: $Profile  workdir: $serverDir"
 
 Push-Location $serverDir
 try {
-    & mvn -B -ntp spring-boot:run "-Dspring-boot.run.jvmArguments=$jvmArgs" "-Dspring-boot.run.profiles=$Profile"
+    $mvnArgs = @('-B', '-ntp', 'spring-boot:run',
+        "-Dspring-boot.run.jvmArguments=$jvmArgs",
+        "-Dspring-boot.run.profiles=$Profile")
+    if ($AppArgs) {
+        $mvnArgs += "-Dspring-boot.run.arguments=$AppArgs"
+    }
+    & mvn @mvnArgs
 } finally {
     Pop-Location
 }

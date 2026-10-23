@@ -20,6 +20,9 @@ param(
     [string]$TenantCode = 'platform',
     [string]$CabinetNo = 'CAB-001-3',
     [string]$SizeType = 'SMALL',
+    # Allocator to run the chain under (pessimistic / cas / redisson / prealloc).
+    # Empty = whatever application.yml says. Only used together with -StartServer.
+    [string]$Strategy = '',
     [int]$ReadyTimeoutSeconds = 120
 )
 
@@ -101,8 +104,15 @@ try {
     if ($StartServer) {
         $runApp = Join-Path $root 'scripts\run-app.ps1'
         Write-Output "starting backend from $runApp ..."
+        # Forward the allocator so one smoke chain can be replayed under each strategy.
+        # prealloc used to fail every place-order with HTTP 500 before batch 2; this is
+        # the regression run that proves it stays fixed.
+        $launchArgs = @('-ExecutionPolicy', 'Bypass', '-File', $runApp, '-Profile', 'dev')
+        if ($Strategy) {
+            $launchArgs += @('-AppArgs', "--cabinet.alloc.strategy=$Strategy")
+        }
         $appProcess = Start-Process -FilePath 'powershell' `
-            -ArgumentList @('-ExecutionPolicy', 'Bypass', '-File', $runApp, '-Profile', 'dev') `
+            -ArgumentList $launchArgs `
             -WorkingDirectory $root -PassThru
     }
 
