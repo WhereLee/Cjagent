@@ -1,6 +1,5 @@
 package com.wherelee.cabinet.servicedesk.app;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.locker.api.CabinetSnapshot;
 import com.wherelee.cabinet.locker.api.SlotQueryPort;
 import com.wherelee.cabinet.locker.api.SlotSnapshot;

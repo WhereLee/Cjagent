@@ -1,46 +1,15 @@
 package com.wherelee.cabinet.device.jobs;
 
 import com.wherelee.cabinet.platform.scheduling.TaskHandler;
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.wherelee.cabinet.funds.app.PricingPolicy;
-import com.wherelee.cabinet.storage.api.FundPort;
 import com.wherelee.cabinet.device.app.CommandRescanService;
-import com.wherelee.cabinet.device.app.DeviceCommandService;
-import com.wherelee.cabinet.funds.app.ReconcileReport;
-import com.wherelee.cabinet.funds.app.ReconcileService;
-import com.wherelee.cabinet.locker.api.SlotPort;
-import com.wherelee.cabinet.locker.app.SlotCandidateQuery;
 import com.wherelee.cabinet.storage.api.StorageOrderCommandPort;
-import com.wherelee.cabinet.common.api.ResultCode;
-import com.wherelee.cabinet.common.context.TenantContext;
-import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.locker.domain.BizCabinet;
-import com.wherelee.cabinet.locker.domain.BizCompartment;
 import com.wherelee.cabinet.domain.entity.BizDelayTask;
-import com.wherelee.cabinet.funds.domain.BizDeposit;
 import com.wherelee.cabinet.device.domain.BizDeviceCommand;
-import com.wherelee.cabinet.device.domain.BizFaultEvent;
-import com.wherelee.cabinet.domain.entity.BizStorageOrder;
-import com.wherelee.cabinet.funds.api.DepositStatus;
-import com.wherelee.cabinet.device.api.FaultType;
-import com.wherelee.cabinet.domain.enums.OrderStatus;
-import com.wherelee.cabinet.locker.api.SlotStatus;
-import com.wherelee.cabinet.locker.api.SizeType;
 import com.wherelee.cabinet.domain.enums.TaskType;
-import com.wherelee.cabinet.locker.infra.SlotPreDeductionService;
-import com.wherelee.cabinet.locker.infra.BizCabinetMapper;
-import com.wherelee.cabinet.locker.infra.BizCompartmentMapper;
-import com.wherelee.cabinet.funds.infra.BizDepositMapper;
 import com.wherelee.cabinet.device.infra.BizDeviceCommandMapper;
-import com.wherelee.cabinet.device.infra.BizFaultEventMapper;
-import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
-import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
-import java.time.LocalDateTime;
-import java.util.List;
 
 @Component
 public class CommandRescanHandler implements TaskHandler {

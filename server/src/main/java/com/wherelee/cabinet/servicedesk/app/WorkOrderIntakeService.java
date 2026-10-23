@@ -2,7 +2,6 @@ package com.wherelee.cabinet.servicedesk.app;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.domain.enums.TaskType;
 import com.wherelee.cabinet.locker.api.OnlineState;
 import com.wherelee.cabinet.locker.api.SlotQueryPort;
 import com.wherelee.cabinet.servicedesk.api.ActorType;

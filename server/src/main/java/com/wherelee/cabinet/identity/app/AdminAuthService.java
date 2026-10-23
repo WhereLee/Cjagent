@@ -1,5 +1,4 @@
 package com.wherelee.cabinet.identity.app;
-import com.wherelee.cabinet.domain.entity.SysUser;
 import com.wherelee.cabinet.platform.tenant.TenantGuard;
 
 import com.wherelee.cabinet.identity.api.AdminLoginRequest;

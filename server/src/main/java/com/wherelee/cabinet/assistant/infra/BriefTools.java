@@ -1,6 +1,5 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import org.springframework.ai.tool.annotation.Tool;
 

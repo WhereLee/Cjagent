@@ -1,6 +1,5 @@
 package com.wherelee.cabinet.assistant.infra;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.device.api.FaultQueryPort;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.boot.actuate.health.CompositeHealth;

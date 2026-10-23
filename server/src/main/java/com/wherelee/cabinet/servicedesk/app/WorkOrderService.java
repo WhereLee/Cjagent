@@ -3,20 +3,12 @@ package com.wherelee.cabinet.servicedesk.app;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.domain.enums.CloseReason;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderCategory;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderImpact;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderIntent;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderKind;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderPriority;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderSource;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderType;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderUrgency;
 import com.wherelee.cabinet.servicedesk.domain.BizWorkOrder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 /**

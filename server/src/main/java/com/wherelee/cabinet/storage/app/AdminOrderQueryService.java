@@ -14,8 +14,6 @@ import com.wherelee.cabinet.locker.api.SlotQueryPort;
 import com.wherelee.cabinet.locker.api.SlotSnapshot;
 import com.wherelee.cabinet.identity.api.CustomerQueryPort;
 import com.wherelee.cabinet.identity.api.CustomerSnapshot;
-import com.wherelee.cabinet.device.domain.BizDeviceCommand;
-import com.wherelee.cabinet.device.domain.BizItemEvidence;
 import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 import com.wherelee.cabinet.device.api.CommandPort;
@@ -24,9 +22,7 @@ import com.wherelee.cabinet.infrastructure.mapper.BizStorageOrderMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;

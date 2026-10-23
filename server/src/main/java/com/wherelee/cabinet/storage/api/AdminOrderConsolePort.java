@@ -2,7 +2,6 @@ package com.wherelee.cabinet.storage.api;
 
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
-import com.wherelee.cabinet.domain.entity.BizStorageOrder;
 import com.wherelee.cabinet.domain.enums.OrderStatus;
 
 import java.math.BigDecimal;

@@ -2,7 +2,6 @@ package com.wherelee.cabinet.device.app;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
-import com.wherelee.cabinet.device.api.CommandAction;
 import com.wherelee.cabinet.device.api.CommandOutcome;
 import com.wherelee.cabinet.device.api.CommandState;
 import com.wherelee.cabinet.device.api.DeviceChannel;

@@ -1,6 +1,5 @@
 package com.wherelee.cabinet.servicedesk.app;
 
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.wherelee.cabinet.common.api.PageQuery;
