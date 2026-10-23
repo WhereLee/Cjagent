@@ -17,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>写失败只记 error、<b>不向上抛</b>：审计是旁路能力，不该因为日志写不进去就把用户
  * 正常请求打挂。代价要说清楚：<b>审计不是强一致的</b>，极端情况下会有"有请求无记录"，
- * 所以它不能当计费/对账依据，那些场景必须走业务表或消息（阶段 1 的业务事件走 RocketMQ）。
+ * 所以它不能当计费/对账依据，那些场景必须走业务表。
  */
 @Service
 public class OperationLogWriter {

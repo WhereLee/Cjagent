@@ -28,8 +28,7 @@ import java.time.LocalDateTime;
  * 集中一处之后，"影响行数为 0 意味着什么"只需要在这里回答一次。
  *
  * <p><b>本类只读设备、不命令设备</b>：门是用户用手关的，业务侧能问的只有门磁与物检。
- * 如果这里出现"用命令把门关上的"接口，就等于平台替用户把门关了——谎报再也测不出来
- * （docs/门态与物品争议设计.md §9）。
+ * 如果这里出现"用命令把门关上的"接口，就等于平台替用户把门关了——谎报再也测不出来。
  */
 @Service
 public class CompartmentStateService implements SlotPort {

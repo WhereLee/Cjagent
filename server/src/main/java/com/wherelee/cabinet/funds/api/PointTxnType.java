@@ -19,7 +19,7 @@ import java.util.Set;
  * 所以"冻结"在这里拆成 {@link #FREEZE_OUT} + {@link #FREEZE_IN} 两笔。
  *
  * <p>这是"轻档"记账（用户拍板）：<b>不做</b>双分录、本金/赠送分栏、退款折算、对账四分类。
- * 放弃的东西记在 docs/储物柜业务规划.md，不是没想到。
+ * 放弃的东西是明确不做的，不是没想到。
  */
 public enum PointTxnType {
 

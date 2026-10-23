@@ -121,7 +121,7 @@ class SchedulerZsetTriggerTest {
         for (LocalDateTime executedAt : executedAts) {
             delays.add(Duration.between(fireAt, executedAt).toMillis());
         }
-        // 给 docs/调度三实现对比.md 取数：对比报告里的数字必须来自真实运行，不是推想
+        // 给三实现对比取数：对比报告里的数字必须来自真实运行，不是推想
         long max = delays.stream().mapToLong(Long::longValue).max().orElse(-1L);
         long avg = delays.stream().mapToLong(Long::longValue).sum() / Math.max(1, delays.size());
         System.out.printf("MEASURED trigger=zset remindIntact=%s count=%d maxLatencyMs=%d avgLatencyMs=%d%n",

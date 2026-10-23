@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 门态、物检与结束判据（第 13B 刀验收，规则见 docs/门态与物品争议设计.md）。
+ * 门态、物检与结束判据（第 13B 刀验收）。
  *
  * <p>这一刀真正要证明的是一句话：<b>门关了不等于柜内是空的</b>。所以每条用例都同时看三处——
  * 订单状态（钱）、格口门态与异常（货）、以及“下一位还能不能被分到这一格”（卖错与否）。

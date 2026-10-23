@@ -200,7 +200,7 @@ class SchedulerBackgroundPollTest {
 
         // 轮询模式的固有延迟下限：到期后平均还要等半轮，最差等一整轮
         long latencyMs = java.time.Duration.between(done.getFireAt(), done.getUpdateTime()).toMillis();
-        // 这一行是给 docs/调度三实现对比.md 取数用的（对比报告里的数字必须来自真实运行）
+        // 这一行是给三实现对比取数用的（对比报告里的数字必须来自真实运行）
         System.out.printf("MEASURED trigger=poll intervalMs=500 observedLatencyMs=%d%n", latencyMs);
         assertTrue(latencyMs < 5_000L,
                 "poll-interval-ms=500 时实测延迟 " + latencyMs + "ms；上限给到 10 倍间隔而不是 2 倍，"

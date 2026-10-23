@@ -19,7 +19,7 @@ public interface BizCompartmentMapper extends BaseMapper<BizCompartment> {
      *
      * <p>为什么写显式 SQL 而不是 {@code updateById}：
      * ① {@code WHERE status='FREE'} 这个条件本身就是原子性的一部分，updateById 只能按主键更新；
-     * ② MP 默认不写 null 字段（见 docs/架构约定.md §3.5），释放时的
+     * ② MP 默认不写 null 字段，释放时的
      * {@code current_order_id = NULL} 必须能真写进去。
      * {@code update_time} 在这里手动给，不依赖 MetaObjectHandler。
      *
@@ -84,7 +84,7 @@ public interface BizCompartmentMapper extends BaseMapper<BizCompartment> {
     int markSlotFault(@Param("slotId") Long slotId);
 
     // ------------------------------------------------------------------
-    // 门态与物检（docs/门态与物品争议设计.md）
+    // 门态与物检
     //
     // 这些方法都写成**条件更新**而不是“反正盖写一次”：它们记录的是物理事实的起点，
     // 而起点一旦飘移就会直接改掉钱。MP 默认不写 null，所以“把 open 起点清空”这类动作

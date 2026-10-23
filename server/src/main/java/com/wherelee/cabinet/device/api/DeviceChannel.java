@@ -34,7 +34,7 @@ public interface DeviceChannel {
      *
      * <p>为什么业务必须靠它而不是只靠回执判定门与物：回执说明的是
      * “设备在那一问里答了什么”，而“结束订单”要的是“此刻门真的关了、里面真的没东西”。
-     * 两者不等价，这个不等价就是谎报与漏检钻进来的缝（docs/门态与物品争议设计.md §3）。
+     * 两者不等价，这个不等价就是谎报与漏检钻进来的缝。
      */
     SlotSensor probe(Long cabinetId, Long slotId);
 

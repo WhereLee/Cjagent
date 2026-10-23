@@ -58,7 +58,7 @@ public class BizStorageOrder extends BaseEntity {
     private LocalDateTime expectedFinishAt;
 
     /**
-     * 开门容错到期时刻（第 13B 刀，docs/门态与物品争议设计.md §2）。
+     * 开门容错到期时刻（第 13B 刀定）。
      *
      * <p>它在单上而不是现算“开门时刻 + 配置值”：运营中途把容错从 5 分钟改成了 10 分钟，
      * 不得追溯改变进行中那张单该从几点开始计。<b>非空也是“这单曾经开过门”的凭据</b>：

@@ -11,7 +11,7 @@ import java.math.BigDecimal;
  * 寄存点位（商场、车站、景区等）。
  *
  * <p>柜机与订单都冗余存了 {@code siteId}：列表页要按点位过滤，join 一次就能避免，
- * 就别在热路径上留 join（见 docs/储物柜业务规划.md §16.7）。
+ * 就别在热路径上留 join。
  */
 @Getter
 @Setter

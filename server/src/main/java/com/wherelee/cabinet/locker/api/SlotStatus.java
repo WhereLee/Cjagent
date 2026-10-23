@@ -4,7 +4,7 @@ package com.wherelee.cabinet.locker.api;
  * 格口物理状态。
  *
  * <p>与寄存单状态是两件事：格口讲"里面有没有东西/能不能用"，订单讲"业务走到哪一步"。
- * 两者的耦合用不变量守住（见 docs/储物柜业务规划.md §4）：
+ * 两者的耦合用不变量守住：
  * {@code OCCUPIED ⟺ 存在活动单}，{@code FREE ⟺ 不存在活动单}。
  *
  * <p>{@link #FAULT} 与 {@link #MAINTENANCE} 都不可被分配，但含义不同：

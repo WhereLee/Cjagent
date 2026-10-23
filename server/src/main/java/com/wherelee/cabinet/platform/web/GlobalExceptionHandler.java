@@ -80,7 +80,7 @@ public class GlobalExceptionHandler {
     /**
      * 错误码族 → HTTP 状态。
      *
-     * <p>约定记在 docs/架构约定.md §3：{@code 1xxxx} 业务错误用 HTTP 200（请求本身处理完了，
+     * <p>错误码族到 HTTP 状态的映射约定：{@code 1xxxx} 业务错误用 HTTP 200（请求本身处理完了，
      * 只是结果不满足）；{@code 4xxxx} 客户端错误用对应状态码；{@code 5xxxx} 用 500。
      * 不把 40100/40300 返成 200 是为了前端能区分“去登录”与“提示重试”。
      */

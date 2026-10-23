@@ -82,7 +82,7 @@ class SchedulerMqTriggerTest {
         LocalDateTime executedAt = jdbc.queryForObject(
                 "select update_time from biz_delay_task where biz_key = ?", LocalDateTime.class, bizKey);
         long delayMs = Duration.between(fireAt, executedAt).toMillis();
-        // 给 docs/调度三实现对比.md 取数（目标 5s 正好落在档位 2，这是一个干净样本）
+        // 给三实现对比取数（目标 5s 正好落在档位 2，这是一个干净样本）
         System.out.printf("MEASURED trigger=mq targetMs=5000 observedLatencyMs=%d attempt=%d%n",
                 delayMs, attempt);
         assertTrue(delayMs >= 0, "不能早于应执行时间触发（提前触发对超时释放是误伤）");
