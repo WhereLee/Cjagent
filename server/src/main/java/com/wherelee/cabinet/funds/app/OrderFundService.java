@@ -113,18 +113,15 @@ public class OrderFundService {
     /**
      * 结算的完整入口：带上“这单是怎么结的”，因为不同结束原因的<b>价格不一样</b>。
      *
-     * <p>加收单独走一条流水（{@code 单号:remote-fee}）而不是合进计时费用里，有三个理由：
-     * ① 账单要能拆开解释“哪一部分是租金、哪一部分是未关门加收”；
-     * ② 幂等键分开，重跑结算时不会因 bizNo 相同而把两笔当成一笔；
-     * ③ 报表与对账能直接按类型查出“加收收了多少钱”。
+     * <p><b>现在只有计时费用一笔</b>：未关门加收随“远程结束”入口一起取消了
+     * （2026-10-11 定稿：结束本来就是在手机上点的），所以不再有“加收要不要单独
+     * 走一条流水”这个问题。{@link Settlement} 仍带着 {@code penaltyPoints}，只是为了
+     * 历史单的账单能解释得清——它的值恒为 0。
      */
     @Transactional
     public Settlement settle(BizStorageOrder order, long actualMinutes, OrderCloseReason reason) {
         PricingPolicy.Quote quote = pricing.fromSnapshot(order.getPricingSnapshot(), actualMinutes);
         long need = quote.consumePoints();
-        // 未关门加收随“远程结束”入口一起取消（2026-10-11 定稿：结束本来就是在手机上点的）。
-        // 保留这一个 0 是因为 Settlement 的形状里还有这一项，历史单的账单也要能解释得清。
-        long penalty = 0L;
         unfreezeAndRefundDeposit(order, "取件解冻");
 
         // 多退少补（19A）。预收是“已收进来的钱”，不是“答应要还的冻结”，所以这里只算差额：
@@ -184,7 +181,8 @@ public class OrderFundService {
             throw new BizException(ResultCode.SYSTEM_ERROR, "格口状态与订单不一致，需人工核对 slotId="
                     + order.getSlotId());
         }
-        return new Settlement(need, arrears, quote.billedHours(), actualMinutes, penalty);
+        // 加收项恒 0：理由见方法注释（Settlement 保留这个字段只为历史账单可解释）
+        return new Settlement(need, arrears, quote.billedHours(), actualMinutes, 0L);
     }
 
     /** 扣不到全款时，能扣多少扣多少（余额为 0 就一分不扣），返回实际扣到的点数。 */

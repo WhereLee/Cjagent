@@ -56,32 +56,33 @@ public class PricingPolicy {
      * <p>它取代了“账户级押金 50 元（5000 点）”与“预估金额冻结”两套旧担保（整套作废，
      * 新单不再有任何押金门槛）；旧单快照里的 depositPoints 仍由 {@code fromSnapshot} 原样读出不追溯。
      *
-     * <p><b>下面六个默认值必须与 application.yml 同源</b>：它们只是“漏配时的兜底”，
-     * 而上一版默认值停在作废旧价 15/25/40（集成测试走配置生效路径，恰好测不到默认值，
-     * 所以这个隐患活了很久）。现在按用户 2026-10-11 定稿：小 200 / 中 400 / 大 600 点、
-     * 头 30 分钟免费、单日 10 小时、总计 2 天。改 yml 不改这里 = 埋一个新的静默旧价。
+     * <p><b>这里一个默认值都不给</b>：缺任何一项配置就启动失败，唯一来源是
+     * {@code application.yml} 的 {@code cabinet.pricing.*}。上一版把默认值停在作废旧价
+     * 15/25/40，而集成测试走的是配置生效路径、恰好测不到默认值，那个隐患活了很久。
+     * 现在按用户 2026-10-11 定稿：小 200 / 中 400 / 大 600 点、头 30 分钟免费、
+     * 单日 10 小时、总计 2 天。改价只能改 yml，不再有第二处能改的地方。
      */
-    @Value("${cabinet.pricing.prepay-hours:4}")
+    @Value("${cabinet.pricing.prepay-hours}")
     private int prepayHours;
 
-    @Value("${cabinet.pricing.free-minutes:30}")
+    @Value("${cabinet.pricing.free-minutes}")
     private int freeMinutes;
 
-    @Value("${cabinet.pricing.unit-points-per-hour.LARGE:600}")
+    @Value("${cabinet.pricing.unit-points-per-hour.LARGE}")
     private long largeUnit;
 
-    @Value("${cabinet.pricing.unit-points-per-hour.MEDIUM:400}")
+    @Value("${cabinet.pricing.unit-points-per-hour.MEDIUM}")
     private long mediumUnit;
 
-    @Value("${cabinet.pricing.unit-points-per-hour.SMALL:200}")
+    @Value("${cabinet.pricing.unit-points-per-hour.SMALL}")
     private long smallUnit;
 
     /** 单日封顶的小时数（0 = 不按日封顶，回到线性）。 */
-    @Value("${cabinet.pricing.daily-cap-hours:10}")
+    @Value("${cabinet.pricing.daily-cap-hours}")
     private int dailyCapHours;
 
     /** 总计费天数封顶（0 = 不限天数）。 */
-    @Value("${cabinet.pricing.cap-days:2}")
+    @Value("${cabinet.pricing.cap-days}")
     private int capDays;
 
     /**
@@ -90,7 +91,7 @@ public class PricingPolicy {
      * 新单不得再依据它算钱。原注释里“小 30 / 中 50 / 大 80 点”是旧价 15/25/40×2h 的换算，
      * 随旧价一起作废，不再适用。
      */
-    @Value("${cabinet.pricing.remote-close-hours:2}")
+    @Value("${cabinet.pricing.remote-close-hours}")
     private int remoteCloseHours;
 
     public PricingPolicy() {
@@ -204,22 +205,6 @@ public class PricingPolicy {
     private Quote quoteWith(long unit, long minutes) {
         // 新单每单押金 = 0：押金已经是账户上的一栏，不再是这张单的价的一部分
         return buildQuote(unit, minutes, freeMinutes, dailyCapHours, capDays, 0L, remoteCloseHours);
-    }
-
-    /**
-     * 这笔单“未关门离开”该加收多少。
-     *
-     * <p>读快照而不读当前配置，与结算同一理由：改加收不得追溯改变已发生的单。
-     *
-     * <p><b>旧快照（第 12/13 刀那批单）读不出这个字段时收 0</b>，而不是拿今天的配置补上：
-     * 给历史单凭空加一笔它当时不存在的费用，是整份定价约定里最不能做的事。
-     */
-    public long remoteFeePoints(String snapshotJson) {
-        Snap snap = readSnapshot(snapshotJson);
-        if (snap.remoteCloseHours() <= 0) {
-            return 0L;
-        }
-        return snap.unit() * snap.remoteCloseHours();
     }
 
     /**
