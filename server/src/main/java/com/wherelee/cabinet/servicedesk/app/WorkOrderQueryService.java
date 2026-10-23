@@ -7,6 +7,7 @@ import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.device.api.EvidencePort;
+import com.wherelee.cabinet.platform.security.PhoneAccessAuditor;
 import com.wherelee.cabinet.platform.security.PhoneVisibility;
 import com.wherelee.cabinet.platform.web.PageSupport;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
@@ -43,15 +44,17 @@ public class WorkOrderQueryService {
     private final EvidencePort evidencePort;
     private final WorkOrderJournal journal;
     private final BizWorkOrderCsatMapper csats;
+    private final PhoneAccessAuditor phoneAuditor;
 
     public WorkOrderQueryService(BizWorkOrderMapper orders, BizWorkOrderEventMapper events,
                                  EvidencePort evidencePort, WorkOrderJournal journal,
-                                 BizWorkOrderCsatMapper csats) {
+                                 BizWorkOrderCsatMapper csats, PhoneAccessAuditor phoneAuditor) {
         this.orders = orders;
         this.events = events;
         this.evidencePort = evidencePort;
         this.journal = journal;
         this.csats = csats;
+        this.phoneAuditor = phoneAuditor;
     }
 
     /**
@@ -201,6 +204,10 @@ public class WorkOrderQueryService {
     private WorkOrderConsolePort.View toView(BizWorkOrder o, String parentResultNote, BizWorkOrderCsat csat) {
         // 柜机编号/点位地址/检测值必须从快照带出来：业务员接了单要能凭这一行知道去哪、看什么，
         // 而不是只看到一句“格口 S12 门未关”就出发（这三个字段一直在快照里，只是以前没读）
+        // 看了明文就留痕：记谁看了哪个客户，不记号码本身
+        if (PhoneVisibility.allowed() && o.getCustomerId() != null) {
+            phoneAuditor.record(o.getCustomerId());
+        }
         return new WorkOrderConsolePort.View(o.getId(),
                 o.getKind() == null ? null : o.getKind().name(),
                 o.getSource() == null ? null : o.getSource().name(),

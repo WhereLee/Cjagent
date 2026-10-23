@@ -12,11 +12,15 @@
 # 不做双向是因为扫描会被 @JsonMask(MaskType.PHONE) 里的括号干扰，
 # 误判"已脱敏字段缺失"比漏判更糟——那种噪音会让人把守卫关掉。
 #
-# 批 11 要处理的（PLAIN 里的真出参）：
-#   CustomerSnapshot#phone            客服查客户时能看到明文
-#   WorkOrderConsolePort#customerPhone 工单队列与详情都带明文（业务员要回拨，属合理需求，
-#                                      但应该有权限点与审计维度，而不是默认带上）
-#   AdminOrderConsolePort#customerPhone 订单详情带明文（同上；列表不带，这点做得对）
+# 批 11 已处置（2026-10-24）：
+#   CustomerSnapshot#phone              **内部端口，不改**：CustomerQueryPort 的返回值，
+#                                      四个调用方里 PublicPickupService 拿它做取件码尾号校验，
+#                                      脱敏会直接弄坏取件；出参由下面两处兜住。
+#   WorkOrderConsolePort#customerPhone 已按权限：服务层 PhoneVisibility 决定明文/脱敏，
+#                                      默认拒绝；权限点 customer:phone:view（V40 授给两个作业角色）。
+#   AdminOrderConsolePort#customerPhone 同上（订单详情）；列表本来就不带，保持不动。
+#
+# 处置列仍写 PLAIN：这列描述的是“字段上有没有标 @JsonMask”，与按权限无关。
 
 AdminOrderConsolePort#customerPhone  PLAIN
 CustomerLoginRequest#phone  PLAIN

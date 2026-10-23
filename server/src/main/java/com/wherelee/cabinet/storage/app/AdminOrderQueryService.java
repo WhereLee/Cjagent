@@ -3,6 +3,7 @@ package com.wherelee.cabinet.storage.app;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.wherelee.cabinet.platform.security.PhoneAccessAuditor;
 import com.wherelee.cabinet.platform.security.PhoneVisibility;
 import com.wherelee.cabinet.platform.web.PageSupport;
 import com.wherelee.cabinet.common.api.PageQuery;
@@ -60,6 +61,7 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
     private final EvidencePort evidencePort;
     private final com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort;
     private final StorageQueryService storageQueries;
+    private final PhoneAccessAuditor phoneAuditor;
 
     public AdminOrderQueryService(BizStorageOrderMapper orderMapper,
                                   CustomerQueryPort customers,
@@ -67,7 +69,8 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
                                   CommandPort commandPort,
                                   EvidencePort evidencePort,
                                   com.wherelee.cabinet.servicedesk.api.WorkOrderPort workOrderPort,
-                                  StorageQueryService storageQueries) {
+                                  StorageQueryService storageQueries,
+                                  PhoneAccessAuditor phoneAuditor) {
         this.orderMapper = orderMapper;
         this.customers = customers;
         this.slotQueries = slotQueries;
@@ -75,6 +78,7 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
         this.evidencePort = evidencePort;
         this.workOrderPort = workOrderPort;
         this.storageQueries = storageQueries;
+        this.phoneAuditor = phoneAuditor;
     }
 
     public PageResult<OrderRow> list(String orderNo, String phone, OrderStatus status,
@@ -141,6 +145,10 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
                         w.closeReason(), w.title(), w.createTime()))
                 .toList();
 
+        // 看了明文就留痕：记谁看了哪个客户，不记号码本身
+        if (customer != null && PhoneVisibility.allowed()) {
+            phoneAuditor.record(customer.id());
+        }
         return new OrderDetail(toRow(order, customer, cabinet, slot, site),
                 customer == null ? null : PhoneVisibility.visible(customer.phone()),
                 name(order.getCloseReason()), name(order.getDisputeState()),
