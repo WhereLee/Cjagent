@@ -87,16 +87,34 @@ public class OutboxRelay {
         }
     }
 
-    /** 供测试与后台手工触发。返回本轮成功投递的条数。 */
+    /**
+     * 把当前所有到期的都投完，返回本轮成功投递的条数。
+     *
+     * <p><b>为什么要循环而不是只投一批</b>：积压超过一批时，新写进来的行会排在
+     * {@code order by next_attempt_at} 的队尾，可能等好几轮才轮到。而事实投递的语义是
+     * “越早投越好”——积压本来就不该存在。
+     *
+     * <p>终止条件不是“投满多少批”，而是<b>“这一批一条都没投成”</b>：
+     * 失败的行会被退避推远、被别人抢走的行本实例本来就拿不到，两种情况都会让下一批变小；
+     * 一批全部落空就说明该停手了，不会空转。（投成功过就一定还有进展，继续下一批。）
+     */
     public int deliverBatch() {
-        List<Long> due = outbox.findDueIds(batchSize);
         int delivered = 0;
-        for (Long id : due) {
-            if (deliverOne(id)) {
-                delivered++;
+        while (true) {
+            List<Long> due = outbox.findDueIds(batchSize);
+            if (due.isEmpty()) {
+                return delivered;
+            }
+            int before = delivered;
+            for (Long id : due) {
+                if (deliverOne(id)) {
+                    delivered++;
+                }
+            }
+            if (delivered == before) {
+                return delivered;
             }
         }
-        return delivered;
     }
 
     private boolean deliverOne(Long id) {

@@ -108,8 +108,8 @@ class LeftoverRetrieveFlowTest {
 
     @AfterEach
     void cleanup() {
-        // outbox 最先清：待投递的事实留着会被下一个用例的 drain 继续投，指向已删的格口/工单
-        jdbc.update("delete from biz_outbox where tenant_id = ?", TENANT);
+        // outbox 清全表：中继跳租户取待投行，其它测试类积压的行会挤占 batchSize
+        jdbc.update("delete from biz_outbox");
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);

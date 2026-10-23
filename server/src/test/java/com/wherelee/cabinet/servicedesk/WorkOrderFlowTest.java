@@ -121,9 +121,10 @@ class WorkOrderFlowTest {
     @AfterEach
     void cleanup() {
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
-        // outbox 最先清：它是“待投递的事实”，留着会被下一个用例的 drain 继续投，
-        // 指向已经删掉的格口与工单——既污染计数，也挤占 batchSize（批 4 加表时漏了这一步）
-        jdbc.update("delete from biz_outbox where tenant_id = ?", TENANT);
+        // outbox 清全表（不带 tenant_id）：中继的 findDueIds 是**跳租户**的，
+        // 而取件/取消路径在别的测试类里也会写 outbox 却不清——那些行会挤占 batchSize，
+        // 让本用例自己那条排不进去。测试串行跑，全表清不会误伤谁。
+        jdbc.update("delete from biz_outbox");
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
