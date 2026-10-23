@@ -1,14 +1,10 @@
 package com.wherelee.cabinet.locker.jobs;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wherelee.cabinet.common.context.TenantContext;
 import com.wherelee.cabinet.domain.entity.BizOutbox;
 import com.wherelee.cabinet.domain.enums.OutboxStatus;
 import com.wherelee.cabinet.infrastructure.mapper.BizOutboxMapper;
-import com.wherelee.cabinet.locker.api.OutboxPort.OwnerNoticePayload;
-import com.wherelee.cabinet.locker.api.OutboxPort.WorkOrderAnomalyPayload;
-import com.wherelee.cabinet.notify.api.NoticePort;
-import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
+import com.wherelee.cabinet.locker.api.OutboxPublisher;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -36,6 +32,10 @@ import java.util.List;
  * <p>退避与判死沿用延迟任务的口径：基数取 {@code cabinet.scheduler.backoff-base-seconds}，
  * 上限与 {@code TaskType.maxAttempts()} 的 default 分支同值（5）。同一类基础设施，
  * 两个数字迟早会漂，所以不另造一套。
+ *
+ * <p><b>投递方式由 {@link OutboxPublisher} 决定</b>：这里只管"抢到哪一条、什么时候重试、
+ * 什么时候判死"，不管"发给谁"。中继里写死两个 case 的时候，新增一个订阅方就得改这里——
+ * 那 outbox 只拿到了事务隔离那一半，丢了它真正的价值。
  */
 @Component
 public class OutboxRelay {
@@ -49,9 +49,7 @@ public class OutboxRelay {
     private static final int ERROR_MAX_LENGTH = 255;
 
     private final BizOutboxMapper outbox;
-    private final WorkOrderPort workOrders;
-    private final NoticePort notices;
-    private final ObjectMapper json;
+    private final OutboxPublisher publisher;
     private final TransactionTemplate txTemplate;
     private final MeterRegistry meterRegistry;
 
@@ -70,12 +68,10 @@ public class OutboxRelay {
     @Value("${cabinet.outbox.poll-enabled:true}")
     private boolean pollEnabled;
 
-    public OutboxRelay(BizOutboxMapper outbox, WorkOrderPort workOrders, NoticePort notices,
-                       ObjectMapper json, TransactionTemplate txTemplate, MeterRegistry meterRegistry) {
+    public OutboxRelay(BizOutboxMapper outbox, OutboxPublisher publisher,
+                       TransactionTemplate txTemplate, MeterRegistry meterRegistry) {
         this.outbox = outbox;
-        this.workOrders = workOrders;
-        this.notices = notices;
-        this.json = json;
+        this.publisher = publisher;
         this.txTemplate = txTemplate;
         this.meterRegistry = meterRegistry;
     }
@@ -140,7 +136,7 @@ public class OutboxRelay {
         }
         try {
             // 业务副作用仍受租户隔离：跳过租户注入只用于"该投哪一条"，不代表投递时可以越租
-            TenantContext.runAs(row.getTenantId(), () -> dispatch(row));
+            TenantContext.runAs(row.getTenantId(), () -> publisher.publish(row));
             outbox.markDone(id);
             Counter.builder("cabinet.outbox.delivered").tag("type", row.getEventType().name())
                     .register(meterRegistry).increment();
@@ -148,30 +144,6 @@ public class OutboxRelay {
         } catch (RuntimeException e) {
             failSoft(row, e);
             return false;
-        }
-    }
-
-    /** 按事件类型投递。载荷用同一个 record 反序列化——生产方与消费方共用形状，改字段两边一起变。 */
-    private void dispatch(BizOutbox row) {
-        switch (row.getEventType()) {
-            case WORK_ORDER_ANOMALY -> {
-                WorkOrderAnomalyPayload payload = read(row, WorkOrderAnomalyPayload.class);
-                workOrders.openForAnomaly(payload.slotId(), payload.anomaly(), payload.reason());
-            }
-            case OWNER_NOTICE -> {
-                OwnerNoticePayload payload = read(row, OwnerNoticePayload.class);
-                notices.emit(row.getTenantId(), payload.channel(), payload.kind(), payload.dedupKey(),
-                        payload.content(), payload.customerId(), payload.workOrderId(), payload.orderNo());
-            }
-        }
-    }
-
-    private <T> T read(BizOutbox row, Class<T> type) {
-        try {
-            return json.readValue(row.getPayload(), type);
-        } catch (Exception e) {
-            // 载荷读不出来说明写入时就是坏数据：让 failSoft 去退避与判死，别在这里吞掉
-            throw new IllegalStateException("outbox 载荷无法解析 id=" + row.getId(), e);
         }
     }
 
