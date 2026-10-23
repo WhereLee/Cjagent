@@ -1,4 +1,12 @@
-# systemd unit for the cabinet server (deliverable only - NOT installed by CI).
+# systemd unit for the cabinet server. CI does not install it (CI only runs tests).
+#
+# 2026-10-24 已在一台 Ubuntu 上真装并取证：systemctl status / jcmd VM.flags / logs/gc.log
+# 三项均与 jvm.opts 对得上。
+#
+# 那台机器用 dev profile，原因不是图省事：prod 缺 DeviceChannel 实现——
+# SimulatedCabinetChannel 只挂 @Profile({"dev","test","integration"})，
+# 生产要接真设备通道才起得来。dev 会暴露 mock-login 与 prometheus，
+# 所以同一份 cabinet.env 里必须带 SERVER_ADDRESS=127.0.0.1，把监听收回本机。
 # JVM flags are NOT duplicated here: they come from deploy/jvm.opts, the single
 # source of truth also read by scripts/run-app.ps1. The file format (KEY=VALUE
 # lines) is exactly what systemd EnvironmentFile expects.
@@ -14,7 +22,7 @@
 # Not installing it changes nothing: the ops-check script then covers liveness.
 
 [Unit]
-Description=Cabinet storage server (Spring Boot, Java 17)
+Description=Cabinet storage server (Spring Boot)
 Wants=network-online.target
 After=network-online.target
 # If MySQL/Redis/RocketMQ are managed by systemd on the same host, add them to
@@ -27,6 +35,11 @@ Type=simple
 User=cabinet
 # logs\ paths in jvm.opts and logback are RELATIVE - they land here.
 WorkingDirectory=/opt/cabinet
+# 两个 EnvironmentFile：
+#   cabinet.env —— 库/Redis/JWT 等环境变量（含密钥，600 权限、不入库）
+#   jvm.opts    —— JVM 参数（与 scripts/run-app.ps1 同源）
+# systemd 按顺序加载，后面的不覆盖前面的同名键。
+EnvironmentFile=/opt/cabinet/cabinet.env
 EnvironmentFile=/opt/cabinet/jvm.opts
 # $JAVA_OPTS is expanded by systemd and split on whitespace, which is exactly
 # what the flag list needs. SuccessExitStatus=143 = clean SIGTERM shutdown
