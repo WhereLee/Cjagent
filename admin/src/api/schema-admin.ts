@@ -610,7 +610,7 @@ export interface OperationTypes {
     req: null
     res: RLong
   }
-  "post /api/admin/ops/dead-letters/{id}/replay": {
+  "post /api/admin/ops/dead-letter/{id}/replay": {
     summary: "重放一条死信"
     req: null
     res: RBoolean

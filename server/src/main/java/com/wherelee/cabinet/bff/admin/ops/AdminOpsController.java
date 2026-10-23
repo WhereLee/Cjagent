@@ -87,7 +87,7 @@ public class AdminOpsController {
             description = "投回原来的业务 topic；已重放过、或缺少租户信息（坏消息）时返回 false")
     @OperationLog(module = "ops", operation = "重放死信")
     @PreAuthorize("hasAuthority('ops:diagnose')")
-    @PostMapping("/dead-letters/{id}/replay")
+    @PostMapping("/dead-letter/{id}/replay")
     public R<Boolean> replayDeadLetter(@PathVariable Long id) {
         return R.ok(deadLetters.replay(id));
     }

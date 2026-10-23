@@ -3003,23 +3003,7 @@
         "tags" : [ "后台-运维诊断" ]
       }
     },
-    "/api/admin/ops/dead-letters" : {
-      "get" : {
-        "responses" : {
-          "200" : {
-            "content" : {
-              "*/*" : {
-                "schema" : {
-                  "$ref" : "#/components/schemas/RListView"
-                }
-              }
-            }
-          }
-        },
-        "tags" : [ "后台-运维诊断" ]
-      }
-    },
-    "/api/admin/ops/dead-letters/{id}/replay" : {
+    "/api/admin/ops/dead-letter/{id}/replay" : {
       "post" : {
         "parameters" : [ {
           "in" : "path",
@@ -3036,6 +3020,22 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/RBoolean"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-运维诊断" ]
+      }
+    },
+    "/api/admin/ops/dead-letters" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListView"
                 }
               }
             }
