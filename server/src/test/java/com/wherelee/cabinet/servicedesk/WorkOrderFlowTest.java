@@ -121,6 +121,9 @@ class WorkOrderFlowTest {
     @AfterEach
     void cleanup() {
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
+        // outbox 最先清：它是“待投递的事实”，留着会被下一个用例的 drain 继续投，
+        // 指向已经删掉的格口与工单——既污染计数，也挤占 batchSize（批 4 加表时漏了这一步）
+        jdbc.update("delete from biz_outbox where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
