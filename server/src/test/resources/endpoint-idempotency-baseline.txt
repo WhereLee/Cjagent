@@ -18,6 +18,7 @@ AdminLockerController#rebuildFreeSet  IDEMPOTENT
 AdminLockerController#resolve  IDEMPOTENT
 AdminOpsController#ask  UNGUARDED
 AdminOpsController#diagnose  UNGUARDED
+AdminOpsController#replayDeadLetter  UNGUARDED
 AdminPricingController#preview  UNGUARDED
 AdminPricingController#publish  IDEMPOTENT
 AdminPricingController#rollback  IDEMPOTENT

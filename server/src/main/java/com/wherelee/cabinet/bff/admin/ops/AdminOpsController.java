@@ -3,6 +3,7 @@ package com.wherelee.cabinet.bff.admin.ops;
 import com.wherelee.cabinet.assistant.api.AiJobPort;
 import com.wherelee.cabinet.common.annotation.OperationLog;
 import com.wherelee.cabinet.domain.enums.AiJobType;
+import com.wherelee.cabinet.locker.api.DeadLetterPort;
 import com.wherelee.cabinet.platform.security.Caller;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
@@ -14,10 +15,14 @@ import jakarta.validation.constraints.Size;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * 运维 AI 诊断（第 24 刀）：诊断副驾的端点。
@@ -36,10 +41,15 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class AdminOpsController {
 
-    private final AiJobPort jobs;
+    /** 死信列表一次给多少条：运维看一眼就知道有没有东西卡住，不需要翻页。 */
+    private static final int DEAD_LETTER_LIMIT = 50;
 
-    public AdminOpsController(AiJobPort jobs) {
+    private final AiJobPort jobs;
+    private final DeadLetterPort deadLetters;
+
+    public AdminOpsController(AiJobPort jobs, DeadLetterPort deadLetters) {
         this.jobs = jobs;
+        this.deadLetters = deadLetters;
     }
 
     @Operation(summary = "AI 运维诊断", description = "一次生成诊断报告四件：健康摘要/日志发现/崩溃残留/建议清单（草稿，不执行）")
@@ -61,6 +71,25 @@ public class AdminOpsController {
     public R<Long> ask(@AuthenticationPrincipal Caller current, @Valid @RequestBody AskCommand cmd) {
         // 问题正文直接作为入参：端口内部会压成请求键（列宽 128 放不下 500 字正文）、原文进载荷
         return R.ok(jobs.submit(AiJobType.ASK, cmd.question(), current.subjectId()));
+    }
+
+    // ── 死信（outbox 接 broker 之后的运维出口）────────────────────────
+
+    @Operation(summary = "死信列表",
+            description = "重试耗尽仍失败的事实。RocketMQ 只留 3 天，这里永久归档；非空说明有东西没处理成")
+    @PreAuthorize("hasAuthority('ops:diagnose')")
+    @GetMapping("/dead-letters")
+    public R<List<DeadLetterPort.View>> deadLetters() {
+        return R.ok(deadLetters.listOpen(DEAD_LETTER_LIMIT));
+    }
+
+    @Operation(summary = "重放一条死信",
+            description = "投回原来的业务 topic；已重放过、或缺少租户信息（坏消息）时返回 false")
+    @OperationLog(module = "ops", operation = "重放死信")
+    @PreAuthorize("hasAuthority('ops:diagnose')")
+    @PostMapping("/dead-letters/{id}/replay")
+    public R<Boolean> replayDeadLetter(@PathVariable Long id) {
+        return R.ok(deadLetters.replay(id));
     }
 
     /** 问答请求体。 */

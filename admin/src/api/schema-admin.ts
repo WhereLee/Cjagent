@@ -94,6 +94,14 @@ export interface RMapStringObject {
   timestamp?: string
 }
 
+export interface RBoolean {
+  code?: number
+  message?: string
+  data?: boolean
+  traceId?: string
+  timestamp?: string
+}
+
 export interface AskCommand {
   question: string
 }
@@ -602,6 +610,11 @@ export interface OperationTypes {
     req: null
     res: RLong
   }
+  "post /api/admin/ops/dead-letters/{id}/replay": {
+    summary: "重放一条死信"
+    req: null
+    res: RBoolean
+  }
   "post /api/admin/ops/ask": {
     summary: "运维问答"
     req: AskCommand
@@ -706,6 +719,11 @@ export interface OperationTypes {
     summary: "订单详情"
     req: null
     res: ROrderDetail
+  }
+  "get /api/admin/ops/dead-letters": {
+    summary: "死信列表"
+    req: null
+    res: RListView
   }
   "get /api/admin/locker/deposits/unrefunded": {
     summary: "未退押金清单"

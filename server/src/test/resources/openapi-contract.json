@@ -1397,6 +1397,28 @@
         },
         "type" : "object"
       },
+      "RBoolean" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "type" : "boolean"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "RCsatView" : {
         "properties" : {
           "code" : {
@@ -2973,6 +2995,47 @@
               "*/*" : {
                 "schema" : {
                   "$ref" : "#/components/schemas/RLong"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-运维诊断" ]
+      }
+    },
+    "/api/admin/ops/dead-letters" : {
+      "get" : {
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RListView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-运维诊断" ]
+      }
+    },
+    "/api/admin/ops/dead-letters/{id}/replay" : {
+      "post" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RBoolean"
                 }
               }
             }
