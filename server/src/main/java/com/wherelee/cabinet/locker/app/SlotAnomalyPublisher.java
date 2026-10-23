@@ -261,14 +261,15 @@ public class SlotAnomalyPublisher {
                 return;
             }
             orderMapper.markLeftoverReported(previous.getId(), LocalDateTime.now());
+            // 工单本身也是待投递的事实，此刻可能还没开出来——所以既不能用“工单 ID 存在”
+            // 当发消息的前提，也不能拿它当去重键：那样第二次观察时工单还没投递，
+            // 消息就永远发不出去（批 4 把它拆成 outbox 之后暴露的时序依赖）。
+            // 去重键改用订单号：同一张终态单只提醒一次，语义不变且不依赖异步结果。
             Long workOrderId = workOrders.openIdOf(slotId, WorkOrderType.ITEM_LEFT);
-            if (workOrderId == null) {
-                return;
-            }
             // 发消息同样走 outbox：本方法的入口是“关门复检 / 代关 / 下一位上报”，
             // 多在业务事务里；通知失败不能把物主的那张单一起带走。
             outbox.appendOwnerNotice(NoticeChannel.SYSTEM_MESSAGE, "LEFTOVER_OWNER",
-                    "WO" + workOrderId + ":OWNER_MSG",
+                    previous.getOrderNo() + ":OWNER_MSG",
                     "你的暂存柜格口 " + slot.getSlotNo() + " 检测到遗留物品，请到柜取回。"
                             + "取回路径：小程序-我的寄存单-该订单-取回物品",
                     previous.getCustomerId(), workOrderId, previous.getOrderNo());
