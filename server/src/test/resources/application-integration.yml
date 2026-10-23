@@ -20,6 +20,10 @@ cabinet:
     # 同上：中继是跳租户扫的，会在用例的断言之间把待投递事实投出去，多出工单与消息。
     # 需要它的用例（WorkOrderFlowTest / LeftoverRetrieveFlowTest）自己调 deliverBatch()。
     poll-enabled: false
+    # 测试里走同进程投递：中继调完就落库，用例可以直接查结果。
+    # 真发 MQ 的话消费是异步的，断言要先等；而且同 JVM 的 listener 会自己消费自己刚发的消息，
+    # 那是“单跑绿、连跑红”的典型来源。消费链路另有用例手动调 onMessage 取证。
+    transport: in-process
   ai:
     job:
       # 同上：作业执行器是跳租户扫的，会把用例刚插入的作业在执行前就跑掉。

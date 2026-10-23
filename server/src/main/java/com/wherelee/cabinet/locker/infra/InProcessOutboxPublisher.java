@@ -7,6 +7,7 @@ import com.wherelee.cabinet.locker.api.OutboxPort.WorkOrderAnomalyPayload;
 import com.wherelee.cabinet.locker.api.OutboxPublisher;
 import com.wherelee.cabinet.notify.api.NoticePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderPort;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,10 +17,12 @@ import org.springframework.stereotype.Component;
  * 搬家的目的是让"投递方式"变成可替换的。
  *
  * <p><b>它不该是生产的最终形态</b>：同进程调用拿不到 outbox 的解耦收益（中继仍然知道
- * 消费者是谁）。接上 broker 之后，这个实现只留给测试当桩，用来断言"投递了什么"
+ * 消费者是谁）。所以默认装配的是 {@link RocketMqOutboxPublisher}，这个实现只在
+ * {@code cabinet.outbox.transport=in-process} 时生效，留给测试当桩：断言"投递了什么"
  * 而不真的发消息。
  */
 @Component
+@ConditionalOnProperty(name = "cabinet.outbox.transport", havingValue = "in-process")
 public class InProcessOutboxPublisher implements OutboxPublisher {
 
     private final WorkOrderPort workOrders;

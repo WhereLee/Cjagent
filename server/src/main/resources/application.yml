@@ -251,6 +251,10 @@ cabinet:
     poll-interval-ms: 15000
     initial-delay-ms: 20000
     batch-size: 50
+    # 投递方式：mq（默认，投到下面的 topic）| in-process（同进程直调工单/通知端口，只给测试用）
+    transport: mq
+    # 一个 topic，按事件类型分 tag 订阅：新增订阅方只加一个 listener，不改中继
+    topic: cabinet-outbox
   scheduler:
     # 触发方式：poll（纯 DB 轮询，默认）| zset（Redis 索引加速）| mq（RocketMQ 延迟消息）。
     # 三者都只起“提醒”作用，能不能执行由 biz_delay_task 上的租约条件更新决定（跳存储无事务）
