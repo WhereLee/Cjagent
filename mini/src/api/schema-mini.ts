@@ -5,6 +5,39 @@
 // integer format:int64 一律映射为 string：后端 Long 全局序列化为字符串（雪花 ID
 // 超出 JS 安全整数），前端禁止用 parseInt/Number 还原这些字段。
 
+export interface CsatCommand {
+  score: number
+  comment?: string
+}
+
+export interface CsatView {
+  workOrderId?: string
+  score?: number
+  comment?: string
+  at?: string
+}
+
+export interface RCsatView {
+  code?: number
+  message?: string
+  data?: CsatView
+  traceId?: string
+  timestamp?: string
+}
+
+export interface ConfirmCommand {
+  solved?: boolean
+  note?: string
+}
+
+export interface RLong {
+  code?: number
+  message?: string
+  data?: string
+  traceId?: string
+  timestamp?: string
+}
+
 export interface ChatRequest {
   orderNo?: string
   message: string
@@ -14,6 +47,7 @@ export interface AgentReply {
   reply?: string
   escalated?: boolean
   ticketNo?: string
+  degraded?: boolean
 }
 
 export interface RAgentReply {
@@ -149,6 +183,43 @@ export interface RCustomerLoginView {
   code?: number
   message?: string
   data?: CustomerLoginView
+  traceId?: string
+  timestamp?: string
+}
+
+export interface CustomerView {
+  id?: string
+  orderNo?: string
+  title?: string
+  status?: string
+  category?: string
+  priority?: string
+  closeReason?: string
+  resultNote?: string
+  slotNo?: string
+  cabinetNo?: string
+  siteAddress?: string
+  responseDueAt?: string
+  resolveDueAt?: string
+  closedAt?: string
+  createTime?: string
+  mergedIntoId?: string
+  reopenedCount?: number
+  csatScore?: number
+}
+
+export interface RListCustomerView {
+  code?: number
+  message?: string
+  data?: CustomerView[]
+  traceId?: string
+  timestamp?: string
+}
+
+export interface RCustomerView {
+  code?: number
+  message?: string
+  data?: CustomerView
   traceId?: string
   timestamp?: string
 }
@@ -313,26 +384,18 @@ export interface View {
   doneNote?: string
 }
 
-export interface CustomerView {
-  customerId?: string
-  tenantId?: string
-  nickname?: string
-  phone?: string
-  status?: number
-  registerTime?: string
-  lastLoginAt?: string
-}
-
-export interface RCustomerView {
-  code?: number
-  message?: string
-  data?: CustomerView
-  traceId?: string
-  timestamp?: string
-}
-
 /** 接口操作表：key 为 "method path"（method 小写），入参与出参类型来自契约 */
 export interface OperationTypes {
+  "post /api/mini/work-orders/{id}/csat": {
+    summary: "提交满意度"
+    req: CsatCommand
+    res: RCsatView
+  }
+  "post /api/mini/work-orders/{id}/confirm": {
+    summary: "确认已解决 / 反馈还没解决"
+    req: ConfirmCommand
+    res: RLong
+  }
   "post /api/mini/support/chat": {
     summary: "客服对话"
     req: ChatRequest
@@ -407,6 +470,16 @@ export interface OperationTypes {
     summary: "客户端登录"
     req: CustomerLoginRequest
     res: RCustomerLoginView
+  }
+  "get /api/mini/work-orders": {
+    summary: "我的工单"
+    req: null
+    res: RListCustomerView
+  }
+  "get /api/mini/work-orders/{id}": {
+    summary: "工单详情"
+    req: null
+    res: RCustomerView
   }
   "get /api/mini/storage/wallet": {
     summary: "我的钱包"
