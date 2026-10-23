@@ -1,0 +1,32 @@
+# @Transactional(isolation = ...) 的声明点清单。
+#
+# 为什么要有这张清单：Spring 默认 validateExistingTransaction=false。当一个声明了
+# isolation 的方法被"已经有事务"的调用方调用时，它以 REQUIRED 加入外层事务，
+# 声明的隔离级别被**静默忽略**，实际跑外层级别（MySQL 默认 REPEATABLE READ）。
+# 也就是说：那句 isolation 只有在"无事务入口"进来时才真的生效，否则是装饰。
+#
+# 所以每个声明点都必须能回答一个问题：它的无事务入口在哪？
+# 答不上来的，要么去掉 isolation 声明，要么改调用链。答完再把行加进本文件——
+# 不回答就会被 IsolationDeclarationGuardTest 拦下。
+#
+# 格式：类名#方法名。重载各占一行，所以比对时按列表（不是集合）。
+#
+# 当前 6 处的可达性（批 4 之后）：
+#   WorkOrderIntakeService#open ............ POST /api/admin/work-order（HTTP 直接开单，无外层事务）
+#   WorkOrderIntakeService#open ............ 同上（V2 重载，同一入口）
+#   WorkOrderLifecycleService#resolve ...... POST /api/admin/work-order/{id}/resolve
+#   WorkOrderLifecycleService#resolve ...... 同上（带派线下参数的重载）
+#   WorkOrderLifecycleService#reopen ....... POST /api/mini/work-order/{id}/reopen
+#   WorkOrderLifecycleService#openFieldTwin  由 OverduePickupHandler 调；批 4 起该 handler
+#                                            覆写 transactional()=false，没有外层事务
+#
+# 第三册 1.1 节曾记录三条"失效"路径（markAnomalyAndLog → onAnomaly → open、
+# openLongRunning → open、openFieldTwin）。它们失效的原因是外层事务把 isolation 吞了；
+# 批 4 把那条链的扇出改成 outbox、并把 OverduePickupHandler 移出事务之后，这三条已恢复。
+
+WorkOrderIntakeService#open
+WorkOrderIntakeService#open
+WorkOrderLifecycleService#openFieldTwin
+WorkOrderLifecycleService#reopen
+WorkOrderLifecycleService#resolve
+WorkOrderLifecycleService#resolve

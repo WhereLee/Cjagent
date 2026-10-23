@@ -1,0 +1,26 @@
+# PII 出参清单。
+#
+# 为什么要有它：手机号在本项目里是唯一真实的个人敏感字段，而"谁能看到明文"目前靠
+# 调用方自觉（AI 工具层自己负责把它滤掉）。这张清单把现状冻下来，供批 11 做权限点分级时当输入。
+#
+# 格式：类名#字段名  处置
+#   处置 MASKED —— 字段标了 @JsonMask，序列化即脱敏
+#   处置 PLAIN  —— 没标。其中入参（如 CustomerLoginRequest）不回传、本身不构成暴露；
+#                 真出参裸奔的是 CustomerSnapshot 与工单快照里的 customerPhone，那是待办
+#
+# 校验是**单向**的：清单里的每一条都必须仍然存在，且脱敏状态不变；新增的 PII 字段不会被这条守卫发现。
+# 不做双向是因为扫描会被 @JsonMask(MaskType.PHONE) 里的括号干扰，
+# 误判"已脱敏字段缺失"比漏判更糟——那种噪音会让人把守卫关掉。
+#
+# 批 11 要处理的（PLAIN 里的真出参）：
+#   CustomerSnapshot#phone            客服查客户时能看到明文
+#   WorkOrderConsolePort#customerPhone 工单队列与详情都带明文（业务员要回拨，属合理需求，
+#                                      但应该有权限点与审计维度，而不是默认带上）
+#   AdminOrderConsolePort#customerPhone 订单详情带明文（同上；列表不带，这点做得对）
+
+AdminOrderConsolePort#customerPhone  PLAIN
+CustomerLoginRequest#phone  PLAIN
+CustomerSnapshot#phone  PLAIN
+CustomerView#phone  MASKED
+UserView#phone  MASKED
+WorkOrderConsolePort#customerPhone  PLAIN

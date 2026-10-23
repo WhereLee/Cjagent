@@ -1,0 +1,48 @@
+# 写端点 × 幂等处置清单。
+#
+# 每行：Controller#方法  处置
+#   IDEMPOTENT —— 标了 @Idempotent（弱网重试会被合并）
+#   UNGUARDED  —— 没标。它可能有唯一索引/状态条件更新兜底，也可能什么都没有；
+#                 本清单只记录"没有注解守卫"这个事实，不判断它是否安全
+#
+# UNGUARDED 是账，不是错误。补幂等属第三册 G-03 的后续，不在批 5。
+#
+# 有意更新：ENDPOINT_IDEMPOTENCY_WRITE=1 跑一次生成，人工复核后提交。
+
+AdminAuthController#login  UNGUARDED
+AdminAuthController#logout  UNGUARDED
+AdminAuthController#refresh  UNGUARDED
+AdminLockerController#changeCustomerStatus  IDEMPOTENT
+AdminLockerController#forceOpen  IDEMPOTENT
+AdminLockerController#rebuildFreeSet  IDEMPOTENT
+AdminLockerController#resolve  IDEMPOTENT
+AdminOpsController#ask  UNGUARDED
+AdminOpsController#diagnose  UNGUARDED
+AdminPricingController#preview  UNGUARDED
+AdminPricingController#publish  IDEMPOTENT
+AdminPricingController#rollback  IDEMPOTENT
+AdminWorkOrderController#brief  UNGUARDED
+AdminWorkOrderController#callDone  IDEMPOTENT
+AdminWorkOrderController#claim  IDEMPOTENT
+AdminWorkOrderController#pauseSla  IDEMPOTENT
+AdminWorkOrderController#phoneNote  IDEMPOTENT
+AdminWorkOrderController#reloadTriage  UNGUARDED
+AdminWorkOrderController#resolve  IDEMPOTENT
+AdminWorkOrderController#resumeSla  UNGUARDED
+MiniAuthController#login  UNGUARDED
+MiniAuthController#logout  UNGUARDED
+MiniAuthController#refresh  UNGUARDED
+MiniHelperCloseController#confirmClosed  UNGUARDED
+MiniLeftoverController#open  IDEMPOTENT
+MiniLeftoverController#taken  IDEMPOTENT
+MiniNoticeController#read  UNGUARDED
+MiniRechargeController#recharge  IDEMPOTENT
+MiniStorageOrderController#create  IDEMPOTENT
+MiniStorageOrderController#door  IDEMPOTENT
+MiniStorageOrderController#pickup  IDEMPOTENT
+MiniStorageOrderController#reportLeftover  IDEMPOTENT
+MiniStorageOrderController#resetVoucher  IDEMPOTENT
+MiniSupportController#chat  UNGUARDED
+MiniWorkOrderController#confirm  UNGUARDED
+MiniWorkOrderController#csat  UNGUARDED
+PublicPickupController#pickup  UNGUARDED
