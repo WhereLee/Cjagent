@@ -72,6 +72,23 @@ public class OverduePickupHandler implements TaskHandler {
         return TaskType.OVERDUE_PICKUP;
     }
 
+    /**
+     * 必须在无外层事务下跑。
+     *
+     * <p>这个 handler 会同步调工单系统（开单、升级、派人）。有外层事务时，
+     * {@code openLongRunning} 里那个 try/catch 挡不住失败：下游是 participating transaction，
+     * 抛异常会把共享的物理事务标成 rollback-only，于是“订单推进 EXPIRED”跟着回滚。
+     * 而这是小时级巡检，工单侧抖一次就白跑一轮。
+     *
+     * <p>代价显式承担：handle 里的每一步都必须可重入。
+     * 推进 EXPIRED 是带 version 的条件更新且判返回值；两个 counter 只在写成功之后记；
+     * 开单与升级靠 dedup_key 幂等。所以“业务提交了但 markDone 失败”重跑一遍是安全的。
+     */
+    @Override
+    public boolean transactional() {
+        return false;
+    }
+
     @Override
     public boolean handle(BizDelayTask task) {
         BizStorageOrder order = TaskOrders.find(orderMapper, task.getBizKey());
@@ -125,8 +142,9 @@ public class OverduePickupHandler implements TaskHandler {
                     "reason", capped ? "price-capped" : "watch-expired").increment();
             log.error("订单滞留需人工处置 orderNo={} 已持有分钟={} 逾期分钟={} 封顶已到={} 盯了 {} 天",
                     order.getOrderNo(), heldMinutes, overdueMinutes, capped, strandedDays);
-            openLongRunning(order, heldMinutes);
-            return false;
+            // 开单没成就继续排：本类已经 transactional()=false，“推进 EXPIRED”在上一步就提交了，
+            // 此时若返回 false，任务直接结束，再没有下一轮来补开这张单（工单会永久丢失）。
+            return !openLongRunning(order, heldMinutes);
         }
         return true;
     }
@@ -138,8 +156,17 @@ public class OverduePickupHandler implements TaskHandler {
      * 两档都看**从计费起点算起的总持有时长**（`heldMinutes`）：拿“逾期分钟”判会凭空多等一周期。
      *
      * <p>开单与升级都是幂等的：看管任务每小时都会重进这里。
+     *
+     * <p><b>为什么返回 boolean</b>：本类 {@code transactional()=false} 之后，“推进 EXPIRED”
+     * 已经单独提交了。此时若开单失败还返回“不需要再排”，任务就直接结束、再没有人来补这张单。
+     * 所以返回值是“这单交出去了没有”，调用方据此决定要不要继续排下一轮。
+     *
+     * <p>下面那个 try/catch 以前是<b>无效</b>的：外层事务把 handle 包住时，
+     * {@code onOrderEvent} 是 participating transaction，它抛异常会把共享的物理事务标成
+     * rollback-only，catch 住也没用——提交时照样 {@code UnexpectedRollbackException}。
+     * 改成 {@code transactional()=false} 之后下游各自成事务，它才真的挡住。
      */
-    private void openLongRunning(BizStorageOrder order, long heldMinutes) {
+    private boolean openLongRunning(BizStorageOrder order, long heldMinutes) {
         try {
             intake.onOrderEvent(order, com.wherelee.cabinet.servicedesk.api.WorkOrderType.LONG_RUNNING,
                     false, "计费已到封顶（最多 20 小时单价），需联系用户取件",
@@ -147,7 +174,8 @@ public class OverduePickupHandler implements TaskHandler {
             Long woId = workOrders.openIdOf(order.getSlotId(),
                     com.wherelee.cabinet.servicedesk.api.WorkOrderType.LONG_RUNNING);
             if (woId == null) {
-                return;
+                // 开单没落成（幂等键冲突之类），下一轮再来
+                return false;
             }
             // 升级：进“必须处理”并产出电话任务与站内消息（去重靠 dedup_key）
             workOrders.escalate(order.getSlotId(),
@@ -157,11 +185,11 @@ public class OverduePickupHandler implements TaskHandler {
                 // 72 小时：自动派线下，但不动线上父单的状态（机器不能替人下结论）
                 workOrders.openFieldTwin(woId, "用户超 72 小时未取件，需到场处理");
             }
+            return true;
         } catch (RuntimeException e) {
             // 开单失败不能拖挂看管收口：单已滞留的事实已经计下，工单下一轮会再试
             log.error("滞留工单开单失败，下一轮重试 orderNo={}", order.getOrderNo(), e);
+            return false;
         }
     }
 }
-
-/** 押金安全网：订单已终态但押金还挂着，就把冻结退回去（幂等由状态条件更新保证）。 */

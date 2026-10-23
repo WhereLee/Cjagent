@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.locker.api.Sensing;
 import com.wherelee.cabinet.locker.app.CompartmentStateService;
 import com.wherelee.cabinet.storage.app.StorageOrderService;
+import com.wherelee.cabinet.storage.jobs.OverduePickupHandler;
 import com.wherelee.cabinet.storage.api.CreateOrderCommand;
 import com.wherelee.cabinet.platform.scheduling.DelayTaskService;
 import com.wherelee.cabinet.common.context.TenantContext;
@@ -94,6 +95,9 @@ class DelayTaskTest {
     private StorageOrderService orderService;
     @Autowired
     private CompartmentStateService states;
+    /** 直接注 handler：它标了 transactional()=false，而“重跑不再开单”这件事只能直接看两个开关。 */
+    @Autowired
+    private OverduePickupHandler overdueHandler;
     @Autowired
     private PointAccountService points;
     @Autowired
@@ -630,6 +634,47 @@ class DelayTaskTest {
 
         assertEquals(TaskStatus.DONE, task(TaskType.OVERDUE_PICKUP, order.getOrderNo()).getStatus(),
                 "封顶判不出来时 stranded-days 必须接住（默认 7 天，这里逾期 8 天）");
+    }
+
+    @Test
+    @DisplayName("到顶开单后重跑不再开第二张：transactional()=false 的代价靠可重入兜住")
+    void cappedOrderOpensOneWorkOrderEvenIfRerun() {
+        // 这个 handler 会同步调工单系统，所以不能被外层事务包住（否则下游一抛异常就把
+        // “推进 EXPIRED”一起回滚）。代价是“业务提交了但 markDone 失败”会真重跑，
+        // 本条就是那份代价的取证：重跑不许开出第二张单，也不许把订单状态推翻。
+        assertFalse(overdueHandler.transactional(),
+                "会同步调工单系统的 handler 不能被外层事务包住");
+
+        Long customerId = newCustomer();
+        BizStorageOrder order = activate(customerId, newOrder(customerId));
+        backdateDeadline(order.getId(), 5L * 24 * 60);
+        // 与 cappedOverdueStopsWatching 同一套造数：封顶看的是从计费起点算的总时长
+        jdbc.update("update biz_storage_order set started_at = date_sub(now(3), interval 50 hour) where id = ?",
+                order.getId());
+
+        scheduleNow(TaskType.OVERDUE_PICKUP, order.getOrderNo());
+        TenantContext.callAs(TENANT, tasks::runDue);
+
+        int opened = countLongRunningWorkOrders(order.getSlotId());
+        assertEquals(1, opened, "到顶必须交给人：开一张线上 LONG_RUNNING 单");
+
+        // 再跑一轮：模拟“业务提交了、markDone 失败”之后的重跑
+        scheduleNow(TaskType.OVERDUE_PICKUP, order.getOrderNo());
+        TenantContext.callAs(TENANT, tasks::runDue);
+
+        assertEquals(opened, countLongRunningWorkOrders(order.getSlotId()),
+                "重跑不得堆出第二张单（去重靠 dedup_key 与状态条件）");
+        assertEquals(OrderStatus.EXPIRED, TenantContext.callAs(TENANT,
+                () -> orderMapper.selectById(order.getId())).getStatus(),
+                "重跑也不能把单推回别的状态：EXPIRED 不是终态，还有取件出口");
+    }
+
+    /** 按格口统计：biz_work_order 是跨用例共享的表，按租户数会捡到别人的单。 */
+    private int countLongRunningWorkOrders(Long slotId) {
+        Integer n = jdbc.queryForObject(
+                "select count(*) from biz_work_order where tenant_id = ? and slot_id = ? and type = 'LONG_RUNNING'",
+                Integer.class, TENANT, slotId);
+        return n == null ? 0 : n;
     }
 
     @Test
