@@ -43,6 +43,7 @@ public class MimoSupportAgent implements SupportAgentPort {
             回答用简体中文：先结论、后下一步，不超过 5 句，不用感叹号。""";
 
     private final ChatClient chatClient;
+    private final AgentBulkhead bulkhead;
     private final StorageQueryPort queries;
     private final StorageOrderCommandPort doors;
     private final WorkOrderIntakePort intake;
@@ -51,11 +52,12 @@ public class MimoSupportAgent implements SupportAgentPort {
     private final WorkOrderHandoffPort handoffs;
     private final String systemPrompt;
 
-    public MimoSupportAgent(ChatClient chatClient,
+    public MimoSupportAgent(ChatClient chatClient, AgentBulkhead bulkhead,
                             StorageQueryPort queries, StorageOrderCommandPort doors,
                             WorkOrderIntakePort intake, BizStorageOrderMapper orderMapper,
                             WorkOrderPort workOrderPort, WorkOrderHandoffPort handoffs) {
         this.chatClient = chatClient;
+        this.bulkhead = bulkhead;
         this.queries = queries;
         this.doors = doors;
         this.intake = intake;
@@ -69,33 +71,40 @@ public class MimoSupportAgent implements SupportAgentPort {
     @Override
     public AgentReply chat(SupportSession session) {
         try {
-            AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
-                    handoffs, session);
-            String user = "用户消息：" + session.message()
-                    + "\n关联订单号：" + (session.orderNo() == null || session.orderNo().isBlank()
-                    ? "无" : session.orderNo());
-            String content = chatClient.prompt()
-                    .system(systemPrompt)
-                    .user(user)
-                    .tools(tools)
-                    .call()
-                    .content();
-            if (content == null || content.isBlank()) {
-                log.warn("AI 客服返回空正文（疑似思考 token 占满预算），escalated={} customerId={}",
-                        tools.escalated(), session.customerId());
-                // 空正文不能把已建的单一起丢掉：用户需要知道工单号，否则会重复报障。
-                if (tools.escalated()) {
-                    return new AgentReply(
-                            "已经为你转报人工，工单号 " + tools.ticketNo()
-                                    + "。工作人员会联系你，请保持手机畅通。",
-                            true, tools.ticketNo());
-                }
-                return AgentReply.fallback();
-            }
-            return new AgentReply(content, tools.escalated(), tools.ticketNo());
+            // 舱壁（批 6）：模型与工具循环跑在独立的有界池里，池满或超预算都抛同一种异常，
+            // 由下面这个 catch 收敛成兜底话术——对客户端仍是同步，只是一个失败得很快的同步。
+            return bulkhead.call(() -> doChat(session));
         } catch (Exception e) {
             log.warn("AI 客服调用失败，走兜底话术 customerId={}：{}", session.customerId(), e.toString());
             return AgentReply.fallback();
         }
+    }
+
+    /** 真正的对话。异常一律上抛给 {@link #chat}，由它统一降级——这里不重复兜底。 */
+    private AgentReply doChat(SupportSession session) {
+        AgentTools tools = new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
+                handoffs, session);
+        String user = "用户消息：" + session.message()
+                + "\n关联订单号：" + (session.orderNo() == null || session.orderNo().isBlank()
+                ? "无" : session.orderNo());
+        String content = chatClient.prompt()
+                .system(systemPrompt)
+                .user(user)
+                .tools(tools)
+                .call()
+                .content();
+        if (content == null || content.isBlank()) {
+            log.warn("AI 客服返回空正文（疑似思考 token 占满预算），escalated={} customerId={}",
+                    tools.escalated(), session.customerId());
+            // 空正文不能把已建的单一起丢掉：用户需要知道工单号，否则会重复报障。
+            if (tools.escalated()) {
+                return new AgentReply(
+                        "已经为你转报人工，工单号 " + tools.ticketNo()
+                                + "。工作人员会联系你，请保持手机畅通。",
+                        true, tools.ticketNo());
+            }
+            return AgentReply.fallback();
+        }
+        return new AgentReply(content, tools.escalated(), tools.ticketNo());
     }
 }
