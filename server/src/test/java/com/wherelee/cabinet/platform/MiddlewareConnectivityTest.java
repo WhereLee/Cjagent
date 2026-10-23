@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * 中间件连通性集成测试。
  *
  * <p>本地无 Docker，跑不了 Testcontainers，所以这里直连本机真实实例：
- * 需要 MySQL(cabinet_dev) / PG(cabinet_agent) / Redis(db8) / RocketMQ 都已启动，
+ * 需要 MySQL(cabinet_dev) / Redis(db8) / RocketMQ 都已启动，
  * 且 server/.env 配好账密，否则本类会失败（这是有意的：环境没准备好就不该给我绿灯）。
  *
  * <p>执行：{@code mvn test -Pintegration}；默认 {@code mvn test} 会跳过（tag=integration）。
@@ -40,10 +40,6 @@ class MiddlewareConnectivityTest {
     private DataSource mysqlDataSource;
 
     @Autowired
-    @Qualifier("pgDataSource")
-    private DataSource pgDataSource;
-
-    @Autowired
     private StringRedisTemplate stringRedisTemplate;
 
     @Autowired
@@ -54,17 +50,6 @@ class MiddlewareConnectivityTest {
     void mysqlReachable() throws Exception {
         assertEquals(1, queryScalar(mysqlDataSource, "select 1"));
         assertEquals("cabinet_test", queryString(mysqlDataSource, "select database()"));
-    }
-
-    @Test
-    @DisplayName("PG agent 库可查且 pgvector 已启用")
-    void pgReachableWithVector() throws Exception {
-        assertEquals(1, queryScalar(pgDataSource, "select 1"));
-        try (Connection c = pgDataSource.getConnection(); Statement s = c.createStatement()) {
-            ResultSet rs = s.executeQuery("select extversion from pg_extension where extname='vector'");
-            assertTrue(rs.next(), "cabinet_agent 库未启用 pgvector 扩展");
-            assertNotNull(rs.getString(1));
-        }
     }
 
     @Test

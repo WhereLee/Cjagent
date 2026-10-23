@@ -31,6 +31,11 @@ import java.util.UUID;
  * <p>租约沿用 {@code cabinet.scheduler.lease-seconds}：语义完全一样（持有者多久算死了），
  * 不新造一个数。判死上限 5 也与 {@code TaskType.maxAttempts()} 的 default 与
  * {@code OutboxRelay} 同值。
+ *
+ * <p><b>宁可重复执行，不可漏执行</b>——这句话原在已删除的 {@code ConsumeIdempotencyGuard} 里
+ * （批 8 判定它零调用方）。认领靠条件更新而不是“先查后跑”，所以两个实例不会同时跑同一作业；
+ * 即使真被重复跑，三类作业的动作都只读（诊断读日志与台账、问答检索只读事实、简报归纳工单），
+ * 重复的代价远小于漏执行的代价。
  */
 @Component
 public class AiJobRunner {

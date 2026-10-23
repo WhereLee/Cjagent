@@ -11,7 +11,7 @@
 #
 # Why this script exists: after a reboot Redis and RocketMQ do NOT come back by
 # themselves (the Windows service "redis" needs admin to start, and RocketMQ is
-# launched by a .bat). MySQL / PostgreSQL are services and do auto-start.
+# launched by a .bat). MySQL is a service and auto-starts.
 #
 # Verification principle: never trust a command's own success output. Ports and
 # PING are the only accepted evidence.
@@ -34,7 +34,6 @@ $RmqShutdown = 'D:\rocketmq-5.3.1\rocketmq-all-5.3.1-bin-release\bin\mqshutdown.
 # port -> friendly name, used for both reporting and readiness checks
 $Ports = [ordered]@{
     3306 = 'mysql'
-    5432 = 'postgres'
     6379 = 'redis'
     9876 = 'rocketmq-namesrv'
     10911 = 'rocketmq-broker'

@@ -320,15 +320,3 @@ cabinet:
       max-lifetime: 1800000
       keepalive-time: 120000
       leak-detection-threshold: 60000
-    pg:
-      jdbc-url: "jdbc:postgresql://${PG_HOST:127.0.0.1}:${PG_PORT:5432}/${PG_DATABASE:cabinet_agent}"
-      driver-class-name: org.postgresql.Driver
-      username: ${PG_USERNAME}
-      password: ${PG_PASSWORD}
-      pool-name: pg-hikari
-      maximum-pool-size: 5
-      minimum-idle: 1
-      connection-timeout: 5000
-      max-lifetime: 1800000
-      keepalive-time: 120000
-      leak-detection-threshold: 60000

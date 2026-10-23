@@ -17,14 +17,15 @@ import javax.sql.DataSource;
 /**
  * 业务主库 MySQL：唯一被 MyBatis-Plus 接管的数据源。
  *
- * <p>标 @Primary 是因为容器里存在多个 DataSource Bean，MyBatis-Plus / 事务管理器
- * 必须明确知道用哪一个；不写 Primary 会在启动时报 “multiple DataSource beans”。
+ * <p>显式标 @Primary：批 8 之后容器里只剩 MySQL 一个数据源，但它仍然留着——
+ * 将来再加任何数据源时，MyBatis-Plus 与事务管理器不必重新学习“该用哪个”，
+ * 也不会在启动时报 "multiple DataSource beans"。
  *
  * <p>事务管理器必须显式声明并标 @Primary：Boot 的
  * DataSourceTransactionManagerAutoConfiguration 是
  * {@code @ConditionalOnMissingBean(PlatformTransactionManager.class)}，
- * 一旦 PgDataSourceConfig 先注册了 pgTransactionManager，自动配置就会退让，
- * 导致 {@code @Transactional} 默默作用在 PG 连接上——主库回滚失效且不报错。
+ * 一旦某个非 @Primary 的事务管理器先注册，自动配置就会退让，
+ * 导致 {@code @Transactional} 默默作用在别的连接上——主库回滚失效且不报错。
  */
 @Configuration
 @EnableTransactionManagement

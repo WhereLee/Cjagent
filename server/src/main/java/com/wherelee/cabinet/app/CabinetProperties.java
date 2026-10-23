@@ -10,7 +10,7 @@ import java.util.List;
  * {@code cabinet.*} 下需要类型安全绑定的配置项。
  *
  * <p>这里只收 cors 与 access-log；{@code cabinet.datasource.*} 是直接绑到 Hikari 的
- * （见 MysqlDataSourceConfig / PgDataSourceConfig），{@code cabinet.exception.*} 由
+ * （见 MysqlDataSourceConfig），{@code cabinet.exception.*} 由
  * GlobalExceptionHandler 用 @Value 取，两者都不必在这里重复声明。
  * 默认 ignoreUnknownFields=true，所以同一个前缀下有其他键不会报错。
  */

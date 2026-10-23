@@ -29,7 +29,7 @@ public class SystemHealthController {
         this.healthEndpoint = healthEndpoint;
     }
 
-    @Operation(summary = "组件连通性自检", description = "返回 MySQL / PG / Redis / RocketMQ 各项状态")
+    @Operation(summary = "组件连通性自检", description = "返回 MySQL / Redis / RocketMQ 各项状态")
     @GetMapping("/health")
     public R<HealthComponent> health() {
         return R.ok(healthEndpoint.health());

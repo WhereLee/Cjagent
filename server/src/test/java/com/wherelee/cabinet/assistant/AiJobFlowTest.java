@@ -49,8 +49,8 @@ class AiJobFlowTest {
     @Autowired
     private DataSource dataSource;
 
-    /** 必须自己 new：容器里有两个 JdbcTemplate（MySQL 自动配置的 + 向量库的 pgJdbcTemplate），
-     * 按类型注入会拿到 PG 那个，表全都不存在。项目惯例见 WorkOrderFlowTest。 */
+    /** 与项目惯例一致：注入 DataSource 自己 new（WorkOrderFlowTest 也这么写）。
+     * 批 8 删掉向量库数据源之后容器里只剩一个 JdbcTemplate，这个写法仍然更稳。 */
     private JdbcTemplate jdbc;
 
     @BeforeEach

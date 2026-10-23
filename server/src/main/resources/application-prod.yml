@@ -17,8 +17,6 @@ cabinet:
       jdbc-url: "jdbc:mysql://${MYSQL_HOST}:${MYSQL_PORT}/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true"
       maximum-pool-size: 30
       minimum-idle: 5
-    pg:
-      jdbc-url: "jdbc:postgresql://${PG_HOST}:${PG_PORT}/${PG_DATABASE}"
 
 management:
   endpoints:
