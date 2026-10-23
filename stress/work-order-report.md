@@ -54,3 +54,9 @@ powershell -File stress/run-work-order.ps1 `
   单独记录模型耗时。
 - 队列查询现在命中 `idx_wo_queue(tenant_id, queue_side, active_flag, priority, create_time)`，
   取满 20 行即停；单租户未关闭工单超过 10 万时再改 keyset 分页。
+
+## 另一条线：格口分配四策略
+
+本记录只覆盖工单队列与 AI 客服。**格口分配（pessimistic / cas / redisson / prealloc）另见
+[allocation-strategy-report.md](allocation-strategy-report.md)**：那份是 2026-10-24 重测的四策略对比，
+含 B 轮争抢场景与 oversell 不变量。旧的 prealloc 68ms 结论已在那边标注作废。
