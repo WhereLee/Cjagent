@@ -26,6 +26,7 @@ import org.springframework.test.context.jdbc.Sql;
 import javax.sql.DataSource;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -80,14 +81,25 @@ class OutboxMqConsumeTest {
 
     @BeforeEach
     void pickSlot() {
-        // 从格口反查它的租户，而不是分别取“第一个租户”和“第一个格口”：
-        // 两个独立查询很容易拿到不匹配的组合（租户 A 的 id + 租户 B 的格口），
-        // 那时开单会因“格口不属于本租户”静默不生效，症状是断言拿到 0。
-        slotId = jdbc().queryForObject("select id from biz_compartment limit 1", Long.class);
-        assertNotNull(slotId, "库里至少要有一个格口");
-        tenantId = jdbc().queryForObject(
-                "select tenant_id from biz_compartment where id = ?", Long.class, slotId);
-        assertNotNull(tenantId, "格口必须有所属租户");
+        // 自己造一个格口：CI 的 cabinet_test 是空库，不能指望里面已经有格口
+        // （本地能过是因为别的用例留下的数据，那正是“本地绿、CI 红”的经典来源）。
+        // 写法照抄 WorkOrderFlowTest：随机 id + 同一租户，避免与别的用例撞主键。
+        Long seed = ThreadLocalRandom.current().nextLong(82_0000_0000L, 88_9999_9999L);
+        tenantId = jdbc().queryForObject("select id from sys_tenant limit 1", Long.class);
+        Long siteId = seed;
+        Long cabinetId = seed + 1;
+        slotId = seed + 2;
+
+        jdbc().update("insert into biz_site (id, tenant_id, site_code, name, category, status, create_time, update_time, deleted) "
+                + "values (?, ?, ?, 'MQ 测试点位', 'MALL', 1, NOW(3), NOW(3), 0)",
+                siteId, tenantId, "MQ-" + seed);
+        jdbc().update("insert into biz_cabinet (id, tenant_id, site_id, cabinet_no, name, model_id, cabinet_status, online_state, create_time, update_time, deleted) "
+                + "values (?, ?, ?, ?, 'MQ 测试柜机', 90001, 'ENABLED', 'ONLINE', NOW(3), NOW(3), 0)",
+                cabinetId, tenantId, siteId, "CAB-MQ-" + seed);
+        jdbc().update("insert into biz_compartment (id, tenant_id, cabinet_id, slot_no, size_type, status, "
+                + "door_open_at, anomaly, current_order_id, create_time, update_time, deleted) "
+                + "values (?, ?, ?, ?, 'SMALL', 'FREE', NOW(3), NULL, NULL, NOW(3), NOW(3), 0)",
+                slotId, tenantId, cabinetId, "S" + (seed % 10000));
     }
 
     private WorkOrderAnomalyConsumer consumer() {
