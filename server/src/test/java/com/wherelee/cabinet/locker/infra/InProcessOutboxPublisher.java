@@ -16,10 +16,11 @@ import org.springframework.stereotype.Component;
  * <p>这段逻辑原来长在 {@code OutboxRelay.dispatch} 里，行为一个字没改，只是搬了位置——
  * 搬家的目的是让"投递方式"变成可替换的。
  *
- * <p><b>它不该是生产的最终形态</b>：同进程调用拿不到 outbox 的解耦收益（中继仍然知道
- * 消费者是谁）。所以默认装配的是 {@link RocketMqOutboxPublisher}，这个实现只在
- * {@code cabinet.outbox.transport=in-process} 时生效，留给测试当桩：断言"投递了什么"
- * 而不真的发消息。
+ * <p><b>它只存在于测试源码里</b>（{@code src/test}），生产 jar 里没有这条同进程路径：
+ * 生产只走 {@link RocketMqOutboxPublisher}。放在测试而不是生产、用
+ * {@code @ConditionalOnProperty(transport=in-process)} 开关，是为了让集成测试能断言
+ * “投递了什么”而不用真发 MQ——真发的话消费是异步的，而且同 JVM 的 listener
+ * 会自己消费自己刚发的消息。
  */
 @Component
 @ConditionalOnProperty(name = "cabinet.outbox.transport", havingValue = "in-process")
