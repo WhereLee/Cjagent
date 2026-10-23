@@ -85,7 +85,7 @@ class PreallocAllocationTest extends AbstractAllocationBehaviourTest {
 
         fund(900888L);
         var view = TenantContext.callAs(TENANT, () -> storageOrderService.create(900888L,
-                new CreateOrderCommand("sync-" + UUID.randomUUID(), currentCabinetNo(), "LARGE", 60)));
+                new CreateOrderCommand("sync-" + UUID.randomUUID(), currentCabinetNo(), "LARGE")));
         assertNotNull(view.orderNo());
 
         // 两边各减一。集合少而 DB 没少 = 弹出了没绑上（少卖，白占一个位）；

@@ -183,7 +183,7 @@ class PlaceAndReconcileTest {
     void placeOpensDoorInOneStep() {
         Long customerId = newCustomer(FREEZE);
         StorageOrderView view = TenantContext.callAs(TENANT, () -> facade.place(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60)));
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL")));
 
         assertNotNull(view.slotNo(), "必须当场告诉他第几格");
         assertTrue(view.slotNo().startsWith("S"), "小格口编号应以 S 开头，实际：" + view.slotNo());
@@ -200,7 +200,7 @@ class PlaceAndReconcileTest {
         Long customerId = newCustomer(FREEZE);
         // 只建单不开门（模拟"崩在发指令之前"）
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         Long slotId = order(orderNo).getSlotId();
         assertEquals(OrderStatus.RESERVED, order(orderNo).getStatus());
 
@@ -219,7 +219,7 @@ class PlaceAndReconcileTest {
     void reaperNeverReleasesASlotThatWasOpened() {
         Long customerId = newCustomer(FREEZE);
         String orderNo = TenantContext.callAs(TENANT, () -> facade.place(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         BizStorageOrder opened = order(orderNo);
         Long slotId = opened.getSlotId();
         // 造"崩在推进之前"的现场：指令已经成功，但订单状态还停在待开门

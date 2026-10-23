@@ -100,8 +100,8 @@ class LeftoverRetrieveFlowTest {
         // 物主那张单已经是终态：遗留物被发现时活动单早已结束，这正是取回闭环要服务的现场
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                 + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, settled_points, "
-                + "arrears_points, estimate_minutes, finished_at, create_time, update_time, deleted, active_flag) "
-                + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'CLOSED', ?, 0, 0, 0, 0, 0, 0, NOW(3), NOW(3), NOW(3), 0, NULL)",
+                + "arrears_points, finished_at, create_time, update_time, deleted, active_flag) "
+                + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'CLOSED', ?, 0, 0, 0, 0, 0, NOW(3), NOW(3), NOW(3), 0, NULL)",
                 orderId, TENANT, orderNo, siteId, cabinetId, slotId, OWNER, "V" + suffix.substring(0, 2) + siteId % 1000000);
     }
 
@@ -222,8 +222,8 @@ class LeftoverRetrieveFlowTest {
                 activeSlot, TENANT, cabinetId, "LX" + activeSlot.toString().substring(activeSlot.toString().length() - 3));
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                         + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, settled_points, "
-                        + "arrears_points, estimate_minutes, create_time, update_time, deleted, active_flag) "
-                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', 'V87654321', 0, 0, 0, 0, 0, 0, NOW(3), NOW(3), 0, 1)",
+                        + "arrears_points, create_time, update_time, deleted, active_flag) "
+                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', 'V87654321', 0, 0, 0, 0, 0, NOW(3), NOW(3), 0, 1)",
                 orderId + 10, TENANT, orderNo + "X", cabinetId - 1, cabinetId, activeSlot, OWNER);
         BizException notTerminal = assertThrows(BizException.class,
                 () -> com.wherelee.cabinet.common.context.TenantContext.runAs(TENANT,

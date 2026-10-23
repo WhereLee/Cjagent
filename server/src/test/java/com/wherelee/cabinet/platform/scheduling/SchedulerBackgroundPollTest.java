@@ -160,7 +160,7 @@ class SchedulerBackgroundPollTest {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "轮询用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
 
         // grace=0：这张单一开始就是"已超时"，剩下的事必须全部由后台线程完成
         BizDelayTask planted = TenantContext.callAs(TENANT, () -> taskMapper.selectOne(

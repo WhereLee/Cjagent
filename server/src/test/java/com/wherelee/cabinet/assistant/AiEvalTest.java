@@ -86,8 +86,8 @@ class AiEvalTest {
                 CUSTOMER, TENANT, "ae-" + suffix, PHONE);
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                         + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, settled_points, "
-                        + "arrears_points, estimate_minutes, create_time, update_time, deleted, active_flag) "
-                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', 'V82345678', 0, 0, 0, 0, 0, 240, NOW(3), NOW(3), 0, 1)",
+                        + "arrears_points, create_time, update_time, deleted, active_flag) "
+                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', 'V82345678', 0, 0, 0, 0, 0, NOW(3), NOW(3), 0, 1)",
                 orderId, TENANT, orderNo, siteId, cabinetId, slotId, CUSTOMER);
     }
 

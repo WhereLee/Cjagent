@@ -160,7 +160,7 @@ class PointLedgerTest {
 
     private String createOrder(Long customerId, SizeType size) {
         return TenantContext.callAs(TENANT, () -> facade.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, size.name(), 120))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, size.name()))).orderNo();
     }
 
     @Test

@@ -200,7 +200,7 @@ class DelayTaskTest {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "调度用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, sizeType, 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, sizeType))).orderNo();
         return TenantContext.callAs(TENANT, () -> orderMapper.selectOne(
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }

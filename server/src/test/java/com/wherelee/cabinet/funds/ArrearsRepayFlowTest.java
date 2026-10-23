@@ -190,7 +190,7 @@ class ArrearsRepayFlowTest {
 
     private String createOrder(Long customerId) {
         return TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
     }
 
     /** 走完"开门 → 关门起计"，返回已进入计费中的单号。 */
@@ -233,7 +233,7 @@ class ArrearsRepayFlowTest {
         BizStorageOrder owed = oneArrearsOrder(customerId);
 
         BizException blocked = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
-                () -> orderService.create(customerId, new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))));
+                () -> orderService.create(customerId, new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))));
         assertTrue(blocked.getMessage().contains("未缴清"), blocked.getMessage());
         assertTrue(blocked.getMessage().contains("补缴"), "文案指向的动作必须真的存在：" + blocked.getMessage());
 
@@ -250,7 +250,7 @@ class ArrearsRepayFlowTest {
         // 否则这一步会因“余额不够冻结”失败——那不是本用例要证的事
         fund(customerId, FREEZE_DEFAULT);
         assertNotNull(TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))),
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))),
                 "还清必须真能下单，否则拦截就是永久拦截");
     }
 
@@ -279,7 +279,7 @@ class ArrearsRepayFlowTest {
         fund(customerId, each * 2);
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
                 () -> orderService.create(customerId,
-                        new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))));
+                        new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))));
 
         assertEquals(1, TenantContext.callAs(TENANT, () -> orderMapper.listOwed(customerId)).size(),
                 "一个人名下只能有一条欠款：第二条在下单那一步就被挂了欠款的自己堵死了");

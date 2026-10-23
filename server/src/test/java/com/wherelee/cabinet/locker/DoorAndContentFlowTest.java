@@ -180,7 +180,7 @@ class DoorAndContentFlowTest {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "门态用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         return order(orderNo);
     }
 
@@ -565,7 +565,7 @@ class DoorAndContentFlowTest {
         Long customerId = newCustomer();
         BizException soldOut = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
                 () -> orderService.create(customerId, new CreateOrderCommand(
-                        java.util.UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))));
+                        java.util.UUID.randomUUID().toString(), cabinetNo, "SMALL"))));
         assertTrue(soldOut.getMessage().contains("没有可用"),
                 "屏幕说 0，下单就得说没格：两处必须同一个答案：" + soldOut.getMessage());
     }
@@ -619,8 +619,8 @@ class DoorAndContentFlowTest {
         for (int i = 0; i < 51; i++) {
             jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                             + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, "
-                            + "settled_points, arrears_points, estimate_minutes, create_time, update_time, deleted, active_flag) "
-                            + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'CLOSED', ?, 0, 0, 0, 0, 1, 60, NOW(3), NOW(3), 0, NULL)",
+                            + "settled_points, arrears_points, create_time, update_time, deleted, active_flag) "
+                            + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'CLOSED', ?, 0, 0, 0, 0, 1, NOW(3), NOW(3), 0, NULL)",
                     81_7000_0000L + i, TENANT,
                     String.format("W%03d%s", i, UUID.randomUUID().toString().replace("-", "").substring(0, 16)),
                     siteId, cabinetId, anySlot, customerId,

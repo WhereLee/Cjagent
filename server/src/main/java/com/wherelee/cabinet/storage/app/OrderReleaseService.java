@@ -103,7 +103,7 @@ public class OrderReleaseService {
         }
         return new StorageOrderView(order.getOrderNo(), lookup.cabinetNoOf(order.getCabinetId()),
                 lookup.slotNoOf(order.getSlotId()), order.getSizeType().name(), order.getStatus().name(),
-                order.getEstimateMinutes(), 0, allocator.strategy(), null);
+                0, allocator.strategy(), null);
     }
 
     /** 这条读数能不能当“柜内已空”的凭据用（坏了、离线、结论过期都算不能用）。 */

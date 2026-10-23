@@ -175,7 +175,7 @@ class VoucherDeliveryTest {
         // 先过 CLOSE_VERIFY 进 ACTIVE——状态机不许 OPENING 直接跳 SETTLING。
         // 只造一张"开过门并关好"的活单，后面的取件与重置才能面对真实现场
         StorageOrderView placed = TenantContext.callAs(TENANT, () -> orderFacade.place(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, SizeType.SMALL.name(), 60)));
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, SizeType.SMALL.name())));
         door(placed.orderNo(), customerId, CommandAction.CLOSE_VERIFY);
         return placed;
     }

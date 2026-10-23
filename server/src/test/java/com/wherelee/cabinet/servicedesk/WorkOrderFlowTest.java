@@ -112,8 +112,8 @@ class WorkOrderFlowTest {
                 "夹具必须把格口绑到单上：工单快照里的电话就是从这条活动单回查客户的");
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                 + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, settled_points, "
-                + "arrears_points, estimate_minutes, create_time, update_time, deleted, active_flag) "
-                + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', '8888', 0, 0, 0, 0, 0, 0, NOW(3), NOW(3), 0, 1)",
+                + "arrears_points, create_time, update_time, deleted, active_flag) "
+                + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', '8888', 0, 0, 0, 0, 0, NOW(3), NOW(3), 0, 1)",
                 orderId, TENANT, "WO-SO-" + suffix, siteId, cabinetId, slotId, 81619999L);
     }
 

@@ -94,18 +94,18 @@ class AdminOrderQueryTest {
         String snapshot = "{\"unitPointsPerHour\":200,\"freeMinutes\":30,\"dailyCapHours\":10,\"capDays\":2}";
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                         + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, "
-                        + "settled_points, arrears_points, prepay_points, estimate_minutes, started_at, pricing_snapshot, "
+                        + "settled_points, arrears_points, prepay_points, started_at, pricing_snapshot, "
                         + "create_time, update_time, deleted, active_flag) "
-                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', ?, 1, 0, 0, 0, 0, 400, 0, "
+                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', ?, 1, 0, 0, 0, 0, 400, "
                         + "DATE_SUB(NOW(3), INTERVAL 1 HOUR), ?, NOW(3), NOW(3), 0, 1)",
                 activeOrderId, TENANT, activeOrderNo, siteId, cabinetId, slotId, customerId,
                 suffix.substring(0, 4), snapshot);
         // 三天前已结束那张：用来验证状态过滤与时间范围
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                         + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, "
-                        + "settled_points, arrears_points, prepay_points, estimate_minutes, started_at, finished_at, "
+                        + "settled_points, arrears_points, prepay_points, started_at, finished_at, "
                         + "create_time, update_time, deleted, active_flag) "
-                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'CLOSED', ?, 0, 0, 0, 300, 0, 400, 0, "
+                        + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'CLOSED', ?, 0, 0, 0, 300, 0, 400, "
                         + "DATE_SUB(NOW(3), INTERVAL 3 DAY), DATE_SUB(NOW(3), INTERVAL 3 DAY), "
                         + "DATE_SUB(NOW(3), INTERVAL 3 DAY), NOW(3), 0, NULL)",
                 closedOrderId, TENANT, closedOrderNo, siteId, cabinetId, slotId, customerId,

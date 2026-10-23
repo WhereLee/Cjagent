@@ -160,7 +160,7 @@ abstract class AbstractAllocationBehaviourTest {
                     Object outcome = TenantContext.callAs(TENANT, () -> {
                         fund(900001L + seq);
                         return facade.create(900001L + seq,
-                                new CreateOrderCommand(requestId, cabinetNo, requested.name(), 120));
+                                new CreateOrderCommand(requestId, cabinetNo, requested.name()));
                     });
                     results.add(outcome);
                 } catch (BizException e) {
@@ -283,7 +283,7 @@ abstract class AbstractAllocationBehaviourTest {
     void cancelReleasesSlotCleanly() throws Exception {
         fund(900777L);
         var view = TenantContext.callAs(TENANT, () -> storageOrderService.create(
-                900777L, new CreateOrderCommand("cancel-" + UUID.randomUUID(), cabinetNo, "LARGE", 60)));
+                900777L, new CreateOrderCommand("cancel-" + UUID.randomUUID(), cabinetNo, "LARGE")));
         assertNotNull(view.orderNo());
 
         TenantContext.runAs(TENANT, () -> storageOrderService.cancel(900777L, view.orderNo()));

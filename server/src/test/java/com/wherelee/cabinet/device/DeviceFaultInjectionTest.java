@@ -142,7 +142,7 @@ class DeviceFaultInjectionTest {
             TenantContext.callAs(TENANT, () -> points.recharge(930001L, 20000L,
                     "FUND-" + cabinetNo, "设备用例 funding"));
             orderNo = TenantContext.callAs(TENANT, () -> facade.create(930001L,
-                    new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                    new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         });
     }
 

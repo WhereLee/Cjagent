@@ -167,7 +167,7 @@ public class OrderDoorSessionService {
             note = "指令已下发，但未收到柜机明确回执；请到柜前确认柜门是否弹开。";
         }
         return new StorageOrderView(order.getOrderNo(), cabinet.cabinetNo(), openSlotNo,
-                order.getSizeType().name(), order.getStatus().name(), order.getEstimateMinutes(),
+                order.getSizeType().name(), order.getStatus().name(),
                 0, allocator.strategy(), note);
     }
 

@@ -152,7 +152,7 @@ class AgentToolsTest {
     void retryDoorRelaysDeviceMessage() {
         when(doors.openDoor(eq(CUSTOMER), eq(ORDER_NO), eq(CommandAction.OPEN_TEMP)))
                 .thenReturn(new StorageOrderView(ORDER_NO, "CAB-1", "A-01", "SMALL", "ACTIVE",
-                        240, 0, "cas", "指令已下发，但未收到柜机明确回执"));
+                        0, "cas", "指令已下发，但未收到柜机明确回执"));
 
         String out = tools(ORDER_NO).retryMyDoor();
 
@@ -169,7 +169,7 @@ class AgentToolsTest {
         when(orderMapper.selectOne(any())).thenReturn(own);
         when(doors.openDoor(eq(CUSTOMER), eq(ORDER_NO), eq(CommandAction.OPEN_TEMP)))
                 .thenReturn(new StorageOrderView(ORDER_NO, "CAB-1", "A-01", "SMALL", "ACTIVE",
-                        240, 0, "cas", "指令已下发，但未收到柜机明确回执"));
+                        0, "cas", "指令已下发，但未收到柜机明确回执"));
         when(intake.onOrderEvent(same(own), isNull(), eq(false), contains("AI 客服转报"),
                 anyString(), any(), eq(WorkOrderKind.REQUEST), eq(WorkOrderSource.AI),
                 eq(WorkOrderIntent.DOOR_NOT_OPEN), isNull(), isNull(), contains("OPEN_TEMP"),

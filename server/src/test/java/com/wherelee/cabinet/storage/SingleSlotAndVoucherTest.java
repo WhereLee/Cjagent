@@ -171,7 +171,7 @@ class SingleSlotAndVoucherTest {
 
     private String orderNo(Long customerId, SizeType size) {
         return TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, size.name(), 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, size.name()))).orderNo();
     }
 
     private BizStorageOrder order(String orderNo) {

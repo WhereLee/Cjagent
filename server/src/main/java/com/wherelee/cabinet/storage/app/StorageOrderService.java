@@ -165,9 +165,6 @@ public class StorageOrderService {
         order.setSizeType(allocated.actualSize());
         order.setCustomerId(customerId);
         order.setVoucherCode(VoucherCodes.newVoucher());
-        // C 定案：用户不再选预估时长。这里**故意落 0 而不是客户端传来的值**，
-        // 免得以后的代码拿它当“用户许下的时长”做依据（字段本身已标废弃，待下一批清理）
-        order.setEstimateMinutes(0);
         order.setTempOpenCount(0);
         order.setDepositPoints(0L);
         order.setFrozenPoints(0L);
@@ -213,7 +210,7 @@ public class StorageOrderService {
                 vouchers.noteForExisting(order.getVoucherCode(), createdSlotNo),
                 order.getCustomerId(), null, order.getOrderNo());
         return new StorageOrderView(order.getOrderNo(), cabinet.cabinetNo(), createdSlotNo,
-                allocated.actualSize().name(), order.getStatus().name(), order.getEstimateMinutes(),
+                allocated.actualSize().name(), order.getStatus().name(),
                 allocated.triedSlots(), allocator.strategy(),
                 vouchers.noteForNewOrder(order.getVoucherCode(), createdSlotNo));
     }

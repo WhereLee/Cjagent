@@ -377,12 +377,6 @@
             "minLength" : 0,
             "type" : "string"
           },
-          "estimateMinutes" : {
-            "format" : "int32",
-            "maximum" : 4320,
-            "minimum" : 15,
-            "type" : "integer"
-          },
           "requestId" : {
             "maxLength" : 64,
             "minLength" : 0,
@@ -2450,10 +2444,6 @@
           },
           "cabinetNo" : {
             "type" : "string"
-          },
-          "estimateMinutes" : {
-            "format" : "int32",
-            "type" : "integer"
           },
           "message" : {
             "type" : "string"

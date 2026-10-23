@@ -28,7 +28,6 @@ export interface CreateOrderCommand {
   requestId: string
   cabinetNo: string
   sizeType: string
-  estimateMinutes?: number
 }
 
 export interface RStorageOrderView {
@@ -45,7 +44,6 @@ export interface StorageOrderView {
   slotNo?: string
   allocatedSize?: string
   status?: string
-  estimateMinutes?: number
   triedSlots?: number
   strategy?: string
   message?: string

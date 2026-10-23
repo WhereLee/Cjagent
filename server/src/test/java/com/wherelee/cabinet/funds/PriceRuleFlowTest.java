@@ -202,7 +202,7 @@ class PriceRuleFlowTest {
     private BizStorageOrder createOrder(String cabinetNo) {
         Long customerId = newCustomer();
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         return TenantContext.callAs(TENANT, () -> orderMapper.selectOne(
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }

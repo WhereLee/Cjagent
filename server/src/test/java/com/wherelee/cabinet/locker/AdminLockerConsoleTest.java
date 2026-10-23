@@ -201,7 +201,7 @@ class AdminLockerConsoleTest {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "后台用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         return order(orderNo);
     }
 
@@ -327,15 +327,15 @@ class AdminLockerConsoleTest {
         TenantContext.runAs(TENANT, () -> points.recharge(fresh, 5000L, "CHG-" + UUID.randomUUID(), "对照"));
         // 对照：没欠费的客户仍可下单（证明拦住的原因只有欠费这一条）
         assertNotNull(TenantContext.callAs(TENANT, () -> orderService.create(fresh,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))));
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))));
 
         BizException blocked = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
-                () -> orderService.create(debtor, new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))));
+                () -> orderService.create(debtor, new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))));
         assertTrue(blocked.getMessage().contains("未缴清"), blocked.getMessage());
 
         jdbc.update("update biz_storage_order set arrears_points = 0 where id = ?", first.getId());
         assertNotNull(TenantContext.callAs(TENANT, () -> orderService.create(debtor,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))),
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))),
                 "还清后必须自动恢复：这条拦截没有人可以手工放行");
     }
 

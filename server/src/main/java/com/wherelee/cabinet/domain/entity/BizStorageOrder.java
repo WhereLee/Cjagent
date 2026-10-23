@@ -54,7 +54,6 @@ public class BizStorageOrder extends BaseEntity {
     @TableField("pricing_snapshot")
     private String pricingSnapshot;
 
-    private Integer estimateMinutes;
     private LocalDateTime startedAt;
     private LocalDateTime expectedFinishAt;
 

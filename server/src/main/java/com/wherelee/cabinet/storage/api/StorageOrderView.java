@@ -21,7 +21,6 @@ public record StorageOrderView(String orderNo,
                                String slotNo,
                                String allocatedSize,
                                String status,
-                               Integer estimateMinutes,
                                int triedSlots,
                                String strategy,
                                String message) {
@@ -29,6 +28,6 @@ public record StorageOrderView(String orderNo,
     /** 带话的版本：把已有视图重拼一次，不强迫每个构造点都先想好要说什么。 */
     public StorageOrderView withMessage(String note) {
         return new StorageOrderView(orderNo, cabinetNo, slotNo, allocatedSize, status,
-                estimateMinutes, triedSlots, strategy, note);
+                triedSlots, strategy, note);
     }
 }

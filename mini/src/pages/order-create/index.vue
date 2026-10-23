@@ -25,22 +25,12 @@ const sizes = computed(() => {
 
 const form = reactive({
   sizeType: 'MEDIUM',
-  estimateMinutes: 240,
 })
-const customMinutes = ref('')
-const useCustomMinutes = ref(false)
 const submitting = ref(false)
 
 /** 同一“下单意图”重试复用同一个 requestId；只有后端明确拒绝（确定没建单）才换新 */
 let requestId = newRequestId()
 const DEFINITE_REJECT_CODES = new Set([10000, 10404, 10409, 10410, 10412, 40000])
-
-const durationOptions = [
-  { label: '1 小时', value: 60 },
-  { label: '4 小时', value: 240 },
-  { label: '8 小时', value: 480 },
-  { label: '1 天', value: 1440 },
-]
 
 function freeOf(sizeType: string): number {
   const item = sizes.value.find((entry) => String(entry.sizeType) === sizeType)
@@ -53,17 +43,6 @@ function pickSize(sizeType: string): void {
     return
   }
   form.sizeType = sizeType
-}
-
-function pickDuration(minutes: number): void {
-  useCustomMinutes.value = false
-  form.estimateMinutes = minutes
-}
-
-function onCustomInput(): void {
-  useCustomMinutes.value = true
-  const value = Math.floor(Number(customMinutes.value))
-  if (Number.isFinite(value)) form.estimateMinutes = value
 }
 
 async function loadAvailability(): Promise<void> {
@@ -101,11 +80,6 @@ onLoad((query) => {
 
 async function onSubmit(): Promise<void> {
   if (!cabinetNo.value) return
-  const minutes = Math.floor(Number(form.estimateMinutes))
-  if (!Number.isFinite(minutes) || minutes < 15 || minutes > 4320) {
-    uni.showToast({ title: '预计时长需在 15 分钟到 3 天之间', icon: 'none' })
-    return
-  }
   if (freeOf(form.sizeType) <= 0) {
     uni.showToast({ title: '所选尺寸没有空位，请换一个尺寸', icon: 'none' })
     return
@@ -117,7 +91,6 @@ async function onSubmit(): Promise<void> {
       requestId,
       cabinetNo: cabinetNo.value,
       sizeType: form.sizeType,
-      estimateMinutes: minutes,
     })
     uni.setStorageSync(`${CABINET_KEY}-${view.orderNo}`, view)
     requestId = newRequestId()
@@ -233,32 +206,6 @@ function goBack(): void {
     </view>
 
     <view class="card">
-      <view class="card-title">预计存放多久</view>
-      <view class="muted hint">仅用于记录；实际以取件时按存放时长结算为准。</view>
-      <view class="duration-row">
-        <view
-          v-for="item in durationOptions"
-          :key="item.value"
-          class="duration-item"
-          :class="{ active: !useCustomMinutes && form.estimateMinutes === item.value }"
-          @click="pickDuration(item.value)"
-        >
-          {{ item.label }}
-        </view>
-      </view>
-      <view class="custom-row">
-        <input
-          v-model="customMinutes"
-          class="input custom-input"
-          type="number"
-          placeholder="自定义分钟数（15 ~ 4320）"
-          placeholder-class="input-placeholder"
-          @input="onCustomInput"
-        />
-      </view>
-    </view>
-
-    <view class="card">
       <view class="card-title">费用说明</view>
       <view class="line">
         <text>预收</text>
@@ -352,35 +299,6 @@ function goBack(): void {
   margin-top: 8rpx;
   color: #6b7684;
   font-size: 23rpx;
-}
-
-.duration-row {
-  display: flex;
-  gap: 12rpx;
-  margin-top: 22rpx;
-  flex-wrap: wrap;
-}
-
-.duration-item {
-  padding: 14rpx 26rpx;
-  border-radius: 12rpx;
-  background: #f4f6f9;
-  color: #4a5562;
-  font-size: 26rpx;
-}
-
-.duration-item.active {
-  background: #eef4ff;
-  color: #2b6de5;
-  font-weight: 600;
-}
-
-.custom-row {
-  margin-top: 16rpx;
-}
-
-.custom-input {
-  height: 80rpx;
 }
 
 .back-btn {

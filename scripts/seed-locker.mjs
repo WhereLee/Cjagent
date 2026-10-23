@@ -121,8 +121,8 @@ if (ORDERS > 0) {
       strategy: 'per-hour-daily-cap', sizeType: size, unitPointsPerHour: unit,
       freeMinutes: 30, dailyCapHours: 10, capDays: 2, prepayHours: 4, prepayPoints: unit * 4,
     })
-    push(`INSERT INTO biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, customer_id, status, active_flag, voucher_code, estimate_minutes, started_at, finished_at, expected_finish_at, temp_open_count, prepay_points, deposit_points, frozen_points, settled_points, arrears_points, pricing_snapshot, version, create_time, update_time, deleted)
-SELECT ${id}, ${TENANT}, ${q(orderNo)}, ${site}, ${cabinet}, ${slot}, ${q(size)}, ${900000 + (i % 500)}, 'CLOSED', NULL, ${q('V' + String(10000000 + i))}, 0,
+    push(`INSERT INTO biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, customer_id, status, active_flag, voucher_code, started_at, finished_at, expected_finish_at, temp_open_count, prepay_points, deposit_points, frozen_points, settled_points, arrears_points, pricing_snapshot, version, create_time, update_time, deleted)
+SELECT ${id}, ${TENANT}, ${q(orderNo)}, ${site}, ${cabinet}, ${slot}, ${q(size)}, ${900000 + (i % 500)}, 'CLOSED', NULL, ${q('V' + String(10000000 + i))},
        DATE_SUB(${BASE_TS}, INTERVAL ${ago + totalMinutes} MINUTE), DATE_SUB(${BASE_TS}, INTERVAL ${ago} MINUTE), DATE_SUB(${BASE_TS}, INTERVAL ${ago} MINUTE),
        0, ${unit * 4}, 0, 0, ${unit * hours}, 0, ${q(snapshot)}, 0, DATE_SUB(${BASE_TS}, INTERVAL ${ago + totalMinutes} MINUTE), ${BASE_TS}, 0
 FROM DUAL

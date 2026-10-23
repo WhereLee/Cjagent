@@ -175,7 +175,7 @@ class ItemDisputeFlowTest {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "遗留物用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
-                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL", 60))).orderNo();
+                new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         return order(orderNo);
     }
 

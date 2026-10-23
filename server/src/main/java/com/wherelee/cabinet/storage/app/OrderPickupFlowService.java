@@ -218,7 +218,7 @@ public class OrderPickupFlowService {
         CabinetSnapshot cabinet = slotQueries.cabinet(order.getCabinetId()).orElse(null);
         return new StorageOrderView(order.getOrderNo(), cabinet == null ? "-" : cabinet.cabinetNo(),
                 lookup.slotNoOf(order.getSlotId()), order.getSizeType().name(), order.getStatus().name(),
-                order.getEstimateMinutes(), 0, allocator.strategy(), null);
+                0, allocator.strategy(), null);
     }
 
     private long countAttempts(String orderNo, CommandAction action) {

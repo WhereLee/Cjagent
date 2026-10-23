@@ -355,7 +355,6 @@ export interface BizStorageOrder {
   activeFlag?: number
   voucherCode?: string
   pricingSnapshot?: string
-  estimateMinutes?: number
   startedAt?: string
   expectedFinishAt?: string
   toleranceUntil?: string

@@ -151,7 +151,6 @@ class LockerDomainTest {
         order.setSizeType(slot.getSizeType());
         order.setCustomerId(CUSTOMER_ID);
         order.setVoucherCode("V" + orderNo);
-        order.setEstimateMinutes(120);
         order.setTempOpenCount(0);
         order.setDepositPoints(500L);
         order.setFrozenPoints(0L);
