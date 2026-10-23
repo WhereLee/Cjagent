@@ -6,6 +6,7 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -57,9 +58,22 @@ public class AgentBulkhead {
     /** 超出单次预算的次数。 */
     private final Counter timedOut;
 
+    // 两个 public 构造器：不标 @Autowired，Spring 会因“多个候选”起不来。
+    // 标在这一条上，容器用 CPU 推导的那条，测试用固定池大小那条。
+    @Autowired
     public AgentBulkhead(@Value("${cabinet.agent.mimo.timeout-ms}") long modelTimeoutMs,
                          MeterRegistry meterRegistry) {
-        int size = Runtime.getRuntime().availableProcessors() * 2 + 1;
+        this(modelTimeoutMs, meterRegistry, Runtime.getRuntime().availableProcessors() * 2 + 1);
+    }
+
+    /**
+     * 固定池大小。<b>只给测试用</b>。
+     *
+     * <p>池大小按 CPU 算，而 CI runner 与本机核数不同，靠 {@code availableProcessors()} 推出来的
+     * 用例在两边表现不一致（实测：本地绿、CI 红，红在“池满必须拒”那一条）。
+     * 让用例自己指定池大小，测的才是拒绝策略本身，而不是这台机器有几个核。
+     */
+    public AgentBulkhead(long modelTimeoutMs, MeterRegistry meterRegistry, int size) {
         this.pool = new ThreadPoolExecutor(size, size, 60L, TimeUnit.SECONDS,
                 new ArrayBlockingQueue<>(size), new ThreadPoolExecutor.AbortPolicy());
         this.totalBudgetMs = modelTimeoutMs * 2;
@@ -113,6 +127,17 @@ public class AgentBulkhead {
             Thread.currentThread().interrupt();
             throw new AgentBulkheadException("AI 调用被中断");
         }
+    }
+
+    /**
+     * 池与队列是否都满了。<b>只给测试用</b>。
+     *
+     * <p>用 sleep 猜“队列填满了没”会写出时红时绿的用例（实测：本地绿、CI 红）。
+     * 把那个状态变成可轮询的事实，用例才能等“真的满了”再断言。
+     */
+    public boolean saturated() {
+        return pool.getActiveCount() >= pool.getMaximumPoolSize()
+                && pool.getQueue().remainingCapacity() == 0;
     }
 
     /** 池满与超时统一成这一种：对调用方都是“这次没成，走降级”。 */

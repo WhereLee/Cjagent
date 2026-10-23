@@ -7,9 +7,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,6 +41,23 @@ class AgentBulkheadTest {
         return new AgentBulkhead(modelTimeoutMs, registry);
     }
 
+    /** 固定池大小：池大小按 CPU 算，CI runner 与本机核数不同，用例不能靠“这台机器几个核”成立。 */
+    private AgentBulkhead bulkhead(long modelTimeoutMs, int poolSize) {
+        return new AgentBulkhead(modelTimeoutMs, registry, poolSize);
+    }
+
+    /** 等“真的满了”再断言；用 sleep 猜时序就会时红时绿（本地6/8核 vs CI runner）。 */
+    private static boolean awaitSaturated(AgentBulkhead bulkhead, long timeoutMs) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (bulkhead.saturated()) {
+                return true;
+            }
+            Thread.sleep(20);
+        }
+        return false;
+    }
+
     @Test
     @DisplayName("正常执行返回结果，且租户上下文随任务进池")
     void carriesTenantIntoThePool() {
@@ -57,22 +74,30 @@ class AgentBulkheadTest {
     @Test
     @DisplayName("池满立即拒绝：不排队，交给调用方降级")
     void rejectsWhenFullInsteadOfQueueing() throws Exception {
-        AgentBulkhead bulkhead = bulkhead(5_000);
-        int size = Runtime.getRuntime().availableProcessors() * 2 + 1;
-        int occupiers = size * 2;   // 池容量 + 队列长度，正好占满
+        int size = 2;   // 池 2 + 队列 2。固定下来，不按 CPU 算
+        AgentBulkhead bulkhead = bulkhead(5_000, size);
 
-        CountDownLatch running = new CountDownLatch(size);
         CountDownLatch release = new CountDownLatch(1);
-        ExecutorService filler = Executors.newFixedThreadPool(occupiers);
+        List<Thread> occupants = new ArrayList<>();
         try {
-            for (int i = 0; i < occupiers; i++) {
-                filler.submit(() -> bulkhead.call(() -> {
-                    running.countDown();
-                    release.await();
-                    return null;
-                }));
+            // 直接用线程占位（不用线程池：池里的线程是逐步创建的，等它填满本身就不确定）
+            for (int i = 0; i < size * 2; i++) {
+                Thread t = new Thread(() -> {
+                    try {
+                        bulkhead.call(() -> {
+                            release.await();
+                            return null;
+                        });
+                    } catch (RuntimeException ignored) {
+                        // 被拒也正常：这个线程只负责占住池或队列的一个位置
+                    }
+                });
+                t.setDaemon(true);
+                t.start();
+                occupants.add(t);
             }
-            assertTrue(running.await(10, TimeUnit.SECONDS), "池里的线程没跑满，这条用例的前提不成立");
+
+            assertTrue(awaitSaturated(bulkhead, 10_000), "前提不成立：池与队列没被占满");
 
             assertThrows(AgentBulkhead.AgentBulkheadException.class,
                     () -> bulkhead.call(() -> "should-not-run"),
@@ -84,7 +109,9 @@ class AgentBulkheadTest {
                     "池满要计一笔，且与超时分开计（一个是根本没开始，一个是跑了一半被砍）");
         } finally {
             release.countDown();
-            filler.shutdownNow();
+            for (Thread t : occupants) {
+                t.join(1_000);
+            }
         }
     }
 
