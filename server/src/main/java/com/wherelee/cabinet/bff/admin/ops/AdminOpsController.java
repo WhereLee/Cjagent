@@ -1,7 +1,9 @@
 package com.wherelee.cabinet.bff.admin.ops;
 
-import com.wherelee.cabinet.assistant.api.OpsDiagnosePort;
+import com.wherelee.cabinet.assistant.api.AiJobPort;
 import com.wherelee.cabinet.common.annotation.OperationLog;
+import com.wherelee.cabinet.domain.enums.AiJobType;
+import com.wherelee.cabinet.platform.security.Caller;
 import com.wherelee.cabinet.common.annotation.RateLimit;
 import com.wherelee.cabinet.common.api.R;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,6 +12,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -33,10 +36,10 @@ import org.springframework.web.bind.annotation.RestController;
 @Validated
 public class AdminOpsController {
 
-    private final OpsDiagnosePort ops;
+    private final AiJobPort jobs;
 
-    public AdminOpsController(OpsDiagnosePort ops) {
-        this.ops = ops;
+    public AdminOpsController(AiJobPort jobs) {
+        this.jobs = jobs;
     }
 
     @Operation(summary = "AI 运维诊断", description = "一次生成诊断报告四件：健康摘要/日志发现/崩溃残留/建议清单（草稿，不执行）")
@@ -44,8 +47,10 @@ public class AdminOpsController {
     @RateLimit(limit = 3, windowSeconds = 60, message = "诊断生成太频繁，请稍后再试")
     @PreAuthorize("hasAuthority('ops:diagnose')")
     @PostMapping("/diagnose")
-    public R<OpsDiagnosePort.OpsReport> diagnose() {
-        return R.ok(ops.diagnose());
+    public R<Long> diagnose(@AuthenticationPrincipal Caller current) {
+        // 返回作业号而不是报告：生成一次要十几秒，不能占着请求线程。
+        // 诊断没有入参，所以只要上一个还没跑完，再点就会拿到同一个作业号（防双击）
+        return R.ok(jobs.submit(AiJobType.DIAGNOSE, null, current.subjectId()));
     }
 
     @Operation(summary = "运维问答", description = "用自然语言问这台服务的运维问题（如\"最近出过什么故障\"）；只归纳只读工具返回的事实")
@@ -53,8 +58,9 @@ public class AdminOpsController {
     @RateLimit(limit = 6, windowSeconds = 60, message = "提问太频繁，请稍后再试")
     @PreAuthorize("hasAuthority('ops:diagnose')")
     @PostMapping("/ask")
-    public R<OpsDiagnosePort.OpsAnswer> ask(@Valid @RequestBody AskCommand cmd) {
-        return R.ok(ops.ask(cmd.question()));
+    public R<Long> ask(@AuthenticationPrincipal Caller current, @Valid @RequestBody AskCommand cmd) {
+        // 问题正文直接作为入参：端口内部会压成请求键（列宽 128 放不下 500 字正文）、原文进载荷
+        return R.ok(jobs.submit(AiJobType.ASK, cmd.question(), current.subjectId()));
     }
 
     /** 问答请求体。 */

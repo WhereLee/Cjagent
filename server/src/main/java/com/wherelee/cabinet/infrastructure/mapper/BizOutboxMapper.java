@@ -46,7 +46,7 @@ public interface BizOutboxMapper extends BaseMapper<BizOutbox> {
                  create_time, update_time, deleted)
             values (#{id}, #{tenantId}, #{eventType}, #{dedupKey}, #{payload}, 'PENDING', 0, now(3),
                     now(3), now(3), 0)
-            on duplicate key update id = id
+            on duplicate key update status = status
             """)
     int append(@Param("id") Long id,
                @Param("tenantId") Long tenantId,

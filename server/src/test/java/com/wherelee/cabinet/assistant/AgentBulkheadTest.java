@@ -2,6 +2,8 @@ package com.wherelee.cabinet.assistant;
 
 import com.wherelee.cabinet.assistant.infra.AgentBulkhead;
 import com.wherelee.cabinet.common.context.TenantContext;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -27,10 +29,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class AgentBulkheadTest {
 
+    /** 每个用例一个干净 registry：指标断言不能被上一个用例的计数污染。 */
+    private SimpleMeterRegistry registry;
+
+    @BeforeEach
+    void freshRegistry() {
+        registry = new SimpleMeterRegistry();
+    }
+
+    private AgentBulkhead bulkhead(long modelTimeoutMs) {
+        return new AgentBulkhead(modelTimeoutMs, registry);
+    }
+
     @Test
     @DisplayName("正常执行返回结果，且租户上下文随任务进池")
     void carriesTenantIntoThePool() {
-        AgentBulkhead bulkhead = new AgentBulkhead(1_000);
+        AgentBulkhead bulkhead = bulkhead(1_000);
         TenantContext.set(9001L);
         try {
             Long seen = bulkhead.call(TenantContext::current);
@@ -43,7 +57,7 @@ class AgentBulkheadTest {
     @Test
     @DisplayName("池满立即拒绝：不排队，交给调用方降级")
     void rejectsWhenFullInsteadOfQueueing() throws Exception {
-        AgentBulkhead bulkhead = new AgentBulkhead(5_000);
+        AgentBulkhead bulkhead = bulkhead(5_000);
         int size = Runtime.getRuntime().availableProcessors() * 2 + 1;
         int occupiers = size * 2;   // 池容量 + 队列长度，正好占满
 
@@ -63,6 +77,11 @@ class AgentBulkheadTest {
             assertThrows(AgentBulkhead.AgentBulkheadException.class,
                     () -> bulkhead.call(() -> "should-not-run"),
                     "池与队列都满时必须当场拒绝——排队等于把“慢”扩散成“更慢”");
+
+            // 舱壁满了必须在监控里看得见：否则“AI 变慢”只会表现为用户投诉
+            assertEquals(1.0, registry.get("cabinet.agent.bulkhead.refused")
+                    .tag("reason", "full").counter().count(), 0.001,
+                    "池满要计一笔，且与超时分开计（一个是根本没开始，一个是跑了一半被砍）");
         } finally {
             release.countDown();
             filler.shutdownNow();
@@ -72,7 +91,7 @@ class AgentBulkheadTest {
     @Test
     @DisplayName("超出单次预算就取消：预算 = 模型单次超时的两倍")
     void rejectsWhenOverBudget() {
-        AgentBulkhead bulkhead = new AgentBulkhead(50);   // 预算 100ms
+        AgentBulkhead bulkhead = bulkhead(50);   // 预算 100ms
         long started = System.nanoTime();
 
         assertThrows(AgentBulkhead.AgentBulkheadException.class, () -> bulkhead.call(() -> {
@@ -82,12 +101,15 @@ class AgentBulkheadTest {
 
         long elapsedMs = (System.nanoTime() - started) / 1_000_000;
         assertTrue(elapsedMs < 1_500, "超预算就该取消，不能等任务自己醒：" + elapsedMs + "ms");
+        assertEquals(1.0, registry.get("cabinet.agent.bulkhead.refused")
+                .tag("reason", "timeout").counter().count(), 0.001,
+                "超时也要计一笔（reason=timeout），与池满分开");
     }
 
     @Test
     @DisplayName("任务自己的异常原样带出，不被当成舱壁拒绝")
     void propagatesTaskFailure() {
-        AgentBulkhead bulkhead = new AgentBulkhead(1_000);
+        AgentBulkhead bulkhead = bulkhead(1_000);
 
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> bulkhead.call(() -> {

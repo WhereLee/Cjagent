@@ -62,6 +62,14 @@ public class OutboxRelay {
     @Value("${cabinet.outbox.batch-size:50}")
     private int batchSize;
 
+    /**
+     * 集成测试里关。它的定时投递会与用例自己的数据打架（用例手动调 {@link #deliverBatch()}）：
+     * 后台中继在用例的断言之间把待投递事实投出去，就会多出工单、多出消息，计数对不上。
+     * 以前这里是常开的，那正是“单独跑绿、全量偶发红”的一个来源。
+     */
+    @Value("${cabinet.outbox.poll-enabled:true}")
+    private boolean pollEnabled;
+
     public OutboxRelay(BizOutboxMapper outbox, WorkOrderPort workOrders, NoticePort notices,
                        ObjectMapper json, TransactionTemplate txTemplate, MeterRegistry meterRegistry) {
         this.outbox = outbox;
@@ -75,6 +83,9 @@ public class OutboxRelay {
     @Scheduled(fixedDelayString = "${cabinet.outbox.poll-interval-ms:15000}",
             initialDelayString = "${cabinet.outbox.initial-delay-ms:20000}")
     public void poll() {
+        if (!pollEnabled) {
+            return;
+        }
         try {
             int delivered = deliverBatch();
             if (delivered > 0) {

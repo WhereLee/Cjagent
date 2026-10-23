@@ -11,7 +11,10 @@
 #
 # 格式：类名#方法名。重载各占一行，所以比对时按列表（不是集合）。
 #
-# 当前 6 处的可达性（批 4 之后）：
+# 当前 7 处的可达性（批 4 与批 7 之后）：
+#   AiJobService#submit ................... POST /api/admin/ops/diagnose、/ask、
+#                                           /api/admin/work-orders/{id}/ai-brief（HTTP 直接提交作业）；
+#                                           要 READ_COMMITTED 是为了“撞唯一键后能回读到对手刚插入的那行”
 #   WorkOrderIntakeService#open ............ POST /api/admin/work-order（HTTP 直接开单，无外层事务）
 #   WorkOrderIntakeService#open ............ 同上（V2 重载，同一入口）
 #   WorkOrderLifecycleService#resolve ...... POST /api/admin/work-order/{id}/resolve
@@ -24,6 +27,7 @@
 # openLongRunning → open、openFieldTwin）。它们失效的原因是外层事务把 isolation 吞了；
 # 批 4 把那条链的扇出改成 outbox、并把 OverduePickupHandler 移出事务之后，这三条已恢复。
 
+AiJobService#submit
 WorkOrderIntakeService#open
 WorkOrderIntakeService#open
 WorkOrderLifecycleService#openFieldTwin

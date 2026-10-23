@@ -1,6 +1,9 @@
 package com.wherelee.cabinet.assistant.infra;
 
 import com.wherelee.cabinet.common.context.TenantContext;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,11 +51,32 @@ public class AgentBulkhead {
     /** 单次对话总预算。 */
     private final long totalBudgetMs;
 
-    public AgentBulkhead(@Value("${cabinet.agent.mimo.timeout-ms:20000}") long modelTimeoutMs) {
+    /** 池满被拒的次数。与超时分开：一个是“根本没开始”，一个是“跑了一半被砍”。 */
+    private final Counter refused;
+
+    /** 超出单次预算的次数。 */
+    private final Counter timedOut;
+
+    public AgentBulkhead(@Value("${cabinet.agent.mimo.timeout-ms}") long modelTimeoutMs,
+                         MeterRegistry meterRegistry) {
         int size = Runtime.getRuntime().availableProcessors() * 2 + 1;
         this.pool = new ThreadPoolExecutor(size, size, 60L, TimeUnit.SECONDS,
                 new ArrayBlockingQueue<>(size), new ThreadPoolExecutor.AbortPolicy());
         this.totalBudgetMs = modelTimeoutMs * 2;
+
+        // 三条指标是舱壁的可见面：没有它们，“AI 变慢”只会表现为用户投诉，
+        // 运维在监控里看不到池已经满了（池满与超预算都不会让请求变成 5xx，只会降级）
+        Gauge.builder("cabinet.agent.bulkhead.active", pool, ThreadPoolExecutor::getActiveCount)
+                .description("AI 舱壁正在执行的线程数")
+                .register(meterRegistry);
+        Gauge.builder("cabinet.agent.bulkhead.queued", pool, p -> p.getQueue().size())
+                .description("AI 舱壁排队数")
+                .register(meterRegistry);
+        this.refused = Counter.builder("cabinet.agent.bulkhead.refused")
+                .tag("reason", "full").register(meterRegistry);
+        this.timedOut = Counter.builder("cabinet.agent.bulkhead.refused")
+                .tag("reason", "timeout").register(meterRegistry);
+
         log.info("AI 舱壁就绪：并发 {}，单次预算 {}ms", size, totalBudgetMs);
     }
 
@@ -70,6 +94,7 @@ public class AgentBulkhead {
         try {
             future = pool.submit(() -> TenantContext.callAs(tenantId, task));
         } catch (RejectedExecutionException e) {
+            refused.increment();
             throw new AgentBulkheadException("AI 并发已满（容量 " + pool.getMaximumPoolSize() + "）");
         }
 
@@ -77,6 +102,7 @@ public class AgentBulkhead {
             return future.get(totalBudgetMs, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             future.cancel(true);
+            timedOut.increment();
             throw new AgentBulkheadException("AI 超出单次预算 " + totalBudgetMs + "ms");
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() == null ? e : e.getCause();

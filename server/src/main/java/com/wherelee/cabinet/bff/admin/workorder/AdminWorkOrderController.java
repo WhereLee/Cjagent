@@ -1,6 +1,7 @@
 package com.wherelee.cabinet.bff.admin.workorder;
 
-import com.wherelee.cabinet.assistant.api.WorkOrderBriefPort;
+import com.wherelee.cabinet.assistant.api.AiJobPort;
+import com.wherelee.cabinet.domain.enums.AiJobType;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderTriagePort;
 
@@ -50,16 +51,16 @@ public class AdminWorkOrderController {
 
     private final WorkOrderConsolePort workOrders;
     private final com.wherelee.cabinet.notify.api.NoticePort notices;
-    private final WorkOrderBriefPort briefs;
+    private final AiJobPort jobs;
     private final WorkOrderTriagePort triage;
 
     public AdminWorkOrderController(WorkOrderConsolePort workOrders,
                                     com.wherelee.cabinet.notify.api.NoticePort notices,
-                                    WorkOrderBriefPort briefs,
+                                    AiJobPort jobs,
                                     WorkOrderTriagePort triage) {
         this.workOrders = workOrders;
         this.notices = notices;
-        this.briefs = briefs;
+        this.jobs = jobs;
         this.triage = triage;
     }
 
@@ -206,9 +207,9 @@ public class AdminWorkOrderController {
     @RateLimit(limit = 6, windowSeconds = 60, message = "简报生成太频繁，请稍后再试")
     @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @PostMapping("/{id}/ai-brief")
-    public R<WorkOrderBriefPort.Brief> brief(@AuthenticationPrincipal Caller current,
+    public R<Long> brief(@AuthenticationPrincipal Caller current,
                                              @PathVariable Long id) {
-        return R.ok(briefs.brief(id, current.subjectId()));
+        return R.ok(jobs.submit(AiJobType.BRIEF, String.valueOf(id), current.subjectId()));
     }
 
     @Operation(summary = "记录电话联系", description = "业务员主动拨打后的结果留痕（系统不强制派电话任务，打不打由业务员判断）；结果必填")

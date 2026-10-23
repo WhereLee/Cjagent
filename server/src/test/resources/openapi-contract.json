@@ -259,20 +259,6 @@
         },
         "type" : "object"
       },
-      "Brief" : {
-        "properties" : {
-          "draftNote" : {
-            "type" : "string"
-          },
-          "similarCases" : {
-            "items" : {
-              "$ref" : "#/components/schemas/SimilarCase"
-            },
-            "type" : "array"
-          }
-        },
-        "type" : "object"
-      },
       "CabinetView" : {
         "properties" : {
           "cabinetNo" : {
@@ -914,40 +900,6 @@
         },
         "type" : "object"
       },
-      "OpsAnswer" : {
-        "properties" : {
-          "answer" : {
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
-      "OpsReport" : {
-        "properties" : {
-          "advice" : {
-            "items" : {
-              "type" : "string"
-            },
-            "type" : "array"
-          },
-          "crashArtifacts" : {
-            "items" : {
-              "type" : "string"
-            },
-            "type" : "array"
-          },
-          "healthSummary" : {
-            "type" : "string"
-          },
-          "logFindings" : {
-            "items" : {
-              "type" : "string"
-            },
-            "type" : "array"
-          }
-        },
-        "type" : "object"
-      },
       "OrderDetail" : {
         "properties" : {
           "aiReviewCount" : {
@@ -1445,28 +1397,6 @@
         },
         "type" : "object"
       },
-      "RBrief" : {
-        "properties" : {
-          "code" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/Brief"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "timestamp" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "traceId" : {
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
       "RCsatView" : {
         "properties" : {
           "code" : {
@@ -1914,50 +1844,6 @@
         },
         "type" : "object"
       },
-      "ROpsAnswer" : {
-        "properties" : {
-          "code" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/OpsAnswer"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "timestamp" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "traceId" : {
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
-      "ROpsReport" : {
-        "properties" : {
-          "code" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/OpsReport"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "timestamp" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "traceId" : {
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
       "ROrderDetail" : {
         "properties" : {
           "code" : {
@@ -2378,20 +2264,6 @@
         "required" : [ "note" ],
         "type" : "object"
       },
-      "SimilarCase" : {
-        "properties" : {
-          "resolvedAt" : {
-            "type" : "string"
-          },
-          "resultNote" : {
-            "type" : "string"
-          },
-          "title" : {
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
       "SiteView" : {
         "properties" : {
           "address" : {
@@ -2696,6 +2568,31 @@
   },
   "openapi" : "3.1.0",
   "paths" : {
+    "/api/admin/ai-jobs/{id}" : {
+      "get" : {
+        "parameters" : [ {
+          "in" : "path",
+          "name" : "id",
+          "required" : true,
+          "schema" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        } ],
+        "responses" : {
+          "200" : {
+            "content" : {
+              "*/*" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/RView"
+                }
+              }
+            }
+          }
+        },
+        "tags" : [ "后台-AI 作业" ]
+      }
+    },
     "/api/admin/auth/login" : {
       "post" : {
         "requestBody" : {
@@ -3075,7 +2972,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ROpsAnswer"
+                  "$ref" : "#/components/schemas/RLong"
                 }
               }
             }
@@ -3091,7 +2988,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/ROpsReport"
+                  "$ref" : "#/components/schemas/RLong"
                 }
               }
             }
@@ -3564,7 +3461,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RBrief"
+                  "$ref" : "#/components/schemas/RLong"
                 }
               }
             }
@@ -4757,6 +4654,8 @@
     "name" : "后台-运维诊断"
   }, {
     "name" : "客户-查询"
+  }, {
+    "name" : "后台-AI 作业"
   }, {
     "name" : "客户-遗留物取回"
   }, {

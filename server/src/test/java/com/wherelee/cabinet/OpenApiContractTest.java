@@ -67,14 +67,37 @@ class OpenApiContractTest {
         var result = mvc.perform(get("/v3/api-docs")).andReturn();
         assertEquals(200, result.getResponse().getStatus(),
                 "springdoc 未开启或文档路径变了：契约比对失去依据");
-        JsonNode actual = normalize(JSON.readTree(
-                result.getResponse().getContentAsString(StandardCharsets.UTF_8)));
+        JsonNode raw = JSON.readTree(
+                result.getResponse().getContentAsString(StandardCharsets.UTF_8));
+        JsonNode actual = normalize(raw);
 
         if (WRITE) {
             Files.createDirectories(SNAPSHOT.getParent());
             Files.writeString(SNAPSHOT, JSON.writerWithDefaultPrettyPrinter().writeValueAsString(actual) + "\n",
                     StandardCharsets.UTF_8);
-            fail("已按 OPENAPI_CONTRACT_WRITE=1 重写契约快照：请人工复核 diff 后再提交，不要把它当成测试通过");
+
+            // 顺手把**未归一化**的原始文档落成前端类型的输入：`gen-api-types.mjs` 要用到 summary，
+            // 而契约快照为了稳定比对把 summary/description 剔掉了，拿快照当输入会生成一堆空注释。
+            // 这样“改契约 → 重生成快照 → 重生成前端类型”就不必再单独起一次服务拉 api-docs。
+            // 按 group 拉：两个前端各自只该看到自己那一半路径（1-admin / 2-mini，见 OpenApiConfig）。
+            // 写全量文档会让两份类型文件都撑成全集，前端那边就分不出哪边该调什么。
+            for (String[] group : new String[][]{
+                    {"1-admin", "api-docs-1-admin.json"},
+                    {"2-mini", "api-docs-2-mini.json"}}) {
+                var groupResult = mvc.perform(get("/v3/api-docs/" + group[0])).andReturn();
+                if (groupResult.getResponse().getStatus() != 200) {
+                    // group 改名不该让契约比对变红（那是另一件事），但会缺文件，前端脚本会报 MISSING
+                    continue;
+                }
+                JsonNode groupDoc = JSON.readTree(
+                        groupResult.getResponse().getContentAsString(StandardCharsets.UTF_8));
+                Path generated = Path.of("..", "scripts", "generated", group[1]);
+                Files.createDirectories(generated.getParent());
+                Files.writeString(generated,
+                        JSON.writerWithDefaultPrettyPrinter().writeValueAsString(groupDoc), StandardCharsets.UTF_8);
+            }
+
+            fail("已按 OPENAPI_CONTRACT_WRITE=1 重写契约快照与前端类型输入：请人工复核 diff 后再提交，不要把它当成测试通过");
         }
         if (!Files.exists(SNAPSHOT)) {
             fail("缺少契约快照 " + SNAPSHOT + "：设 OPENAPI_CONTRACT_WRITE=1 生成并复核后提交");
