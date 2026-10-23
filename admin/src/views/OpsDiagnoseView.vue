@@ -2,8 +2,8 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
-import { opsAsk, opsDiagnose } from '@/api'
-import type { OpsReport } from '@/api/schema-admin'
+import { opsAsk, opsDiagnose, waitAiJob } from '@/api'
+import type { OpsAnswer, OpsReport } from '@/api/ai-results'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 
@@ -41,17 +41,23 @@ function elapsedText(): string {
 }
 
 function isCanceled(e: unknown): boolean {
-  return axios.isCancel(e)
+  return axios.isCancel(e) || (e instanceof Error && e.message === '已取消')
 }
 
-/** AI 诊断是分钟级慢接口：加载文案按分钟级预期，限流 3 次/分 */
+/** AI 诊断是长任务：提交毫秒级返回作业号，报告在后台生成；限流 3 次/分 */
 async function onDiagnose(): Promise<void> {
   diagnoseController = new AbortController()
   diagnosing.value = true
   report.value = null
   startTimer()
   try {
-    report.value = await opsDiagnose(diagnoseController.signal)
+    // 提交只回作业号；报告由作业通道在后台生成，这里轮询取回
+    const jobId = await opsDiagnose(diagnoseController.signal)
+    report.value = await waitAiJob<OpsReport>(
+      jobId,
+      60_000,
+      () => diagnoseController?.signal.aborted === true,
+    )
   } catch (e) {
     if (isCanceled(e)) {
       ElMessage.info('已取消诊断')
@@ -78,8 +84,14 @@ async function onAsk(): Promise<void> {
   asking.value = true
   answer.value = ''
   try {
-    const res = await opsAsk({ question: question.value }, askController.signal)
-    answer.value = res.answer ?? ''
+    // 同上：提交拿作业号，轮询取回答案
+    const jobId = await opsAsk({ question: question.value }, askController.signal)
+    const result = await waitAiJob<OpsAnswer>(
+      jobId,
+      60_000,
+      () => askController?.signal.aborted === true,
+    )
+    answer.value = result.answer ?? ''
   } catch (e) {
     if (isCanceled(e)) {
       ElMessage.info('已取消提问')

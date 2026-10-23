@@ -5,12 +5,23 @@
 // integer format:int64 一律映射为 string：后端 Long 全局序列化为字符串（雪花 ID
 // 超出 JS 安全整数），前端禁止用 parseInt/Number 还原这些字段。
 
+export interface RVoid {
+  code?: number
+  message?: string
+  data?: unknown
+  traceId?: string
+  timestamp?: string
+}
+
+export interface PauseRequest {
+  reason?: "WAITING_CUSTOMER"
+}
+
 export interface ResolveCommand {
   requestId: string
   resultNote: string
   needOffline?: boolean
-  /** MANUAL / FACT_RECOVERED；不传按 MANUAL。USER_CONFIRMED 只能由用户小程序写 */
-  closeReason?: string
+  closeReason?: "MANUAL" | "FACT_RECOVERED" | "USER_CONFIRMED" | "MERGED" | "CANCELLED"
 }
 
 export interface RLong {
@@ -23,34 +34,6 @@ export interface RLong {
 
 export interface PhoneNoteCommand {
   resultNote: string
-}
-
-export interface RVoid {
-  code?: number
-  message?: string
-  data?: unknown
-  traceId?: string
-  timestamp?: string
-}
-
-export interface Brief {
-  summary?: string
-  draftNote?: string
-  similarCases?: SimilarCase[]
-}
-
-export interface RBrief {
-  code?: number
-  message?: string
-  data?: Brief
-  traceId?: string
-  timestamp?: string
-}
-
-export interface SimilarCase {
-  title?: string
-  resultNote?: string
-  resolvedAt?: string
 }
 
 export interface CallDoneCommand {
@@ -111,35 +94,8 @@ export interface RMapStringObject {
   timestamp?: string
 }
 
-export interface OpsReport {
-  healthSummary?: string
-  logFindings?: string[]
-  crashArtifacts?: string[]
-  advice?: string[]
-}
-
-export interface ROpsReport {
-  code?: number
-  message?: string
-  data?: OpsReport
-  traceId?: string
-  timestamp?: string
-}
-
 export interface AskCommand {
   question: string
-}
-
-export interface OpsAnswer {
-  answer?: string
-}
-
-export interface ROpsAnswer {
-  code?: number
-  message?: string
-  data?: OpsAnswer
-  traceId?: string
-  timestamp?: string
 }
 
 export interface CustomerStatusRequest {
@@ -184,7 +140,9 @@ export interface AdminLoginRequest {
 
 export interface EventView {
   eventType?: string
+  actorType?: string
   operatorId?: string
+  traceId?: string
   detail?: string
   at?: string
 }
@@ -193,6 +151,20 @@ export interface RListEventView {
   code?: number
   message?: string
   data?: EventView[]
+  traceId?: string
+  timestamp?: string
+}
+
+export interface Family {
+  self?: View
+  parent?: View
+  children?: View[]
+}
+
+export interface RFamily {
+  code?: number
+  message?: string
+  data?: Family
   traceId?: string
   timestamp?: string
 }
@@ -273,6 +245,130 @@ export interface UserView {
   createTime?: string
 }
 
+export interface RString {
+  code?: number
+  message?: string
+  data?: string
+  traceId?: string
+  timestamp?: string
+}
+
+export interface OrderRow {
+  id?: string
+  orderNo?: string
+  status?: string
+  sizeType?: string
+  customerId?: string
+  customerName?: string
+  siteName?: string
+  cabinetNo?: string
+  slotNo?: string
+  prepayPoints?: string
+  settledPoints?: string
+  arrearsPoints?: string
+  createTime?: string
+  startedAt?: string
+  finishedAt?: string
+}
+
+export interface PageResultOrderRow {
+  pageNum?: string
+  pageSize?: string
+  total?: string
+  pages?: string
+  records?: OrderRow[]
+}
+
+export interface RPageResultOrderRow {
+  code?: number
+  message?: string
+  data?: PageResultOrderRow
+  traceId?: string
+  timestamp?: string
+}
+
+export interface BillLine {
+  type?: string
+  amount?: string
+  balanceAfter?: string
+  remark?: string
+  at?: string
+}
+
+export interface BillView {
+  orderNo?: string
+  status?: string
+  sizeType?: string
+  startedAt?: string
+  finishedAt?: string
+  billedMinutes?: string
+  unitPointsPerHour?: string
+  freeMinutes?: number
+  dailyCapHours?: number
+  capDays?: number
+  billedHours?: number
+  chargePoints?: string
+  prepayPoints?: string
+  settledPoints?: string
+  arrearsPoints?: string
+  lines?: BillLine[]
+}
+
+export interface CommandLine {
+  action?: string
+  state?: string
+  retryCount?: number
+  sentAt?: string
+  ackedAt?: string
+  lastError?: string
+}
+
+export interface EvidenceLine {
+  source?: string
+  presence?: string
+  moment?: string
+  confidence?: number
+  aiLabel?: string
+  note?: string
+  at?: string
+}
+
+export interface OrderDetail {
+  row?: OrderRow
+  customerPhone?: string
+  closeReason?: string
+  disputeState?: string
+  aiReviewCount?: number
+  tempOpenCount?: number
+  voucherWrongCount?: number
+  voucherLocked?: boolean
+  leftoverReported?: boolean
+  depositPoints?: string
+  remoteClosePoints?: string
+  bill?: BillView
+  commands?: CommandLine[]
+  evidence?: EvidenceLine[]
+  workOrders?: WorkOrderLine[]
+}
+
+export interface ROrderDetail {
+  code?: number
+  message?: string
+  data?: OrderDetail
+  traceId?: string
+  timestamp?: string
+}
+
+export interface WorkOrderLine {
+  id?: string
+  status?: string
+  category?: string
+  priority?: string
+  closeReason?: string
+  title?: string
+  createTime?: string
+}
+
 export interface DepositView {
   depositId?: string
   orderNo?: string
@@ -321,66 +417,31 @@ export interface BizCompartment {
   version?: number
 }
 
-export interface BizItemEvidence {
-  id?: string
-  createTime?: string
-  updateTime?: string
-  deleted?: number
-  tenantId?: string
-  orderId?: string
-  cabinetId?: string
-  compartmentId?: string
-  source?: "INFRARED" | "DEVICE_PROBE" | "AI"
-  presence?: "PRESENT" | "ABSENT" | "UNKNOWN"
-  confidence?: number
-  photoRef?: string
-  moment?: "DOOR_OPENED" | "DOOR_CLOSED" | "WATCH_DETECT" | "HELPER_CLOSED" | "RETRIEVED_CHECK"
-  aiLabel?: string
-  note?: string
-}
-
-export interface BizStorageOrder {
-  id?: string
-  createTime?: string
-  updateTime?: string
-  deleted?: number
-  tenantId?: string
-  orderNo?: string
-  siteId?: string
-  cabinetId?: string
-  slotId?: string
-  sizeType?: "LARGE" | "MEDIUM" | "SMALL"
-  customerId?: string
-  status?: "INIT" | "RESERVED" | "OPENING" | "STORED" | "ACTIVE" | "TEMP_OPEN" | "SETTLING" | "CLOSED" | "CANCELLED" | "ABNORMAL" | "EXPIRED"
-  activeFlag?: number
-  voucherCode?: string
-  pricingSnapshot?: string
-  startedAt?: string
-  expectedFinishAt?: string
-  toleranceUntil?: string
-  closeReason?: "NORMAL" | "ABANDONED" | "REMOTE" | "DISPUTE_WAIVED"
-  remoteClosePoints?: string
-  disputeState?: "ITEM_DISPUTED" | "AI_REVIEWED" | "HUMAN_REVIEW"
-  disputeStartedAt?: string
-  aiReviewCount?: number
-  leftoverReportedAt?: string
-  finishedAt?: string
-  tempOpenCount?: number
-  voucherWrongCount?: number
-  voucherLockedAt?: string
-  depositPoints?: string
-  frozenPoints?: string
-  prepayPoints?: string
-  settledPoints?: string
-  arrearsPoints?: string
-  lastError?: string
-  version?: number
-}
-
 export interface Detail {
   compartment?: BizCompartment
-  evidence?: BizItemEvidence[]
-  currentOrder?: BizStorageOrder
+  evidence?: EvidenceSnapshot[]
+  currentOrder?: OrderSnapshot
+}
+
+export interface EvidenceSnapshot {
+  moment?: string
+  source?: string
+  presence?: string
+  confidence?: number
+  aiLabel?: string
+  photoRef?: string
+  note?: string
+  at?: string
+}
+
+export interface OrderSnapshot {
+  id?: string
+  orderNo?: string
+  customerId?: string
+  cabinetId?: string
+  slotId?: string
+  status?: string
+  sizeType?: string
 }
 
 export interface RDetail {
@@ -476,6 +537,16 @@ export interface RCurrentAccountView {
 
 /** 接口操作表：key 为 "method path"（method 小写），入参与出参类型来自契约 */
 export interface OperationTypes {
+  "post /api/admin/work-orders/{id}/sla/resume": {
+    summary: "恢复SLA"
+    req: null
+    res: RVoid
+  }
+  "post /api/admin/work-orders/{id}/sla/pause": {
+    summary: "暂停SLA"
+    req: PauseRequest
+    res: RVoid
+  }
   "post /api/admin/work-orders/{id}/resolve": {
     summary: "处理并反馈"
     req: ResolveCommand
@@ -494,7 +565,12 @@ export interface OperationTypes {
   "post /api/admin/work-orders/{id}/ai-brief": {
     summary: "AI 工单简报"
     req: null
-    res: RBrief
+    res: RLong
+  }
+  "post /api/admin/work-orders/triage/reload": {
+    summary: "刷新分诊规则缓存"
+    req: null
+    res: RVoid
   }
   "post /api/admin/work-orders/notices/{id}/call-done": {
     summary: "回填电话结果"
@@ -524,12 +600,12 @@ export interface OperationTypes {
   "post /api/admin/ops/diagnose": {
     summary: "AI 运维诊断"
     req: null
-    res: ROpsReport
+    res: RLong
   }
   "post /api/admin/ops/ask": {
     summary: "运维问答"
     req: AskCommand
-    res: ROpsAnswer
+    res: RLong
   }
   "post /api/admin/locker/customers/{customerId}/status": {
     summary: "禁用/启用客户"
@@ -571,6 +647,11 @@ export interface OperationTypes {
     req: null
     res: RListEventView
   }
+  "get /api/admin/work-orders/{id}/family": {
+    summary: "父子单关系"
+    req: null
+    res: RFamily
+  }
   "get /api/admin/work-orders/{id}/evidence": {
     summary: "格口证据时间线"
     req: null
@@ -596,10 +677,35 @@ export interface OperationTypes {
     req: null
     res: RPageResultUserView
   }
+  "get /api/admin/probe/role": {
+    summary: ""
+    req: null
+    res: RString
+  }
+  "get /api/admin/probe/permission": {
+    summary: ""
+    req: null
+    res: RString
+  }
+  "get /api/admin/probe/authenticated": {
+    summary: ""
+    req: null
+    res: RString
+  }
   "get /api/admin/pricing/effective": {
     summary: "当前生效策略"
     req: null
     res: RView
+  }
+  "get /api/admin/orders": {
+    summary: "订单分页列表"
+    req: null
+    res: RPageResultOrderRow
+  }
+  "get /api/admin/orders/{orderNo}": {
+    summary: "订单详情"
+    req: null
+    res: ROrderDetail
   }
   "get /api/admin/locker/deposits/unrefunded": {
     summary: "未退押金清单"
@@ -630,6 +736,11 @@ export interface OperationTypes {
     summary: "当前账号与权限"
     req: null
     res: RCurrentAccountView
+  }
+  "get /api/admin/ai-jobs/{id}": {
+    summary: "查 AI 作业"
+    req: null
+    res: RView
   }
 }
 

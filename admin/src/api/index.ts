@@ -1,11 +1,11 @@
 // B 端接口层：所有调用只消费后端既有路由（/api/admin/**），不新增字段与概念。
 // 入参出参类型以 schema-admin.ts（生成物）为准；生成物丢失的行类型见 contracts.ts。
 import { request } from './http'
+import type { AiJobView } from './ai-results'
 import type {
   AdminLoginRequest,
   ArrearsView,
   AskCommand,
-  Brief,
   CallDoneCommand,
   CustomerStatusRequest,
   DepositView,
@@ -15,8 +15,6 @@ import type {
   EvidenceView,
   ForceOpenRequest,
   LedgerView,
-  OpsAnswer,
-  OpsReport,
   PhoneNoteCommand,
   ReasonRequest,
   RefreshRequest,
@@ -85,9 +83,44 @@ export const resolveWorkOrder = (id: string, body: ResolveCommand) =>
 export const phoneNote = (id: string, body: PhoneNoteCommand) =>
   request<void>({ url: `/api/admin/work-orders/${id}/phone-note`, method: 'post', data: body })
 
-/** AI 简报不落库：仅供当前业务员参考，UI 不做"保存简报"按钮。模型调用可能超过默认 30s，单独放宽 */
+/** AI 简报不落库：仅供当前业务员参考，UI 不做“保存简报”按钮。批 7 起它只回作业号 */
+// AI 长任务：提交只拿作业号（批 7）。产出由作业通道异步写，前端用 waitAiJob 轮询取回。
 export const aiBrief = (id: string) =>
-  request<Brief>({ url: `/api/admin/work-orders/${id}/ai-brief`, method: 'post', timeout: 120000 })
+  request<string>({ url: `/api/admin/work-orders/${id}/ai-brief`, method: 'post' })
+
+/** 查一次作业。别人的作业后端返回 data=null（当不存在）。 */
+export const getAiJob = (id: string) =>
+  request<AiJobView>({ url: `/api/admin/ai-jobs/${id}`, method: 'get' })
+
+/**
+ * 轮询作业直到出结果。
+ *
+ * 间隔 1 秒、上限 60 秒都是**按后端预算推的**，不是新业务规则：后端单次 AI 预算是
+ * `timeout-ms × 2`（两轮工具循环，共 40 秒），这里留到 60 秒是给它失败的余地；
+ * 1 秒一次对“人工点按钮”这个触发频率可以忽略。
+ */
+export async function waitAiJob<T>(
+  jobId: string,
+  timeoutMs = 60_000,
+  cancelled?: () => boolean,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (cancelled?.()) {
+      // 取消只停“等”：作业在后端会跑完，结果丢掉即可（作业表自然过期）
+      throw new Error('已取消')
+    }
+    const view = await getAiJob(jobId)
+    if (view?.status === 'DONE') {
+      return view.result as T
+    }
+    if (view?.status === 'FAILED') {
+      throw new Error(view.error || 'AI 生成失败，请稍后重试')
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  throw new Error('AI 生成超时，请稍后重试')
+}
 
 export const fetchPendingCalls = () =>
   request<NoticeRow[]>({ url: '/api/admin/work-orders/pending-calls', method: 'get' })
@@ -158,12 +191,12 @@ export const rollbackRule = (ruleId: string, body: ReasonRequest) =>
   request<void>({ url: `/api/admin/pricing/rules/${ruleId}/rollback`, method: 'post', data: body })
 
 // ── 运维诊断 /api/admin/ops ───────────────────────────────────────
-/** AI 诊断是分钟级慢接口，加载态要按分钟级预期；限流 3 次/分。signal 用于用户主动取消 */
+/** AI 诊断/问答是长任务：提交是毫秒级（只写作业行），生成在后台跑；限流 3 次/分 */
 export const opsDiagnose = (signal?: AbortSignal) =>
-  request<OpsReport>({ url: '/api/admin/ops/diagnose', method: 'post', timeout: 180000, signal })
+  request<string>({ url: '/api/admin/ops/diagnose', method: 'post', timeout: 10000, signal })
 
 export const opsAsk = (body: AskCommand, signal?: AbortSignal) =>
-  request<OpsAnswer>({ url: '/api/admin/ops/ask', method: 'post', data: body, timeout: 180000, signal })
+  request<string>({ url: '/api/admin/ops/ask', method: 'post', data: body, timeout: 10000, signal })
 
 // ── 账号 /api/admin/users ─────────────────────────────────────────
 export const fetchUsers = (params: PageQuery & { keyword?: string; status?: number }) =>

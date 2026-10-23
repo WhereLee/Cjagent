@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
   aiBrief,
+  waitAiJob,
   claimWorkOrder,
   fetchEvidence,
   fetchFieldQueue,
@@ -15,7 +16,8 @@ import {
   resolveWorkOrder,
   resumeWorkOrder,
 } from '@/api'
-import type { Brief, EventView, EvidenceView } from '@/api/schema-admin'
+import type { Brief } from '@/api/ai-results'
+import type { EventView, EvidenceView, ResolveCommand } from '@/api/schema-admin'
 import type { WorkOrderFamily, WorkOrderRow } from '@/api/contracts'
 import { ApiError } from '@/api/http'
 import {
@@ -160,7 +162,10 @@ async function loadBrief(): Promise<void> {
   if (!current.value) return
   briefLoading.value = true
   try {
-    brief.value = await aiBrief(String(current.value.id))
+    // 提交只回作业号（毫秒级）；简报由作业通道在后台生成，这里轮询取回。
+    // 同一张单的简报没跑完时再点会拿到同一个作业号，不会多花一次模型调用。
+    const jobId = await aiBrief(String(current.value.id))
+    brief.value = await waitAiJob<Brief>(jobId)
   } catch (e) {
     ElMessage.error(e instanceof ApiError ? e.message : '简报生成失败')
   } finally {
@@ -203,7 +208,12 @@ async function onResumeSla(row: WorkOrderRow): Promise<void> {
 }
 
 const resolveDialog = ref(false)
-const resolveForm = reactive({ resultNote: '', needOffline: false, closeReason: 'MANUAL' })
+// closeReason 在契约里是枚举联合，不是任意字符串：用契约类型让下拉与后端对齐，枚举改了会编译报错
+const resolveForm = reactive<{
+  resultNote: string
+  needOffline: boolean
+  closeReason: NonNullable<ResolveCommand['closeReason']>
+}>({ resultNote: '', needOffline: false, closeReason: 'MANUAL' })
 // 同一"处理意图"重试复用同一个 requestId：处理会派生子单，重放不能派出第二张
 let resolveRequestId = ''
 
