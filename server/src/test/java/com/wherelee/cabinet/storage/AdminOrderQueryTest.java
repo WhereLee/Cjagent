@@ -188,7 +188,10 @@ class AdminOrderQueryTest {
         AdminOrderConsolePort.OrderDetail detail = TenantContext.callAs(TENANT,
                 () -> orders.detail(activeOrderNo));
 
-        assertEquals(PHONE, detail.customerPhone(), "客服要能回拨");
+        // 客服要能回拨 → 有 customer:phone:view 的账号拿到明文（V40 授给了两个作业角色）；
+        // 这里是无认证上下文的服务层直调，所以走默认拒绝脱敏
+        assertEquals(com.wherelee.cabinet.common.mask.MaskType.PHONE.mask(PHONE),
+                detail.customerPhone());
         assertEquals("ACTIVE", detail.row().status());
         assertEquals(400, detail.bill().prepayPoints(), "预收点数来自这张单本身");
 

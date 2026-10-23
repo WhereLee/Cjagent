@@ -365,7 +365,9 @@ class WorkOrderFlowTest {
         assertEquals("工单测试点位", v.siteAddress(), "点位地址来自快照（回查会被改名带跑）");
         assertNotNull(v.detection());
         assertTrue(v.detection().contains("门=开着"), "检测值要能还原现场：" + v.detection());
-        assertEquals("13800001234", v.customerPhone());
+        // 服务层直调没有认证上下文，手机号按默认拒绝脱敏（有权限点拿到明文的对照见 PhoneVisibilityTest）
+        assertEquals(com.wherelee.cabinet.common.mask.MaskType.PHONE.mask("13800001234"),
+                v.customerPhone());
     }
 
     @Test

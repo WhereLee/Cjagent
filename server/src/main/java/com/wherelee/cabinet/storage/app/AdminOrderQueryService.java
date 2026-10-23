@@ -3,6 +3,7 @@ package com.wherelee.cabinet.storage.app;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.wherelee.cabinet.platform.security.PhoneVisibility;
 import com.wherelee.cabinet.platform.web.PageSupport;
 import com.wherelee.cabinet.common.api.PageQuery;
 import com.wherelee.cabinet.common.api.PageResult;
@@ -141,7 +142,7 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
                 .toList();
 
         return new OrderDetail(toRow(order, customer, cabinet, slot, site),
-                customer == null ? null : customer.phone(),
+                customer == null ? null : PhoneVisibility.visible(customer.phone()),
                 name(order.getCloseReason()), name(order.getDisputeState()),
                 nvl(order.getAiReviewCount()), nvl(order.getTempOpenCount()), nvl(order.getVoucherWrongCount()),
                 order.getVoucherLockedAt() != null, order.getLeftoverReportedAt() != null,

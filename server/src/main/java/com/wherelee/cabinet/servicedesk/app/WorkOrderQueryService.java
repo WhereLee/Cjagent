@@ -7,6 +7,7 @@ import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.device.api.EvidencePort;
+import com.wherelee.cabinet.platform.security.PhoneVisibility;
 import com.wherelee.cabinet.platform.web.PageSupport;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderConsolePort;
 import com.wherelee.cabinet.servicedesk.api.WorkOrderStatus;
@@ -212,7 +213,7 @@ public class WorkOrderQueryService {
                 Boolean.TRUE.equals(o.getUrgent()),
                 o.getStatus().name(), o.getQueueSide(), o.getAssigneeGroup(), o.getSlotNo(),
                 journal.readSnapshot(o, "cabinetNo"), journal.readSnapshot(o, "siteAddress"), o.getOrderNo(),
-                journal.readSnapshot(o, "customerPhone"), o.getTitle(),
+                PhoneVisibility.visible(journal.readSnapshot(o, "customerPhone")), o.getTitle(),
                 journal.readSnapshot(o, "detection"), o.getResultNote(),
                 o.getCloseReason() == null ? null : o.getCloseReason().name(),
                 o.getAssigneeId(), o.getParentId(), parentResultNote,
