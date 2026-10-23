@@ -11,7 +11,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.rocketmq.common.message.MessageExt;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
-import org.apache.rocketmq.spring.support.RocketMQHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -62,8 +61,7 @@ public class OwnerNoticeConsumer implements RocketMQListener<MessageExt> {
         } catch (BizException e) {
             dropped.increment();
             log.error("物主通知事件无法投递（重试无意义）msgId={} key={} kind={}：{}",
-                    message.getMsgId(), message.getUserProperty(RocketMQHeaders.KEYS),
-                    payload.kind(), e.getMessage(), e);
+                    message.getMsgId(), message.getKeys(), payload.kind(), e.getMessage(), e);
         }
     }
 

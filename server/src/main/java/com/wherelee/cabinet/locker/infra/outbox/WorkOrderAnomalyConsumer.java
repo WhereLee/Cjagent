@@ -11,7 +11,6 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.rocketmq.common.message.MessageExt;
 import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
 import org.apache.rocketmq.spring.core.RocketMQListener;
-import org.apache.rocketmq.spring.support.RocketMQHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -72,8 +71,7 @@ public class WorkOrderAnomalyConsumer implements RocketMQListener<MessageExt> {
         } catch (BizException e) {
             inconsistent.increment();
             log.error("格口异常事件无法开单（现场不一致，重试无意义）msgId={} key={} slotId={}：{}",
-                    message.getMsgId(), message.getUserProperty(RocketMQHeaders.KEYS),
-                    payload.slotId(), e.getMessage(), e);
+                    message.getMsgId(), message.getKeys(), payload.slotId(), e.getMessage(), e);
         }
     }
 
