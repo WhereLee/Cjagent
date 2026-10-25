@@ -39,6 +39,33 @@
         },
         "type" : "object"
       },
+      "AiJobView" : {
+        "properties" : {
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "error" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "jobType" : {
+            "type" : "string"
+          },
+          "result" : { },
+          "status" : {
+            "type" : "string"
+          },
+          "updateTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "ArrearsView" : {
         "properties" : {
           "arrearsOrders" : {
@@ -577,6 +604,48 @@
         },
         "type" : "object"
       },
+      "DeadLetterView" : {
+        "properties" : {
+          "dlqTopic" : {
+            "type" : "string"
+          },
+          "error" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "msgKey" : {
+            "type" : "string"
+          },
+          "payload" : {
+            "type" : "string"
+          },
+          "receivedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "reconsumeTimes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "replayedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "tag" : {
+            "type" : "string"
+          },
+          "topic" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "DepositView" : {
         "properties" : {
           "customerId" : {
@@ -789,15 +858,15 @@
         "properties" : {
           "children" : {
             "items" : {
-              "$ref" : "#/components/schemas/View"
+              "$ref" : "#/components/schemas/WorkOrderView"
             },
             "type" : "array"
           },
           "parent" : {
-            "$ref" : "#/components/schemas/View"
+            "$ref" : "#/components/schemas/WorkOrderView"
           },
           "self" : {
-            "$ref" : "#/components/schemas/View"
+            "$ref" : "#/components/schemas/WorkOrderView"
           }
         },
         "type" : "object"
@@ -896,6 +965,42 @@
           },
           "tokenType" : {
             "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "NoticeView" : {
+        "properties" : {
+          "channel" : {
+            "type" : "string"
+          },
+          "content" : {
+            "type" : "string"
+          },
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "doneAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "doneNote" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "workOrderId" : {
+            "format" : "int64",
+            "type" : "integer"
           }
         },
         "type" : "object"
@@ -1144,6 +1249,33 @@
         },
         "type" : "object"
       },
+      "PageResultDeadLetterView" : {
+        "properties" : {
+          "pageNum" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pageSize" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "pages" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "records" : {
+            "items" : {
+              "$ref" : "#/components/schemas/DeadLetterView"
+            },
+            "type" : "array"
+          },
+          "total" : {
+            "format" : "int64",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "PageResultDepositView" : {
         "properties" : {
           "pageNum" : {
@@ -1252,7 +1384,7 @@
         },
         "type" : "object"
       },
-      "PageResultView" : {
+      "PageResultWorkOrderView" : {
         "properties" : {
           "pageNum" : {
             "format" : "int64",
@@ -1268,7 +1400,7 @@
           },
           "records" : {
             "items" : {
-              "$ref" : "#/components/schemas/View"
+              "$ref" : "#/components/schemas/WorkOrderView"
             },
             "type" : "array"
           },
@@ -1315,6 +1447,73 @@
         "required" : [ "phoneTail", "voucherCode" ],
         "type" : "object"
       },
+      "PricingRuleView" : {
+        "properties" : {
+          "capDays" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "dailyCapHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "depositPoints" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "effectiveAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "freeMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "publishedBy" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "reason" : {
+            "type" : "string"
+          },
+          "remoteCloseHours" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "siteId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "toleranceMinutes" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "unitLarge" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "unitMedium" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "unitSmall" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "version" : {
+            "format" : "int32",
+            "type" : "integer"
+          }
+        },
+        "type" : "object"
+      },
       "ProbeBody" : {
         "properties" : {
           "orderNo" : {
@@ -1339,6 +1538,28 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/AgentReply"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RAiJobView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/AiJobView"
           },
           "message" : {
             "type" : "string"
@@ -1698,6 +1919,31 @@
         },
         "type" : "object"
       },
+      "RListNoticeView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/NoticeView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "RListOrderView" : {
         "properties" : {
           "code" : {
@@ -1707,6 +1953,31 @@
           "data" : {
             "items" : {
               "$ref" : "#/components/schemas/OrderView"
+            },
+            "type" : "array"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RListPricingRuleView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "items" : {
+              "$ref" : "#/components/schemas/PricingRuleView"
             },
             "type" : "array"
           },
@@ -1757,31 +2028,6 @@
           "data" : {
             "items" : {
               "$ref" : "#/components/schemas/SummaryView"
-            },
-            "type" : "array"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "timestamp" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "traceId" : {
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
-      "RListView" : {
-        "properties" : {
-          "code" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "data" : {
-            "items" : {
-              "$ref" : "#/components/schemas/View"
             },
             "type" : "array"
           },
@@ -1910,6 +2156,28 @@
         },
         "type" : "object"
       },
+      "RPageResultDeadLetterView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PageResultDeadLetterView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
       "RPageResultDepositView" : {
         "properties" : {
           "code" : {
@@ -1998,14 +2266,36 @@
         },
         "type" : "object"
       },
-      "RPageResultView" : {
+      "RPageResultWorkOrderView" : {
         "properties" : {
           "code" : {
             "format" : "int32",
             "type" : "integer"
           },
           "data" : {
-            "$ref" : "#/components/schemas/PageResultView"
+            "$ref" : "#/components/schemas/PageResultWorkOrderView"
+          },
+          "message" : {
+            "type" : "string"
+          },
+          "timestamp" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "traceId" : {
+            "type" : "string"
+          }
+        },
+        "type" : "object"
+      },
+      "RPricingRuleView" : {
+        "properties" : {
+          "code" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "data" : {
+            "$ref" : "#/components/schemas/PricingRuleView"
           },
           "message" : {
             "type" : "string"
@@ -2094,28 +2384,6 @@
           },
           "data" : {
             "$ref" : "#/components/schemas/TokenView"
-          },
-          "message" : {
-            "type" : "string"
-          },
-          "timestamp" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "traceId" : {
-            "type" : "string"
-          }
-        },
-        "type" : "object"
-      },
-      "RView" : {
-        "properties" : {
-          "code" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "data" : {
-            "$ref" : "#/components/schemas/View"
           },
           "message" : {
             "type" : "string"
@@ -2429,73 +2697,6 @@
         },
         "type" : "object"
       },
-      "View" : {
-        "properties" : {
-          "capDays" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "dailyCapHours" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "depositPoints" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "effectiveAt" : {
-            "format" : "date-time",
-            "type" : "string"
-          },
-          "freeMinutes" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "id" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "publishedBy" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "reason" : {
-            "type" : "string"
-          },
-          "remoteCloseHours" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "siteId" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "status" : {
-            "type" : "string"
-          },
-          "toleranceMinutes" : {
-            "format" : "int32",
-            "type" : "integer"
-          },
-          "unitLarge" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "unitMedium" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "unitSmall" : {
-            "format" : "int64",
-            "type" : "integer"
-          },
-          "version" : {
-            "format" : "int32",
-            "type" : "integer"
-          }
-        },
-        "type" : "object"
-      },
       "VoucherView" : {
         "properties" : {
           "cabinetNo" : {
@@ -2578,6 +2779,130 @@
           }
         },
         "type" : "object"
+      },
+      "WorkOrderView" : {
+        "properties" : {
+          "assigneeGroup" : {
+            "type" : "string"
+          },
+          "assigneeId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "cabinetNo" : {
+            "type" : "string"
+          },
+          "category" : {
+            "type" : "string"
+          },
+          "closeReason" : {
+            "type" : "string"
+          },
+          "closedAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "createTime" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "csatComment" : {
+            "type" : "string"
+          },
+          "csatScore" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "customerPhone" : {
+            "type" : "string"
+          },
+          "detection" : {
+            "type" : "string"
+          },
+          "dueAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "firstResponseAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "handoffJson" : {
+            "type" : "string"
+          },
+          "id" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "impact" : {
+            "type" : "string"
+          },
+          "intent" : {
+            "type" : "string"
+          },
+          "kind" : {
+            "type" : "string"
+          },
+          "orderNo" : {
+            "type" : "string"
+          },
+          "parentId" : {
+            "format" : "int64",
+            "type" : "integer"
+          },
+          "parentResultNote" : {
+            "type" : "string"
+          },
+          "priority" : {
+            "type" : "string"
+          },
+          "queueSide" : {
+            "type" : "string"
+          },
+          "reopenedCount" : {
+            "format" : "int32",
+            "type" : "integer"
+          },
+          "resolveDueAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "responseDueAt" : {
+            "format" : "date-time",
+            "type" : "string"
+          },
+          "resultNote" : {
+            "type" : "string"
+          },
+          "siteAddress" : {
+            "type" : "string"
+          },
+          "slaPauseReason" : {
+            "type" : "string"
+          },
+          "slotNo" : {
+            "type" : "string"
+          },
+          "source" : {
+            "type" : "string"
+          },
+          "status" : {
+            "type" : "string"
+          },
+          "title" : {
+            "type" : "string"
+          },
+          "type" : {
+            "type" : "string"
+          },
+          "urgency" : {
+            "type" : "string"
+          },
+          "urgent" : {
+            "type" : "boolean"
+          }
+        },
+        "type" : "object"
       }
     }
   },
@@ -2606,7 +2931,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RView"
+                  "$ref" : "#/components/schemas/RAiJobView"
                 }
               }
             }
@@ -3030,12 +3355,27 @@
     },
     "/api/admin/ops/dead-letters" : {
       "get" : {
+        "parameters" : [ {
+          "in" : "query",
+          "name" : "query",
+          "required" : true,
+          "schema" : {
+            "$ref" : "#/components/schemas/PageQuery"
+          }
+        }, {
+          "in" : "query",
+          "name" : "status",
+          "required" : false,
+          "schema" : {
+            "type" : "string"
+          }
+        } ],
         "responses" : {
           "200" : {
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RListView"
+                  "$ref" : "#/components/schemas/RPageResultDeadLetterView"
                 }
               }
             }
@@ -3168,7 +3508,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RView"
+                  "$ref" : "#/components/schemas/RPricingRuleView"
                 }
               }
             }
@@ -3184,7 +3524,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RListView"
+                  "$ref" : "#/components/schemas/RListPricingRuleView"
                 }
               }
             }
@@ -3208,7 +3548,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RView"
+                  "$ref" : "#/components/schemas/RPricingRuleView"
                 }
               }
             }
@@ -3277,7 +3617,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RView"
+                  "$ref" : "#/components/schemas/RPricingRuleView"
                 }
               }
             }
@@ -3400,7 +3740,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RPageResultView"
+                  "$ref" : "#/components/schemas/RPageResultWorkOrderView"
                 }
               }
             }
@@ -3467,7 +3807,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RPageResultView"
+                  "$ref" : "#/components/schemas/RPageResultWorkOrderView"
                 }
               }
             }
@@ -3483,7 +3823,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RListView"
+                  "$ref" : "#/components/schemas/RListNoticeView"
                 }
               }
             }
@@ -3862,7 +4202,7 @@
             "content" : {
               "*/*" : {
                 "schema" : {
-                  "$ref" : "#/components/schemas/RListView"
+                  "$ref" : "#/components/schemas/RListNoticeView"
                 }
               }
             }

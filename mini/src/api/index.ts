@@ -19,7 +19,7 @@ import type {
   SiteView,
   StorageOrderView,
   VoucherView,
-  View,
+  NoticeView,
 } from './schema-mini'
 import type { PublicPickupRequest, WorkOrderConfirmRequest, WorkOrderCustomerView } from './contracts'
 
@@ -127,7 +127,7 @@ export const supportChat = (body: { orderNo?: string; message: string }) =>
     data: body,
   })
 
-export const fetchNotices = () => request<View[]>({ url: '/api/mini/notices' })
+export const fetchNotices = () => request<NoticeView[]>({ url: '/api/mini/notices' })
 
 export const readNotice = (id: string) =>
   request<void>({ url: `/api/mini/notices/${id}/read`, method: 'POST' })

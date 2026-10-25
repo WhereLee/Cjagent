@@ -32,7 +32,7 @@ public interface AiJobPort {
      *
      * @return 作业视图；不存在、已删、或不是这个人的作业，一律 {@code null}
      */
-    View view(Long jobId, Long requesterId);
+    AiJobView view(Long jobId, Long requesterId);
 
     /**
      * 作业视图。
@@ -41,7 +41,7 @@ public interface AiJobPort {
      *               {@code FAILED} 提示失败原因
      * @param result 已反序列化的产出（报告/答案/简报），{@code DONE} 之前为 {@code null}
      */
-    record View(Long id, String jobType, String status, Object result, String error,
+    record AiJobView(Long id, String jobType, String status, Object result, String error,
                 LocalDateTime createTime, LocalDateTime updateTime) {
     }
 }

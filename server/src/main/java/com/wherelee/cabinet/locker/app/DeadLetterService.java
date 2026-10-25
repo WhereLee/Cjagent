@@ -1,10 +1,17 @@
 package com.wherelee.cabinet.locker.app;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.core.toolkit.IdWorker;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.wherelee.cabinet.common.api.PageQuery;
+import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.domain.entity.BizDeadLetter;
 import com.wherelee.cabinet.infrastructure.mapper.BizDeadLetterMapper;
 import com.wherelee.cabinet.locker.api.DeadLetterPort;
 import com.wherelee.cabinet.locker.infra.RocketMqOutboxPublisher;
+import com.wherelee.cabinet.platform.web.PageSupport;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
@@ -14,8 +21,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
-import java.util.List;
+import java.util.Set;
 
 /**
  * 死信的归档与重放。
@@ -33,6 +41,9 @@ public class DeadLetterService implements DeadLetterPort {
 
     /** DLQ 消息里没有原始异常（RocketMQ 不保留），只能记一句事实。 */
     private static final String NO_ROOT_CAUSE = "重试耗尽（MQ 不保留原始异常）";
+
+    /** 排序白名单：只允许对这几个起实际排序作用的列，别的入参直接忽略（沿用项目口径）。 */
+    private static final Set<String> SORTABLE = Set.of("receivedAt", "reconsumeTimes", "status");
 
     private final BizDeadLetterMapper mapper;
     private final RocketMQTemplate rocketMQTemplate;
@@ -95,12 +106,23 @@ public class DeadLetterService implements DeadLetterPort {
     }
 
     @Override
-    public List<View> listOpen(int limit) {
-        return mapper.listOpen(limit).stream()
-                .map(r -> new View(r.getId(), r.getTopic(), r.getTag(), r.getMsgKey(), r.getError(),
-                        r.getReconsumeTimes() == null ? 0 : r.getReconsumeTimes(),
-                        r.getStatus(), r.getReceivedAt()))
-                .toList();
+    public PageResult<DeadLetterView> list(String status, PageQuery query) {
+        Page<BizDeadLetter> page = PageSupport.toPage(query, SORTABLE);
+        LambdaQueryWrapper<BizDeadLetter> wrapper = Wrappers.<BizDeadLetter>lambdaQuery()
+                .eq(StringUtils.hasText(status), BizDeadLetter::getStatus, status);
+        // 不传排序时按“最近进死信的在前”：运维第一个想看的是最新那条
+        if (!StringUtils.hasText(query.getOrderBy())) {
+            wrapper.orderByDesc(BizDeadLetter::getReceivedAt);
+        }
+        IPage<BizDeadLetter> selected = mapper.selectPage(page, wrapper);
+        return PageSupport.toResult(selected, DeadLetterService::toView);
+    }
+
+    private static DeadLetterView toView(BizDeadLetter row) {
+        return new DeadLetterView(row.getId(), row.getTopic(), row.getTag(), row.getDlqTopic(), row.getMsgKey(),
+                row.getPayload(), row.getError(),
+                row.getReconsumeTimes() == null ? 0 : row.getReconsumeTimes(),
+                row.getStatus(), row.getReceivedAt(), row.getReplayedAt());
     }
 
     /** 列宽都写死在表结构里；超长会被 MySQL 截断或直接报错，截在这里比让它报错好。 */

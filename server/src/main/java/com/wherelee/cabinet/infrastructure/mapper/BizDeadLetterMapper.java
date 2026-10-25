@@ -5,10 +5,7 @@ import com.wherelee.cabinet.domain.entity.BizDeadLetter;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-
-import java.util.List;
 
 /**
  * 死信归档表。
@@ -59,13 +56,4 @@ public interface BizDeadLetterMapper extends BaseMapper<BizDeadLetter> {
              where id = #{id} and status = 'OPEN' and deleted = 0
             """)
     int markReplayed(@Param("id") Long id);
-
-    /** 待处理的死信，最近的在前。运维看一眼就知道现在有没有东西卡住。 */
-    @Select("""
-            select * from biz_dead_letter
-             where status = 'OPEN' and deleted = 0
-             order by received_at desc
-             limit #{limit}
-            """)
-    List<BizDeadLetter> listOpen(@Param("limit") int limit);
 }

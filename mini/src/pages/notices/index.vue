@@ -2,12 +2,12 @@
 import { computed, ref } from 'vue'
 import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
 import { fetchNotices, readNotice } from '@/api'
-import type { View } from '@/api/schema-mini'
+import type { NoticeView } from '@/api/schema-mini'
 import { isLoggedIn } from '@/stores/auth'
 import { noticeChannelText, noticeKindText } from '@/utils/dict'
 import { fmtTime, toastError } from '@/utils/format'
 
-const notices = ref<View[]>([])
+const notices = ref<NoticeView[]>([])
 const loading = ref(false)
 const error = ref('')
 
@@ -39,7 +39,7 @@ onPullDownRefresh(async () => {
   uni.stopPullDownRefresh()
 })
 
-async function onRead(notice: View): Promise<void> {
+async function onRead(notice: NoticeView): Promise<void> {
   if (notice.doneAt || !notice.id) return
   try {
     await readNotice(String(notice.id))
@@ -49,14 +49,14 @@ async function onRead(notice: View): Promise<void> {
   }
 }
 
-function goOrder(notice: View): void {
+function goOrder(notice: NoticeView): void {
   if (notice.orderNo) {
     uni.navigateTo({ url: `/pages/order-detail/index?orderNo=${notice.orderNo}` })
   }
 }
 
 /** 工单通知优先落工单详情：用户能直接看到处理结论并确认/反馈没解决。 */
-function goWorkOrder(notice: View): void {
+function goWorkOrder(notice: NoticeView): void {
   if (notice.workOrderId) {
     uni.navigateTo({ url: `/pages/work-order/index?id=${notice.workOrderId}` })
   }

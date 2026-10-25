@@ -49,14 +49,14 @@ public class AdminPricingController {
     @Operation(summary = "策略列表", description = "含各点位与全局的历史版本，新→旧")
     @PreAuthorize("hasAuthority('pricing:rule:list')")
     @GetMapping("/rules")
-    public R<List<PricingConsolePort.View>> list() {
+    public R<List<PricingConsolePort.PricingRuleView>> list() {
         return R.ok(rules.list());
     }
 
     @Operation(summary = "当前生效策略", description = "站点优先、回退全局；为空表示该范围仍在吃配置默认价")
     @PreAuthorize("hasAuthority('pricing:rule:list')")
     @GetMapping("/effective")
-    public R<PricingConsolePort.View> effective(@RequestParam(required = false) Long siteId) {
+    public R<PricingConsolePort.PricingRuleView> effective(@RequestParam(required = false) Long siteId) {
         return R.ok(rules.effective(siteId));
     }
 
@@ -73,7 +73,7 @@ public class AdminPricingController {
     @Idempotent(message = "该发布正在处理中，请勿重复提交")
     @PreAuthorize("hasAuthority('pricing:rule:publish')")
     @PostMapping("/rules")
-    public R<PricingConsolePort.View> publish(@AuthenticationPrincipal Caller current,
+    public R<PricingConsolePort.PricingRuleView> publish(@AuthenticationPrincipal Caller current,
                                   @NotNull @Valid @RequestBody PricingConsolePort.Draft request) {
         return R.ok(rules.publish(request, request.siteId(), request.effectiveAt(),
                 request.reason(), current.subjectId()));
@@ -84,7 +84,7 @@ public class AdminPricingController {
     @Idempotent(key = "#ruleId", requireKey = true, message = "该回滚正在处理中")
     @PreAuthorize("hasAuthority('pricing:rule:publish')")
     @PostMapping("/rules/{ruleId}/rollback")
-    public R<PricingConsolePort.View> rollback(@AuthenticationPrincipal Caller current,
+    public R<PricingConsolePort.PricingRuleView> rollback(@AuthenticationPrincipal Caller current,
                                    @PathVariable Long ruleId,
                                    @Valid @RequestBody ReasonRequest request) {
         return R.ok(rules.rollback(ruleId, request.reason(), current.subjectId()));

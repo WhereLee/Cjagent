@@ -298,7 +298,7 @@ class PriceRuleFlowTest {
         assertTrue(noSpace(afterSwitch.getPricingSnapshot()).contains("unitPointsPerHour\":60"),
                 "到点后自动切到预约的那版");
 
-        List<PriceRuleService.View> live = TenantContext.callAs(TENANT, () -> priceRules.list()).stream()
+        List<PriceRuleService.PricingRuleView> live = TenantContext.callAs(TENANT, () -> priceRules.list()).stream()
                 .filter(r -> "LIVE".equals(r.status()) && r.siteId() == null).toList();
         assertEquals(2, live.size(), "旧版仍在 LIVE 里（它只是被时间挤出选择，不该被标成已替代）");
     }
@@ -312,7 +312,7 @@ class PriceRuleFlowTest {
         TenantContext.runAs(TENANT, () -> priceRules.publish(draft(99L, 300L), null,
                 LocalDateTime.now(), "v2 发现价配错了", ADMIN));
 
-        List<PriceRuleService.View> v1 = TenantContext.callAs(TENANT, () -> priceRules.list()).stream()
+        List<PriceRuleService.PricingRuleView> v1 = TenantContext.callAs(TENANT, () -> priceRules.list()).stream()
                 .filter(r -> r.unitSmall() == 20L).toList();
         assertEquals(1, v1.size());
         TenantContext.runAs(TENANT, () -> priceRules.rollback(v1.get(0).id(), "灰度失败，回退", ADMIN));

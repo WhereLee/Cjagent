@@ -343,11 +343,11 @@ class WorkOrderFlowTest {
                 "派发动作记在子单上：父单说“为什么派人”，子单说“谁派来的”");
 
         // 队列视图里线上只剩已关闭、线下多了一张待办（返回已改统一分页）
-        PageResult<WorkOrderConsolePort.View> field = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.WorkOrderView> field = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_FIELD, true, new PageQuery()));
         assertEquals(1, field.total());
         assertEquals(1, field.records().size());
-        WorkOrderConsolePort.View fieldOrder = field.records().get(0);
+        WorkOrderConsolePort.WorkOrderView fieldOrder = field.records().get(0);
         assertNotNull(fieldOrder.customerPhone(), "线下到场要能直接看到联系电话（快照，不回查）");
         assertEquals(Boolean.TRUE, fieldOrder.urgent(), "线下子单继承紧急级别，队列排序依赖它");
     }
@@ -356,10 +356,10 @@ class WorkOrderFlowTest {
     @DisplayName("队列视图必须带回柜机编号/点位地址/检测值：业务员凭一行就知道去哪、看什么")
     void queueViewCarriesSnapshotFacts() {
         markDoorOpen();
-        PageResult<WorkOrderConsolePort.View> online = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.WorkOrderView> online = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, new PageQuery()));
         assertEquals(1, online.records().size());
-        WorkOrderConsolePort.View v = online.records().get(0);
+        WorkOrderConsolePort.WorkOrderView v = online.records().get(0);
         assertNotNull(v.cabinetNo());
         assertTrue(v.cabinetNo().startsWith("CAB-WO-"), "柜机编号来自快照：" + v.cabinetNo());
         assertEquals("工单测试点位", v.siteAddress(), "点位地址来自快照（回查会被改名带跑）");
@@ -401,7 +401,7 @@ class WorkOrderFlowTest {
 
         PageQuery first = new PageQuery();
         first.setPageSize(2);
-        PageResult<WorkOrderConsolePort.View> page1 = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.WorkOrderView> page1 = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, first));
         assertEquals(3, page1.total());
         assertEquals(2, page1.pages());
@@ -412,7 +412,7 @@ class WorkOrderFlowTest {
         PageQuery second = new PageQuery();
         second.setPageNum(2);
         second.setPageSize(2);
-        PageResult<WorkOrderConsolePort.View> page2 = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.WorkOrderView> page2 = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, second));
         assertEquals(1, page2.records().size(), "第二页拿到剩下的 1 张，而不是被写死的 limit 200 丢掉");
     }
@@ -453,7 +453,7 @@ class WorkOrderFlowTest {
         String onlineReturn = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("online")).findFirst().orElseThrow()
                 .getGenericReturnType().getTypeName();
-        assertTrue(onlineReturn.contains("WorkOrderConsolePort$View"),
+        assertTrue(onlineReturn.contains("WorkOrderConsolePort$WorkOrderView"),
                 "队列必须返回契约视图（api）而不是实体：" + onlineReturn);
         assertFalse(onlineReturn.contains("BizWorkOrder"), "实体不得出现在接口层返回值里：" + onlineReturn);
     }

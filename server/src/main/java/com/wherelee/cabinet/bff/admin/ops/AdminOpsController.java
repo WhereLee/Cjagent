@@ -2,6 +2,8 @@ package com.wherelee.cabinet.bff.admin.ops;
 
 import com.wherelee.cabinet.assistant.api.AiJobPort;
 import com.wherelee.cabinet.common.annotation.OperationLog;
+import com.wherelee.cabinet.common.api.PageQuery;
+import com.wherelee.cabinet.common.api.PageResult;
 import com.wherelee.cabinet.domain.enums.AiJobType;
 import com.wherelee.cabinet.locker.api.DeadLetterPort;
 import com.wherelee.cabinet.platform.security.Caller;
@@ -20,9 +22,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 /**
  * 运维 AI 诊断（第 24 刀）：诊断副驾的端点。
@@ -40,9 +41,6 @@ import java.util.List;
 @RequestMapping("/api/admin/ops")
 @Validated
 public class AdminOpsController {
-
-    /** 死信列表一次给多少条：运维看一眼就知道有没有东西卡住，不需要翻页。 */
-    private static final int DEAD_LETTER_LIMIT = 50;
 
     private final AiJobPort jobs;
     private final DeadLetterPort deadLetters;
@@ -76,11 +74,12 @@ public class AdminOpsController {
     // ── 死信（outbox 接 broker 之后的运维出口）────────────────────────
 
     @Operation(summary = "死信列表",
-            description = "重试耗尽仍失败的事实。RocketMQ 只留 3 天，这里永久归档；非空说明有东西没处理成")
+            description = "重试耗尽仍失败的事实。RocketMQ 只留 3 天，这里永久归档；带正文，重放前先看清是什么")
     @PreAuthorize("hasAuthority('ops:diagnose')")
     @GetMapping("/dead-letters")
-    public R<List<DeadLetterPort.View>> deadLetters() {
-        return R.ok(deadLetters.listOpen(DEAD_LETTER_LIMIT));
+    public R<PageResult<DeadLetterPort.DeadLetterView>> deadLetters(@Valid PageQuery query,
+                                                                   @RequestParam(required = false) String status) {
+        return R.ok(deadLetters.list(status, query));
     }
 
     @Operation(summary = "重放一条死信",

@@ -37,7 +37,7 @@ public class MiniNoticeController {
     @RateLimit(limit = 60, windowSeconds = 60)
     @PreAuthorize("hasRole('CUSTOMER')")
     @GetMapping
-    public R<List<NoticePort.View>> mine(@AuthenticationPrincipal Caller current) {
+    public R<List<NoticePort.NoticeView>> mine(@AuthenticationPrincipal Caller current) {
         return R.ok(notices.forCustomer(current.subjectId()));
     }
 

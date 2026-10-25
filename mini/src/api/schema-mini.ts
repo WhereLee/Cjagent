@@ -364,15 +364,7 @@ export interface SizeFree {
   free?: string
 }
 
-export interface RListView {
-  code?: number
-  message?: string
-  data?: View[]
-  traceId?: string
-  timestamp?: string
-}
-
-export interface View {
+export interface NoticeView {
   id?: string
   channel?: string
   kind?: string
@@ -382,6 +374,14 @@ export interface View {
   createTime?: string
   doneAt?: string
   doneNote?: string
+}
+
+export interface RListNoticeView {
+  code?: number
+  message?: string
+  data?: NoticeView[]
+  traceId?: string
+  timestamp?: string
 }
 
 /** 接口操作表：key 为 "method path"（method 小写），入参与出参类型来自契约 */
@@ -519,7 +519,7 @@ export interface OperationTypes {
   "get /api/mini/notices": {
     summary: "我的消息"
     req: null
-    res: RListView
+    res: RListNoticeView
   }
   "get /api/mini/auth/me": {
     summary: "当前客户信息"

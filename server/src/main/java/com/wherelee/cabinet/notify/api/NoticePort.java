@@ -19,7 +19,7 @@ import java.util.List;
 public interface NoticePort {
 
     /** 视图：接口层不回传实体。 */
-    record View(Long id, String channel, String kind, String content, String orderNo,
+    record NoticeView(Long id, String channel, String kind, String content, String orderNo,
                 Long workOrderId, LocalDateTime createTime, LocalDateTime doneAt,
                 String doneNote) {
     }
@@ -31,9 +31,9 @@ public interface NoticePort {
     /** 改写一条已发消息的内容（比如重置取件码后，凭证消息必须反映当前码）。 */
     void rewrite(String dedupKey, String content);
 
-    List<View> forCustomer(Long customerId);
+    List<NoticeView> forCustomer(Long customerId);
 
-    List<View> pendingCalls();
+    List<NoticeView> pendingCalls();
 
     void markRead(Long id, Long customerId);
 

@@ -12,7 +12,7 @@ import java.util.List;
  * 工单的对外入口：后台队列、用户侧工单、流转动作与读侧视图。
  *
  * <p>为什么把视图记录也放在这里：它们原来内嵌在 {@code WorkOrderService}，BFF 为了写
- * {@code R<...View>} 只能依赖应用类。记录<b>原字段、原名</b>搬进来，OpenAPI 的 schema
+ * {@code R<...WorkOrderView>} 只能依赖应用类。记录<b>原字段、原名</b>搬进来，OpenAPI 的 schema
  * 名与字段都不变（契约快照机检），调用方换的只是依赖的类型。
  *
  * <p>这是<b>契约层</b>：方法体内的一切流转规则仍在 servicedesk 的 app 层；
@@ -49,7 +49,7 @@ public interface WorkOrderConsolePort {
     }
 
     /** 队列视图：接口层不回传实体（实体带着一堆流转细节）。 */
-    record View(Long id, String kind, String source, String type, String intent, String category,
+    record WorkOrderView(Long id, String kind, String source, String type, String intent, String category,
                 String priority, String impact, String urgency, boolean urgent, String status,
                 String queueSide, String assigneeGroup, String slotNo, String cabinetNo,
                 String siteAddress, String orderNo, String customerPhone, String title,
@@ -67,7 +67,7 @@ public interface WorkOrderConsolePort {
     }
 
     /** 父子单关系：详情页要能双向跳转，且子单看得到父单结论。 */
-    record Family(View self, View parent, List<View> children) {
+    record Family(WorkOrderView self, WorkOrderView parent, List<WorkOrderView> children) {
     }
 
     /**
@@ -131,9 +131,9 @@ public interface WorkOrderConsolePort {
 
     // ---- 读侧 ----
 
-    PageResult<View> queue(String queueSide, boolean openOnly, PageQuery query);
+    PageResult<WorkOrderView> queue(String queueSide, boolean openOnly, PageQuery query);
 
-    View one(Long workOrderId);
+    WorkOrderView one(Long workOrderId);
 
     Family family(Long workOrderId);
 

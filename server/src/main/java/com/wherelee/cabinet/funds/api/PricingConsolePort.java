@@ -23,7 +23,7 @@ public interface PricingConsolePort {
     }
 
     /** 策略出参视图。 */
-    record View(Long id, Long siteId, Integer version, String status,
+    record PricingRuleView(Long id, Long siteId, Integer version, String status,
                 Long depositPoints, Integer freeMinutes, Integer dailyCapHours, Integer capDays,
                 Integer toleranceMinutes, Integer remoteCloseHours,
                 Long unitSmall, Long unitMedium, Long unitLarge,
@@ -31,15 +31,15 @@ public interface PricingConsolePort {
     }
 
     /** 当前生效策略；没有时返回 null（调用方必须显式处理“退回默认价”）。 */
-    View effective(Long siteId);
+    PricingRuleView effective(Long siteId);
 
-    List<View> list();
+    List<PricingRuleView> list();
 
     /** 发布前预览：与结算同一算法；{@code draft} 为空时按当前生效策略算。 */
     Map<String, Object> preview(Long siteId, Draft draft);
 
-    View publish(Draft draft, Long siteId, LocalDateTime effectiveAt, String reason, Long adminId);
+    PricingRuleView publish(Draft draft, Long siteId, LocalDateTime effectiveAt, String reason, Long adminId);
 
     /** 回滚 = 把旧版内容再发布一次（保留历史，不把旧行改回生效）。 */
-    View rollback(Long ruleId, String reason, Long adminId);
+    PricingRuleView rollback(Long ruleId, String reason, Long adminId);
 }

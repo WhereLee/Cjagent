@@ -89,7 +89,7 @@ class AiJobFlowTest {
                 "跑完必须释放 active_flag，否则同一请求永远不能再来一次");
         assertNotNull(row.get("result"), "产出一栏必须有东西——前端轮询读的就是它");
 
-        AiJobPort.View view = TenantContext.callAs(TENANT, () -> jobs.view(jobId, OPERATOR));
+        AiJobPort.AiJobView view = TenantContext.callAs(TENANT, () -> jobs.view(jobId, OPERATOR));
         assertEquals("DONE", view.status());
         assertNotNull(view.result(), "视图要带上反序列化后的产出，前端不用自己 parse 字符串");
     }

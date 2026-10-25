@@ -183,7 +183,7 @@ class WorkOrderSlaTest {
         TenantContext.runAs(TENANT, () -> workOrders.pauseSla(id, OPERATOR, SlaPauseReason.WAITING_CUSTOMER));
         assertEquals("WAITING_CUSTOMER", jdbc.queryForObject(
                 "select sla_pause_reason from biz_work_order where id = ?", String.class, id));
-        WorkOrderConsolePort.View waiting = TenantContext.callAs(TENANT, () -> workOrders.one(id));
+        WorkOrderConsolePort.WorkOrderView waiting = TenantContext.callAs(TENANT, () -> workOrders.one(id));
         assertEquals("WAITING_CUSTOMER", waiting.slaPauseReason(), "详情要能显示为什么暂停");
         String detail = jdbc.queryForObject("select detail from biz_work_order_event "
                         + "where tenant_id = ? and work_order_id = ? and event_type = 'SLA_PAUSED'",
@@ -221,7 +221,7 @@ class WorkOrderSlaTest {
         Long p1 = openRequest(WorkOrderType.DOOR_NOT_CLOSED, WorkOrderPriority.P1,
                 LocalDateTime.now().plusMinutes(10), LocalDateTime.now().plusMinutes(120));
 
-        PageResult<WorkOrderConsolePort.View> queue = TenantContext.callAs(TENANT,
+        PageResult<WorkOrderConsolePort.WorkOrderView> queue = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_ONLINE, true, new PageQuery()));
         assertEquals(p1, queue.records().get(0).id(), "P1 必须排在 P2 前面，而不是按开单先后");
         assertEquals(p2, queue.records().get(1).id());

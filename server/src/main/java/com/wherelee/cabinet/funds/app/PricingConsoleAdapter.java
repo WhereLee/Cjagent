@@ -24,12 +24,12 @@ public class PricingConsoleAdapter implements PricingConsolePort {
     }
 
     @Override
-    public View effective(Long siteId) {
+    public PricingRuleView effective(Long siteId) {
         return toView(rules.effectiveView(siteId));
     }
 
     @Override
-    public List<View> list() {
+    public List<PricingRuleView> list() {
         return rules.list().stream().map(PricingConsoleAdapter::toView).toList();
     }
 
@@ -39,12 +39,12 @@ public class PricingConsoleAdapter implements PricingConsolePort {
     }
 
     @Override
-    public View publish(Draft draft, Long siteId, LocalDateTime effectiveAt, String reason, Long adminId) {
+    public PricingRuleView publish(Draft draft, Long siteId, LocalDateTime effectiveAt, String reason, Long adminId) {
         return toView(rules.publish(toRule(draft), siteId, effectiveAt, reason, adminId));
     }
 
     @Override
-    public View rollback(Long ruleId, String reason, Long adminId) {
+    public PricingRuleView rollback(Long ruleId, String reason, Long adminId) {
         return toView(rules.rollback(ruleId, reason, adminId));
     }
 
@@ -62,11 +62,11 @@ public class PricingConsoleAdapter implements PricingConsolePort {
         return rule;
     }
 
-    private static View toView(PriceRuleService.View view) {
+    private static PricingRuleView toView(PriceRuleService.PricingRuleView view) {
         if (view == null) {
             return null;
         }
-        return new View(view.id(), view.siteId(), view.version(), view.status(),
+        return new PricingRuleView(view.id(), view.siteId(), view.version(), view.status(),
                 view.depositPoints(), view.freeMinutes(), view.dailyCapHours(), view.capDays(),
                 view.toleranceMinutes(), view.remoteCloseHours(),
                 view.unitSmall(), view.unitMedium(), view.unitLarge(),

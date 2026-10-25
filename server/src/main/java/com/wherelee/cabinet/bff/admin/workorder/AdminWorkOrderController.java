@@ -40,7 +40,7 @@ import java.util.List;
  * <p>例外只有单据详情（timeline/evidence）：认领与处理都要求先能看单，
  * 所以持有任一队列查看权的人都放行——否则线下运维认领之后寸步难行。
  *
- * <p>返回的全是应用层视图（{@link WorkOrderConsolePort.View}），不回传实体：
+ * <p>返回的全是应用层视图（{@link WorkOrderConsolePort.WorkOrderView}），不回传实体：
  * 实体带着 active_flag、version 这些流转内部字段，暴露出去迟早有人拿它们当业务状态用
  * （ArchUnit 也会当场拦下）。
  */
@@ -80,7 +80,7 @@ public class AdminWorkOrderController {
     @Operation(summary = "待联系客户的电话任务", description = "阶梯升到“必须处理”时生成，未回填前一直在列")
     @PreAuthorize("hasAuthority('workorder:online:list')")
     @GetMapping("/pending-calls")
-    public R<java.util.List<com.wherelee.cabinet.notify.api.NoticePort.View>> pendingCalls() {
+    public R<java.util.List<com.wherelee.cabinet.notify.api.NoticePort.NoticeView>> pendingCalls() {
         return R.ok(notices.pendingCalls());
     }
 
@@ -102,7 +102,7 @@ public class AdminWorkOrderController {
     @Operation(summary = "线上工单队列", description = "紧急在前、开单早的先办；默认只给未关闭的；支持统一分页与排序（createTime/dueAt）")
     @PreAuthorize("hasAuthority('workorder:online:list')")
     @GetMapping("/online")
-    public R<PageResult<WorkOrderConsolePort.View>> online(@Valid PageQuery query,
+    public R<PageResult<WorkOrderConsolePort.WorkOrderView>> online(@Valid PageQuery query,
                                                        @RequestParam(defaultValue = "true") boolean openOnly) {
         return R.ok(workOrders.queue("ONLINE", openOnly, query));
     }
@@ -110,7 +110,7 @@ public class AdminWorkOrderController {
     @Operation(summary = "线下工单队列", description = "线上业务员判断“需跑一趟”后派发到这里的工单；支持统一分页与排序")
     @PreAuthorize("hasAuthority('workorder:field:list')")
     @GetMapping("/field")
-    public R<PageResult<WorkOrderConsolePort.View>> field(@Valid PageQuery query,
+    public R<PageResult<WorkOrderConsolePort.WorkOrderView>> field(@Valid PageQuery query,
                                                       @RequestParam(defaultValue = "true") boolean openOnly) {
         return R.ok(workOrders.queue("FIELD", openOnly, query));
     }

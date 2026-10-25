@@ -63,7 +63,7 @@ public class WorkOrderQueryService {
      * <p>原来这里是写死的 {@code limit 200}——第 201 张单在队列里永远看不到，
      * 而项目的统一分页约定（PageQuery/PageResult）早已立好，这里补齐而不是另造一套。
      */
-    public PageResult<WorkOrderConsolePort.View> queue(String queueSide, boolean openOnly, PageQuery query) {
+    public PageResult<WorkOrderConsolePort.WorkOrderView> queue(String queueSide, boolean openOnly, PageQuery query) {
         Page<BizWorkOrder> page = PageSupport.toPage(query, QUEUE_SORTABLE);
         return PageSupport.toResult(orders.selectPage(page, Wrappers.<BizWorkOrder>lambdaQuery()
                 .eq(BizWorkOrder::getQueueSide, queueSide)
@@ -82,7 +82,7 @@ public class WorkOrderQueryService {
      * <p>注意 {@code customerPhone} 在这里只给打电话的人看：AI 简报的工具层负责把它滤掉，
      * 不让电话进模型上下文。
      */
-    public WorkOrderConsolePort.View one(Long workOrderId) {
+    public WorkOrderConsolePort.WorkOrderView one(Long workOrderId) {
         BizWorkOrder order = journal.require(workOrderId);
         String parentNote = null;
         if (order.getParentId() != null) {
@@ -95,9 +95,9 @@ public class WorkOrderQueryService {
     /** 父子单关系：详情页要能双向跳转，且子单看得到父单结论。 */
     public WorkOrderConsolePort.Family family(Long workOrderId) {
         BizWorkOrder order = journal.require(workOrderId);
-        WorkOrderConsolePort.View self = toView(order, null, csatOf(workOrderId));
-        WorkOrderConsolePort.View parent = order.getParentId() == null ? null : one(order.getParentId());
-        List<WorkOrderConsolePort.View> children = orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
+        WorkOrderConsolePort.WorkOrderView self = toView(order, null, csatOf(workOrderId));
+        WorkOrderConsolePort.WorkOrderView parent = order.getParentId() == null ? null : one(order.getParentId());
+        List<WorkOrderConsolePort.WorkOrderView> children = orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
                         .eq(BizWorkOrder::getParentId, workOrderId)
                         .orderByAsc(BizWorkOrder::getCreateTime))
                 .stream()
@@ -171,7 +171,7 @@ public class WorkOrderQueryService {
         return toCustomerView(order, csatOf(workOrderId));
     }
 
-    private WorkOrderConsolePort.View toView(BizWorkOrder o) {
+    private WorkOrderConsolePort.WorkOrderView toView(BizWorkOrder o) {
         return toView(o, null);
     }
 
@@ -197,18 +197,18 @@ public class WorkOrderQueryService {
                 csat == null ? null : csat.getScore());
     }
 
-    private WorkOrderConsolePort.View toView(BizWorkOrder o, String parentResultNote) {
+    private WorkOrderConsolePort.WorkOrderView toView(BizWorkOrder o, String parentResultNote) {
         return toView(o, parentResultNote, null);
     }
 
-    private WorkOrderConsolePort.View toView(BizWorkOrder o, String parentResultNote, BizWorkOrderCsat csat) {
+    private WorkOrderConsolePort.WorkOrderView toView(BizWorkOrder o, String parentResultNote, BizWorkOrderCsat csat) {
         // 柜机编号/点位地址/检测值必须从快照带出来：业务员接了单要能凭这一行知道去哪、看什么，
         // 而不是只看到一句“格口 S12 门未关”就出发（这三个字段一直在快照里，只是以前没读）
         // 看了明文就留痕：记谁看了哪个客户，不记号码本身
         if (PhoneVisibility.allowed() && o.getCustomerId() != null) {
             phoneAuditor.record(o.getCustomerId());
         }
-        return new WorkOrderConsolePort.View(o.getId(),
+        return new WorkOrderConsolePort.WorkOrderView(o.getId(),
                 o.getKind() == null ? null : o.getKind().name(),
                 o.getSource() == null ? null : o.getSource().name(),
                 o.getType() == null ? null : o.getType().name(),

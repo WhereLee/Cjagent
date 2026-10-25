@@ -82,7 +82,7 @@ public class AiJobService implements AiJobPort {
     }
 
     @Override
-    public View view(Long jobId, Long requesterId) {
+    public AiJobView view(Long jobId, Long requesterId) {
         // 走 BaseMapper：租户拦截器照常生效，越租直接查不到
         BizAiJob job = jobs.selectById(jobId);
         if (job == null || !job.getRequesterId().equals(requesterId)) {
@@ -93,7 +93,7 @@ public class AiJobService implements AiJobPort {
         if (job.getStatus() == AiJobStatus.DONE && job.getResult() != null) {
             parsed = readResult(job);
         }
-        return new View(job.getId(), job.getJobType().name(), job.getStatus().name(), parsed,
+        return new AiJobView(job.getId(), job.getJobType().name(), job.getStatus().name(), parsed,
                 job.getLastError(), job.getCreateTime(), job.getUpdateTime());
     }
 

@@ -26,7 +26,7 @@ public class BriefTools {
 
     @Tool(description = "查工单本体：类型、状态、紧急度、所属队列、格口/柜机/点位、标题、开单时的检测值、处理时限。不含客户电话（电话不进 AI）。")
     public String workOrderContext() {
-        WorkOrderConsolePort.View v = workOrders.one(workOrderId);
+        WorkOrderConsolePort.WorkOrderView v = workOrders.one(workOrderId);
         return "type=" + v.type() + "；status=" + v.status() + "；urgent=" + (v.urgent() ? "紧急" : "普通")
                 + "；queueSide=" + v.queueSide()
                 + "；slotNo=" + nvl(v.slotNo()) + "；cabinetNo=" + nvl(v.cabinetNo())

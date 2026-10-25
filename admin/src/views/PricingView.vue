@@ -8,7 +8,7 @@ import {
   publishRule,
   rollbackRule,
 } from '@/api'
-import type { Draft, View } from '@/api/schema-admin'
+import type { Draft, PricingRuleView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
 import { priceRuleStatusText } from '@/utils/dict'
 import { fmtMinutes, fmtTime, pointsToYuan } from '@/utils/format'
@@ -18,8 +18,8 @@ const auth = useAuthStore()
 const canPublish = computed(() => auth.hasAuthority('pricing:rule:publish'))
 
 const loading = ref(false)
-const rules = ref<View[]>([])
-const effective = ref<View | null>(null)
+const rules = ref<PricingRuleView[]>([])
+const effective = ref<PricingRuleView | null>(null)
 
 // 草稿：数值点数字段保持字符串输入，提交前校验为整数（点数 = 分，不做浮点）
 const draft = reactive<Draft>({
@@ -143,7 +143,7 @@ async function onPublish(): Promise<void> {
   }
 }
 
-async function onRollback(rule: View): Promise<void> {
+async function onRollback(rule: PricingRuleView): Promise<void> {
   let reason = ''
   try {
     const result = await ElMessageBox.prompt(

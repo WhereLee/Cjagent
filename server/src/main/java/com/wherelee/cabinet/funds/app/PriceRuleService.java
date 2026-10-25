@@ -78,17 +78,17 @@ public class PriceRuleService {
     /** 策略出参视图。<b>接口层不得直接拿实体</b>（ArchUnit 有这条规则）：
      * 实体带着审计列与逻辑删除位，一曝光到契约上就再也收不回去（前端会开始依赖它）。
      */
-    public record View(Long id, Long siteId, Integer version, String status,
+    public record PricingRuleView(Long id, Long siteId, Integer version, String status,
                        Long depositPoints, Integer freeMinutes, Integer dailyCapHours, Integer capDays,
                        Integer toleranceMinutes, Integer remoteCloseHours,
                        Long unitSmall, Long unitMedium, Long unitLarge,
                        LocalDateTime effectiveAt, Long publishedBy, String reason) {
 
-        static View of(BizPriceRule rule) {
+        static PricingRuleView of(BizPriceRule rule) {
             if (rule == null) {
                 return null;
             }
-            return new View(rule.getId(), rule.getSiteId(), rule.getVersion(), rule.getStatus(),
+            return new PricingRuleView(rule.getId(), rule.getSiteId(), rule.getVersion(), rule.getStatus(),
                     rule.getDepositPoints(), rule.getFreeMinutes(), rule.getDailyCapHours(), rule.getCapDays(),
                     rule.getToleranceMinutes(), rule.getRemoteCloseHours(),
                     rule.getUnitSmall(), rule.getUnitMedium(), rule.getUnitLarge(),
@@ -108,12 +108,12 @@ public class PriceRuleService {
     }
 
     /** 给后台接口看的同一件事（视图形式，实体不外泄）。 */
-    public View effectiveView(Long siteId) {
-        return View.of(effective(siteId));
+    public PricingRuleView effectiveView(Long siteId) {
+        return PricingRuleView.of(effective(siteId));
     }
 
-    public List<View> list() {
-        return ruleMapper.listAll().stream().map(View::of).toList();
+    public List<PricingRuleView> list() {
+        return ruleMapper.listAll().stream().map(PricingRuleView::of).toList();
     }
 
     /**
@@ -157,7 +157,7 @@ public class PriceRuleService {
      * 是最后一道防线，专门挡"两个运营同时点发布"。
      */
     @Transactional
-    public View publish(BizPriceRule draft, Long siteId, LocalDateTime effectiveAt,
+    public PricingRuleView publish(BizPriceRule draft, Long siteId, LocalDateTime effectiveAt,
                                String reason, Long adminId) {
         if (reason == null || reason.isBlank()) {
             throw new BizException(ResultCode.PARAM_INVALID, "发布计价策略必须写明事由（改价依据与灰度范围）");
@@ -186,7 +186,7 @@ public class PriceRuleService {
         } else {
             log.info("预约发布计价策略 siteId={} version={} 生效时刻={}", siteId, rule.getVersion(), when);
         }
-        return View.of(rule);
+        return PricingRuleView.of(rule);
     }
 
     /**
@@ -196,7 +196,7 @@ public class PriceRuleService {
      * 而价格是要对账、要回答用户质疑的东西。新增一版能保留完整历史，也让"回滚"这件事本身可审计。
      */
     @Transactional
-    public View rollback(Long ruleId, String reason, Long adminId) {
+    public PricingRuleView rollback(Long ruleId, String reason, Long adminId) {
         BizPriceRule old = ruleMapper.selectById(ruleId);
         if (old == null) {
             throw new BizException(ResultCode.RESOURCE_NOT_FOUND, "要回滚的策略版本不存在");

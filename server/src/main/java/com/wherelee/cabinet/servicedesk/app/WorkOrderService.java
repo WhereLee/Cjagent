@@ -176,11 +176,11 @@ public class WorkOrderService implements WorkOrderConsolePort {
         return queries.evidenceFor(workOrderId);
     }
 
-    public PageResult<View> queue(String queueSide, boolean openOnly, PageQuery query) {
+    public PageResult<WorkOrderView> queue(String queueSide, boolean openOnly, PageQuery query) {
         return queries.queue(queueSide, openOnly, query);
     }
 
-    public View one(Long workOrderId) {
+    public WorkOrderView one(Long workOrderId) {
         return queries.one(workOrderId);
     }
 

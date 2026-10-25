@@ -1,13 +1,14 @@
 // B 端接口层：所有调用只消费后端既有路由（/api/admin/**），不新增字段与概念。
 // 入参出参类型以 schema-admin.ts（生成物）为准；生成物丢失的行类型见 contracts.ts。
 import { request } from './http'
-import type { AiJobView } from './ai-results'
 import type {
   AdminLoginRequest,
+  AiJobView,
   ArrearsView,
   AskCommand,
   CallDoneCommand,
   CustomerStatusRequest,
+  DeadLetterView,
   DepositView,
   Detail,
   Draft,
@@ -16,13 +17,13 @@ import type {
   ForceOpenRequest,
   LedgerView,
   PhoneNoteCommand,
+  PricingRuleView,
   ReasonRequest,
   RefreshRequest,
   ResolveCommand,
   ResolveRequest,
   TokenView,
   UserView,
-  View,
 } from './schema-admin'
 import type { CurrentAccount, NoticeRow, OrderDetail, OrderRow, Paged, SummaryRow, WorkOrderFamily, WorkOrderRow } from './contracts'
 
@@ -176,16 +177,16 @@ export const changeCustomerStatus = (customerId: string, body: CustomerStatusReq
 
 // ── 定价策略 /api/admin/pricing ───────────────────────────────────
 export const fetchPricingRules = () =>
-  request<View[]>({ url: '/api/admin/pricing/rules', method: 'get' })
+  request<PricingRuleView[]>({ url: '/api/admin/pricing/rules', method: 'get' })
 
 export const fetchEffectiveRule = (siteId?: string) =>
-  request<View>({ url: '/api/admin/pricing/effective', method: 'get', params: siteId ? { siteId } : {} })
+  request<PricingRuleView>({ url: '/api/admin/pricing/effective', method: 'get', params: siteId ? { siteId } : {} })
 
 export const previewRule = (body: Draft) =>
   request<Record<string, unknown>>({ url: '/api/admin/pricing/rules/preview', method: 'post', data: body })
 
 export const publishRule = (body: Draft) =>
-  request<View>({ url: '/api/admin/pricing/rules', method: 'post', data: body })
+  request<PricingRuleView>({ url: '/api/admin/pricing/rules', method: 'post', data: body })
 
 export const rollbackRule = (ruleId: string, body: ReasonRequest) =>
   request<void>({ url: `/api/admin/pricing/rules/${ruleId}/rollback`, method: 'post', data: body })
@@ -197,6 +198,24 @@ export const opsDiagnose = (signal?: AbortSignal) =>
 
 export const opsAsk = (body: AskCommand, signal?: AbortSignal) =>
   request<string>({ url: '/api/admin/ops/ask', method: 'post', data: body, timeout: 10000, signal })
+
+// ── 死信 /api/admin/ops ──────────────────────────────────────────
+export interface DeadLetterQuery extends PageQuery {
+  /** OPEN 待处理 / REPLAYED 已重放；不传则两种都返回 */
+  status?: string
+}
+
+/** 死信分页。带正文：重放前必须先看清这条消息到底是什么 */
+export const fetchDeadLetters = (params: DeadLetterQuery) =>
+  request<Paged<DeadLetterView>>({ url: '/api/admin/ops/dead-letters', method: 'get', params })
+
+/**
+ * 重放一条死信：把消息重新投回原来的业务 topic。
+ *
+ * 返回 `false` 不是错误，是两种**正常**情况：已经重放过；或消息缺租户信息（坏消息，只能人工看）。
+ */
+export const replayDeadLetter = (id: string) =>
+  request<boolean>({ url: `/api/admin/ops/dead-letter/${id}/replay`, method: 'post' })
 
 // ── 账号 /api/admin/users ─────────────────────────────────────────
 export const fetchUsers = (params: PageQuery & { keyword?: string; status?: number }) =>

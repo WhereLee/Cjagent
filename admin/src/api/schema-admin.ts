@@ -55,15 +55,7 @@ export interface Draft {
   unitLarge?: string
 }
 
-export interface RView {
-  code?: number
-  message?: string
-  data?: View
-  traceId?: string
-  timestamp?: string
-}
-
-export interface View {
+export interface PricingRuleView {
   id?: string
   siteId?: string
   version?: number
@@ -80,6 +72,14 @@ export interface View {
   effectiveAt?: string
   publishedBy?: string
   reason?: string
+}
+
+export interface RPricingRuleView {
+  code?: number
+  message?: string
+  data?: PricingRuleView
+  traceId?: string
+  timestamp?: string
 }
 
 export interface ReasonRequest {
@@ -164,9 +164,9 @@ export interface RListEventView {
 }
 
 export interface Family {
-  self?: View
-  parent?: View
-  children?: View[]
+  self?: WorkOrderView
+  parent?: WorkOrderView
+  children?: WorkOrderView[]
 }
 
 export interface RFamily {
@@ -175,6 +175,45 @@ export interface RFamily {
   data?: Family
   traceId?: string
   timestamp?: string
+}
+
+export interface WorkOrderView {
+  id?: string
+  kind?: string
+  source?: string
+  type?: string
+  intent?: string
+  category?: string
+  priority?: string
+  impact?: string
+  urgency?: string
+  urgent?: boolean
+  status?: string
+  queueSide?: string
+  assigneeGroup?: string
+  slotNo?: string
+  cabinetNo?: string
+  siteAddress?: string
+  orderNo?: string
+  customerPhone?: string
+  title?: string
+  detection?: string
+  resultNote?: string
+  closeReason?: string
+  assigneeId?: string
+  parentId?: string
+  parentResultNote?: string
+  dueAt?: string
+  responseDueAt?: string
+  resolveDueAt?: string
+  firstResponseAt?: string
+  closedAt?: string
+  createTime?: string
+  handoffJson?: string
+  reopenedCount?: number
+  slaPauseReason?: string
+  csatScore?: number
+  csatComment?: string
 }
 
 export interface EvidenceView {
@@ -196,10 +235,22 @@ export interface RListEvidenceView {
   timestamp?: string
 }
 
-export interface RListView {
+export interface NoticeView {
+  id?: string
+  channel?: string
+  kind?: string
+  content?: string
+  orderNo?: string
+  workOrderId?: string
+  createTime?: string
+  doneAt?: string
+  doneNote?: string
+}
+
+export interface RListNoticeView {
   code?: number
   message?: string
-  data?: View[]
+  data?: NoticeView[]
   traceId?: string
   timestamp?: string
 }
@@ -211,18 +262,18 @@ export interface PageQuery {
   asc?: boolean
 }
 
-export interface PageResultView {
+export interface PageResultWorkOrderView {
   pageNum?: string
   pageSize?: string
   total?: string
   pages?: string
-  records?: View[]
+  records?: WorkOrderView[]
 }
 
-export interface RPageResultView {
+export interface RPageResultWorkOrderView {
   code?: number
   message?: string
-  data?: PageResultView
+  data?: PageResultWorkOrderView
   traceId?: string
   timestamp?: string
 }
@@ -257,6 +308,14 @@ export interface RString {
   code?: number
   message?: string
   data?: string
+  traceId?: string
+  timestamp?: string
+}
+
+export interface RListPricingRuleView {
+  code?: number
+  message?: string
+  data?: PricingRuleView[]
   traceId?: string
   timestamp?: string
 }
@@ -375,6 +434,36 @@ export interface WorkOrderLine {
   closeReason?: string
   title?: string
   createTime?: string
+}
+
+export interface DeadLetterView {
+  id?: string
+  topic?: string
+  tag?: string
+  dlqTopic?: string
+  msgKey?: string
+  payload?: string
+  error?: string
+  reconsumeTimes?: number
+  status?: string
+  receivedAt?: string
+  replayedAt?: string
+}
+
+export interface PageResultDeadLetterView {
+  pageNum?: string
+  pageSize?: string
+  total?: string
+  pages?: string
+  records?: DeadLetterView[]
+}
+
+export interface RPageResultDeadLetterView {
+  code?: number
+  message?: string
+  data?: PageResultDeadLetterView
+  traceId?: string
+  timestamp?: string
 }
 
 export interface DepositView {
@@ -543,6 +632,24 @@ export interface RCurrentAccountView {
   timestamp?: string
 }
 
+export interface AiJobView {
+  id?: string
+  jobType?: string
+  status?: string
+  result?: unknown
+  error?: string
+  createTime?: string
+  updateTime?: string
+}
+
+export interface RAiJobView {
+  code?: number
+  message?: string
+  data?: AiJobView
+  traceId?: string
+  timestamp?: string
+}
+
 /** 接口操作表：key 为 "method path"（method 小写），入参与出参类型来自契约 */
 export interface OperationTypes {
   "post /api/admin/work-orders/{id}/sla/resume": {
@@ -588,17 +695,17 @@ export interface OperationTypes {
   "get /api/admin/pricing/rules": {
     summary: "策略列表"
     req: null
-    res: RListView
+    res: RListPricingRuleView
   }
   "post /api/admin/pricing/rules": {
     summary: "发布一版策略"
     req: Draft
-    res: RView
+    res: RPricingRuleView
   }
   "post /api/admin/pricing/rules/{ruleId}/rollback": {
     summary: "回滚到指定版本"
     req: ReasonRequest
-    res: RView
+    res: RPricingRuleView
   }
   "post /api/admin/pricing/rules/preview": {
     summary: "发布前预览"
@@ -673,17 +780,17 @@ export interface OperationTypes {
   "get /api/admin/work-orders/pending-calls": {
     summary: "待联系客户的电话任务"
     req: null
-    res: RListView
+    res: RListNoticeView
   }
   "get /api/admin/work-orders/online": {
     summary: "线上工单队列"
     req: null
-    res: RPageResultView
+    res: RPageResultWorkOrderView
   }
   "get /api/admin/work-orders/field": {
     summary: "线下工单队列"
     req: null
-    res: RPageResultView
+    res: RPageResultWorkOrderView
   }
   "get /api/admin/users": {
     summary: "账号分页列表"
@@ -708,7 +815,7 @@ export interface OperationTypes {
   "get /api/admin/pricing/effective": {
     summary: "当前生效策略"
     req: null
-    res: RView
+    res: RPricingRuleView
   }
   "get /api/admin/orders": {
     summary: "订单分页列表"
@@ -723,7 +830,7 @@ export interface OperationTypes {
   "get /api/admin/ops/dead-letters": {
     summary: "死信列表"
     req: null
-    res: RListView
+    res: RPageResultDeadLetterView
   }
   "get /api/admin/locker/deposits/unrefunded": {
     summary: "未退押金清单"
@@ -758,7 +865,7 @@ export interface OperationTypes {
   "get /api/admin/ai-jobs/{id}": {
     summary: "查 AI 作业"
     req: null
-    res: RView
+    res: RAiJobView
   }
 }
 

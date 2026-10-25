@@ -12,19 +12,7 @@
  *
  * 后端改字段时这里要同步改——这不是"绕过类型检查"，而是承认一件事：
  * **作业产出的结构由后端 record 决定，不由 HTTP 契约决定**。
- *
- * 另外：`AiJobView` 是作业状态视图（后端 `AiJobPort.View`）。它在契约里被**内联**进了
- * OperationTypes，没有独立的 schema 名，生成器只把它展开成对象字面量，所以这里手写一份。
  */
-export interface AiJobView {
-  id?: string
-  jobType?: string
-  status?: string
-  result?: unknown
-  error?: string
-  createTime?: string
-  updateTime?: string
-}
 
 /** 诊断报告。 */
 export interface OpsReport {

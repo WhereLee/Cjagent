@@ -41,7 +41,7 @@ public class AdminAiJobController {
                     + "别人的作业返回 data=null（当不存在）")
     @PreAuthorize("isAuthenticated()")
     @GetMapping("/{id}")
-    public R<AiJobPort.View> view(@AuthenticationPrincipal Caller current, @PathVariable Long id) {
+    public R<AiJobPort.AiJobView> view(@AuthenticationPrincipal Caller current, @PathVariable Long id) {
         return R.ok(jobs.view(id, current.subjectId()));
     }
 }

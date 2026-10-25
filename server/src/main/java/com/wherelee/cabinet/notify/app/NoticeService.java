@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wherelee.cabinet.common.api.ResultCode;
 import com.wherelee.cabinet.common.exception.BizException;
 import com.wherelee.cabinet.notify.api.NoticePort;
-import com.wherelee.cabinet.notify.api.NoticePort.View;
+import com.wherelee.cabinet.notify.api.NoticePort.NoticeView;
 import com.wherelee.cabinet.notify.domain.BizNotice;
 import com.wherelee.cabinet.notify.infra.BizNoticeMapper;
 import org.slf4j.Logger;
@@ -82,7 +82,7 @@ public class NoticeService implements NoticePort {
     }
 
     /** 客户可见的消息（含已读的最近若干条：他只关心"有没有我没看到的异常"）。 */
-    public List<View> forCustomer(Long customerId) {
+    public List<NoticeView> forCustomer(Long customerId) {
         return notices.selectList(Wrappers.<BizNotice>lambdaQuery()
                 .eq(BizNotice::getCustomerId, customerId)
                 .eq(BizNotice::getChannel, com.wherelee.cabinet.notify.api.NoticeChannel.SYSTEM_MESSAGE.name())
@@ -92,7 +92,7 @@ public class NoticeService implements NoticePort {
     }
 
     /** 业务员侧"还没打给客户"的任务清单。 */
-    public List<View> pendingCalls() {
+    public List<NoticeView> pendingCalls() {
         return notices.selectList(Wrappers.<BizNotice>lambdaQuery()
                 .eq(BizNotice::getChannel, com.wherelee.cabinet.notify.api.NoticeChannel.PHONE_CALL.name())
                 .isNull(BizNotice::getDoneAt)
@@ -123,8 +123,8 @@ public class NoticeService implements NoticePort {
         return text.length() <= 300 ? text : text.substring(0, 297) + "...";
     }
 
-    private View toView(BizNotice n) {
-        return new View(n.getId(), n.getChannel(), n.getKind(), n.getContent(), n.getOrderNo(),
+    private NoticeView toView(BizNotice n) {
+        return new NoticeView(n.getId(), n.getChannel(), n.getKind(), n.getContent(), n.getOrderNo(),
                 n.getWorkOrderId(), n.getCreateTime(), n.getDoneAt(), n.getDoneNote());
     }
 }
