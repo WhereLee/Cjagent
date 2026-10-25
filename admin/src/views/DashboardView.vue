@@ -11,7 +11,7 @@ import {
   fetchPendingCalls,
   fetchUnrefundedDeposits,
 } from '@/api'
-import type { NoticeRow, SummaryRow } from '@/api/contracts'
+import type { NoticeView, SummaryView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { anomalyText, noticeKindText } from '@/utils/dict'
@@ -27,8 +27,8 @@ const canDeposit = computed(() => auth.hasAuthority('locker:deposit:unrefunded-l
 const canOnline = computed(() => auth.hasAuthority('workorder:online:list'))
 const canField = computed(() => auth.hasAuthority('workorder:field:list'))
 
-const summary = ref<SummaryRow[]>([])
-const pendingCalls = ref<NoticeRow[]>([])
+const summary = ref<SummaryView[]>([])
+const pendingCalls = ref<NoticeView[]>([])
 const anomalies = ref(0)
 const longestMinutes = ref<string | undefined>()
 const onlineOpen = ref(0)

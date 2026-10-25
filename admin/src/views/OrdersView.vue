@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import { fetchOrderDetail, fetchOrders } from '@/api'
-import type { OrderDetail, OrderRow } from '@/api/contracts'
+import type { OrderDetail, OrderRow } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
 import {
   commandActionText,
@@ -114,7 +114,14 @@ async function openDetail(row: OrderRow): Promise<void> {
   }
 }
 
-function points(value?: number): string {
+/**
+ * 点数转账显示。
+ *
+ * 签名故意接受 `number | string`：契约里 `long` 和 `Long` 都是 `integer/int64`，OpenAPI 区分不了，
+ * 生成器只能保守地当字符串（项目把包装 Long 序列化成字符串）；而 `long` 原始字段运行时其实是数字。
+ * 两边都得能过，不能为了迁就其中一边去改后端的序列化口径。
+ */
+function points(value?: number | string | null): string {
   return value === undefined || value === null ? '0' : String(value)
 }
 

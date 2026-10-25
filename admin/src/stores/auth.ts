@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { adminLogin, adminLogout, adminMe, adminRefresh } from '@/api'
-import type { CurrentAccount } from '@/api/contracts'
+import type { CurrentAccountView } from '@/api/schema-admin'
 
 const STORAGE_KEY = 'cabinet-admin-session'
 
@@ -25,7 +25,7 @@ export const useAuthStore = defineStore('auth', {
     refreshToken: loadSession()?.refreshToken ?? '',
     // 顶栏展示的是人登录时填的租户编码；后端 me 只回 tenantId，不回编码
     tenantCode: loadSession()?.tenantCode ?? '',
-    account: null as CurrentAccount | null,
+    account: null as CurrentAccountView | null,
     meLoaded: false,
   }),
   getters: {

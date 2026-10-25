@@ -18,7 +18,7 @@ import {
 } from '@/api'
 import type { Brief } from '@/api/ai-results'
 import type { EventView, EvidenceView, ResolveCommand } from '@/api/schema-admin'
-import type { WorkOrderFamily, WorkOrderRow } from '@/api/contracts'
+import type { Family, WorkOrderView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
 import {
   assigneeGroupText,
@@ -42,7 +42,7 @@ const auth = useAuthStore()
 const activeSide = ref<'ONLINE' | 'FIELD'>('ONLINE')
 
 const loading = ref(false)
-const rows = ref<WorkOrderRow[]>([])
+const rows = ref<WorkOrderView[]>([])
 const total = ref(0)
 const pageQuery = reactive({ pageNum: 1, pageSize: 20 })
 
@@ -55,15 +55,15 @@ function sideAllowed(side: 'ONLINE' | 'FIELD'): boolean {
   )
 }
 
-function canClaimRow(row: WorkOrderRow): boolean {
+function canClaimRow(row: WorkOrderView): boolean {
   return canClaim.value && row.status === 'PENDING'
 }
 
-function isOpenRow(row?: WorkOrderRow | null): boolean {
+function isOpenRow(row?: WorkOrderView | null): boolean {
   return !!row && !['RESOLVED', 'AUTO_CLOSED', 'CANCELLED'].includes(row.status ?? '')
 }
 
-function isWaiting(row?: WorkOrderRow | null): boolean {
+function isWaiting(row?: WorkOrderView | null): boolean {
   return row?.slaPauseReason === 'WAITING_CUSTOMER'
 }
 
@@ -95,13 +95,13 @@ function onPageChange(pageNum: number): void {
 
 // ── 详情抽屉：留痕 + 证据 + AI 简报 ─────────────────────────────
 const drawerOpen = ref(false)
-const current = ref<WorkOrderRow | null>(null)
+const current = ref<WorkOrderView | null>(null)
 const timeline = ref<EventView[]>([])
 const evidence = ref<EvidenceView[]>([])
 const brief = ref<Brief | null>(null)
 const briefLoading = ref(false)
 const detailLoading = ref(false)
-const family = ref<WorkOrderFamily | null>(null)
+const family = ref<Family | null>(null)
 
 /** 交接 JSON 只存不查，展示端按字段读；写坏的历史数据当没有交接，不挡页面 */
 interface HandoffView {
@@ -127,7 +127,7 @@ function userOnSiteText(value?: boolean | null): string {
   return '未确认'
 }
 
-async function openDetail(row: WorkOrderRow): Promise<void> {
+async function openDetail(row: WorkOrderView): Promise<void> {
   current.value = row
   drawerOpen.value = true
   brief.value = null
@@ -153,7 +153,7 @@ async function openDetail(row: WorkOrderRow): Promise<void> {
 }
 
 /** 父子跳转：复用详情抽屉，不额外开页 */
-function jumpTo(row?: WorkOrderRow): void {
+function jumpTo(row?: WorkOrderView): void {
   if (row?.id) void openDetail(row)
 }
 
@@ -174,7 +174,7 @@ async function loadBrief(): Promise<void> {
 }
 
 // ── 认领 / 处理 / 电话留痕 ───────────────────────────────────────
-async function onClaim(row: WorkOrderRow): Promise<void> {
+async function onClaim(row: WorkOrderView): Promise<void> {
   try {
     await claimWorkOrder(String(row.id))
     ElMessage.success('已认领')
@@ -185,7 +185,7 @@ async function onClaim(row: WorkOrderRow): Promise<void> {
 }
 
 /** 等待用户：暂停 SLA 并记录原因；恢复仍需业务员手动点。 */
-async function onWaitCustomer(row: WorkOrderRow): Promise<void> {
+async function onWaitCustomer(row: WorkOrderView): Promise<void> {
   try {
     await pauseWorkOrder(String(row.id), 'WAITING_CUSTOMER')
     ElMessage.success('已标记为等待用户，SLA 已暂停')
@@ -196,7 +196,7 @@ async function onWaitCustomer(row: WorkOrderRow): Promise<void> {
   }
 }
 
-async function onResumeSla(row: WorkOrderRow): Promise<void> {
+async function onResumeSla(row: WorkOrderView): Promise<void> {
   try {
     await resumeWorkOrder(String(row.id))
     ElMessage.success('SLA 已恢复，暂停时长已补回时限')
@@ -217,7 +217,7 @@ const resolveForm = reactive<{
 // 同一"处理意图"重试复用同一个 requestId：处理会派生子单，重放不能派出第二张
 let resolveRequestId = ''
 
-function openResolve(row: WorkOrderRow, draft = ''): void {
+function openResolve(row: WorkOrderView, draft = ''): void {
   current.value = row
   resolveForm.resultNote = draft
   resolveForm.needOffline = false
@@ -257,7 +257,7 @@ async function onResolve(): Promise<void> {
 const phoneDialog = ref(false)
 const phoneForm = reactive({ resultNote: '' })
 
-function openPhoneNote(row: WorkOrderRow): void {
+function openPhoneNote(row: WorkOrderView): void {
   current.value = row
   phoneForm.resultNote = ''
   phoneDialog.value = true
@@ -278,7 +278,7 @@ async function onPhoneNote(): Promise<void> {
   }
 }
 
-async function onClaimWithConfirm(row: WorkOrderRow): Promise<void> {
+async function onClaimWithConfirm(row: WorkOrderView): Promise<void> {
   try {
     await ElMessageBox.confirm('确认认领该工单？认领后由你负责推进。', '认领工单', { type: 'info' })
   } catch {

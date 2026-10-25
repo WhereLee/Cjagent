@@ -3,7 +3,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { callDone, fetchPendingCalls } from '@/api'
-import type { NoticeRow } from '@/api/contracts'
+import type { NoticeView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
 import { noticeChannelText, noticeKindText } from '@/utils/dict'
 import { fmtTime } from '@/utils/format'
@@ -11,11 +11,11 @@ import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const loading = ref(false)
-const rows = ref<NoticeRow[]>([])
+const rows = ref<NoticeView[]>([])
 
 const dialogOpen = ref(false)
 const form = reactive({ resultNote: '' })
-const current = ref<NoticeRow | null>(null)
+const current = ref<NoticeView | null>(null)
 
 async function load(): Promise<void> {
   loading.value = true
@@ -28,7 +28,7 @@ async function load(): Promise<void> {
   }
 }
 
-function openDone(row: NoticeRow): void {
+function openDone(row: NoticeView): void {
   current.value = row
   form.resultNote = ''
   dialogOpen.value = true

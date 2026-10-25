@@ -25,7 +25,8 @@ import type {
   TokenView,
   UserView,
 } from './schema-admin'
-import type { CurrentAccount, NoticeRow, OrderDetail, OrderRow, Paged, SummaryRow, WorkOrderFamily, WorkOrderRow } from './contracts'
+import type { Paged } from './contracts'
+import type { Family, CurrentAccountView, NoticeView, OrderDetail, OrderRow, SummaryView, WorkOrderView } from './schema-admin'
 
 // ── 认证 /api/admin/auth ──────────────────────────────────────────
 export const adminLogin = (body: AdminLoginRequest) =>
@@ -37,7 +38,7 @@ export const adminRefresh = (body: RefreshRequest) =>
 export const adminLogout = (body: RefreshRequest) =>
   request<void>({ url: '/api/admin/auth/logout', method: 'post', data: body })
 
-export const adminMe = () => request<CurrentAccount>({ url: '/api/admin/auth/me', method: 'get' })
+export const adminMe = () => request<CurrentAccountView>({ url: '/api/admin/auth/me', method: 'get' })
 
 // ── 工单 /api/admin/work-orders ───────────────────────────────────
 export interface PageQuery {
@@ -47,17 +48,17 @@ export interface PageQuery {
 }
 
 export const fetchOnlineQueue = (params: PageQuery & { openOnly?: boolean }) =>
-  request<Paged<WorkOrderRow>>({ url: '/api/admin/work-orders/online', method: 'get', params })
+  request<Paged<WorkOrderView>>({ url: '/api/admin/work-orders/online', method: 'get', params })
 
 export const fetchFieldQueue = (params: PageQuery & { openOnly?: boolean }) =>
-  request<Paged<WorkOrderRow>>({ url: '/api/admin/work-orders/field', method: 'get', params })
+  request<Paged<WorkOrderView>>({ url: '/api/admin/work-orders/field', method: 'get', params })
 
 export const fetchTimeline = (id: string) =>
   request<EventView[]>({ url: `/api/admin/work-orders/${id}/timeline`, method: 'get' })
 
 /** 父子单关系：详情页双向跳转，子单看得到父单结论 */
 export const fetchWorkOrderFamily = (id: string) =>
-  request<WorkOrderFamily>({ url: `/api/admin/work-orders/${id}/family`, method: 'get' })
+  request<Family>({ url: `/api/admin/work-orders/${id}/family`, method: 'get' })
 
 export const fetchEvidence = (id: string) =>
   request<EvidenceView[]>({ url: `/api/admin/work-orders/${id}/evidence`, method: 'get' })
@@ -124,7 +125,7 @@ export async function waitAiJob<T>(
 }
 
 export const fetchPendingCalls = () =>
-  request<NoticeRow[]>({ url: '/api/admin/work-orders/pending-calls', method: 'get' })
+  request<NoticeView[]>({ url: '/api/admin/work-orders/pending-calls', method: 'get' })
 
 export const callDone = (id: string, body: CallDoneCommand) =>
   request<void>({ url: `/api/admin/work-orders/notices/${id}/call-done`, method: 'post', data: body })
@@ -151,7 +152,7 @@ export const fetchAnomalies = (params: PageQuery & { anomaly?: string }) =>
   request<Paged<LedgerView>>({ url: '/api/admin/locker/compartments/anomalies', method: 'get', params })
 
 export const fetchAnomalySummary = () =>
-  request<SummaryRow[]>({ url: '/api/admin/locker/compartments/anomalies/summary', method: 'get' })
+  request<SummaryView[]>({ url: '/api/admin/locker/compartments/anomalies/summary', method: 'get' })
 
 export const fetchCompartmentDetail = (compartmentId: string) =>
   request<Detail>({ url: `/api/admin/locker/compartments/${compartmentId}`, method: 'get' })

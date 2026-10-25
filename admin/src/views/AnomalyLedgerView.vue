@@ -11,7 +11,7 @@ import {
   resolveCompartment,
 } from '@/api'
 import type { Detail, LedgerView } from '@/api/schema-admin'
-import type { SummaryRow } from '@/api/contracts'
+import type { SummaryView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
 import {
   anomalyTag,
@@ -33,7 +33,7 @@ const canRebuild = computed(() => auth.hasAuthority('locker:freeset:rebuild'))
 const loading = ref(false)
 const rows = ref<LedgerView[]>([])
 const total = ref(0)
-const summary = ref<SummaryRow[]>([])
+const summary = ref<SummaryView[]>([])
 const pageQuery = reactive({ pageNum: 1, pageSize: 20 })
 const anomalyFilter = ref('')
 
