@@ -1,47 +1,29 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { fetchDeadLetters, replayDeadLetter } from '@/api'
 import type { DeadLetterView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
+import { usePagedList } from '@/composables/usePagedList'
+import PagerBar from '@/components/PagerBar.vue'
 import { fmtTime } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 
 // 死信是"重试耗尽仍没处理成的事实"，属于运维面，所以独立成页而不是塞在诊断页里：
 // 诊断是"生成一份报告给你看"，死信是"有一堆东西等你处理"，两件事的心智模型不一样。
 const auth = useAuthStore()
-const rows = ref<DeadLetterView[]>([])
-const total = ref(0)
-const loading = ref(false)
-/** 默认只看待处理：已重放的不该和"还没人管"的混在同一个默认视图里 */
+/** 默认只看待处理：已重放的不该和"还没人管"的混在同一个默认视图里。ALL = 不按状态筛。 */
 const status = ref('OPEN')
-const page = reactive({ pageNum: 1, pageSize: 20 })
 const detail = ref<DeadLetterView | null>(null)
 const detailOpen = ref(false)
 const replayingId = ref<string | null>(null)
 
-async function load(): Promise<void> {
-  loading.value = true
-  try {
-    const result = await fetchDeadLetters({
-      pageNum: page.pageNum,
-      pageSize: page.pageSize,
-      status: status.value || undefined,
-    })
-    rows.value = result.records ?? []
-    total.value = Number(result.total ?? 0)
-  } catch (e) {
-    ElMessage.error(e instanceof ApiError ? e.message : '死信加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-function onFilter(): void {
-  page.pageNum = 1
-  load()
-}
+const { rows, total, loading, page, load, search, goTo } = usePagedList(
+  // 注意用 "ALL" 而不是空串：空串会被 el-select 当成"未选"，下拉框就显示成 placeholder 了
+  (q) => fetchDeadLetters({ ...q, status: status.value === 'ALL' ? undefined : status.value }),
+  { errorText: '死信加载失败' },
+)
 
 function openDetail(row: DeadLetterView): void {
   detail.value = row
@@ -84,16 +66,16 @@ onMounted(load)
   <el-card>
     <el-form inline>
       <el-form-item label="状态">
-        <el-select v-model="status" class="status-select" @change="onFilter">
+        <el-select v-model="status" class="status-select" @change="search">
           <el-option label="待处理" value="OPEN" />
           <el-option label="已重放" value="REPLAYED" />
-          <el-option label="全部" value="" />
+          <el-option label="全部" value="ALL" />
         </el-select>
       </el-form-item>
       <el-form-item>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
         <el-tag :type="status === 'OPEN' && total > 0 ? 'warning' : 'info'" size="small" class="count-tag">
-          {{ status === 'OPEN' ? '待处理' : '合计' }} {{ total }} 条
+          {{ status === 'OPEN' ? '待处理' : status === 'REPLAYED' ? '已重放' : '合计' }} {{ total }} 条
         </el-tag>
       </el-form-item>
     </el-form>
@@ -107,30 +89,28 @@ onMounted(load)
     />
 
     <el-table v-loading="loading" :data="rows" scrollbar-always-on>
-      <el-table-column label="进入死信" width="170">
+      <el-table-column label="进入死信" width="150">
         <template #default="{ row }">{{ fmtTime(row.receivedAt) }}</template>
       </el-table-column>
-      <el-table-column label="链路" width="170">
+      <el-table-column label="链路" width="90">
         <template #default="{ row }">
           <el-tag size="small" :type="row.tag === 'WORK_ORDER_ANOMALY' ? 'danger' : 'warning'">
             {{ row.tag === 'WORK_ORDER_ANOMALY' ? '开单' : '通知' }}
           </el-tag>
-          <span class="muted tag-text">{{ row.tag }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="消息键" min-width="200" show-overflow-tooltip>
+      <el-table-column label="消息键" min-width="140" show-overflow-tooltip>
         <template #default="{ row }">{{ row.msgKey || '—（坏消息无键）' }}</template>
       </el-table-column>
-      <el-table-column label="重试" prop="reconsumeTimes" width="80" />
-      <el-table-column label="原因" prop="error" min-width="200" show-overflow-tooltip />
-      <el-table-column label="状态" width="100">
+      <el-table-column label="重试" prop="reconsumeTimes" width="70" />
+      <el-table-column label="状态" width="90">
         <template #default="{ row }">
           <el-tag size="small" :type="row.status === 'OPEN' ? 'warning' : 'success'">
             {{ row.status === 'OPEN' ? '待处理' : '已重放' }}
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150">
+      <el-table-column label="操作" width="110">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">查看</el-button>
           <el-button
@@ -152,14 +132,11 @@ onMounted(load)
       </template>
     </el-table>
 
-    <el-pagination
-      v-if="total > page.pageSize"
-      class="pager"
-      layout="total, prev, pager, next"
+    <PagerBar
       :total="total"
       :page-size="page.pageSize"
-      :current-page="page.pageNum"
-      @current-change="(p: number) => { page.pageNum = p; load() }"
+      :page-num="page.pageNum"
+      @change="goTo"
     />
   </el-card>
 
@@ -220,20 +197,6 @@ onMounted(load)
 
 .hint-alert {
   margin-bottom: 12px;
-}
-
-.tag-text {
-  margin-left: 6px;
-  font-size: 12px;
-}
-
-.muted {
-  color: var(--el-text-color-secondary);
-}
-
-.pager {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .section-title {

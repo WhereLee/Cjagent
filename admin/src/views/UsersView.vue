@@ -1,41 +1,25 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { onMounted, reactive } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { fetchUsers } from '@/api'
-import type { UserView } from '@/api/schema-admin'
-import { ApiError } from '@/api/http'
+import { usePagedList } from '@/composables/usePagedList'
+import PagerBar from '@/components/PagerBar.vue'
 import { fmtTime } from '@/utils/format'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-const loading = ref(false)
-const rows = ref<UserView[]>([])
-const total = ref(0)
 const filters = reactive({ keyword: '', status: undefined as number | undefined })
-const pageQuery = reactive({ pageNum: 1, pageSize: 20 })
 
-async function load() {
-  loading.value = true
-  try {
-    const page = await fetchUsers({
-      ...pageQuery,
+// 筛选条件在闭包里带上，分页与加载态交给 usePagedList
+const { rows, total, loading, page, load, search, goTo } = usePagedList(
+  (q) =>
+    fetchUsers({
+      ...q,
       keyword: filters.keyword || undefined,
       status: filters.status,
-    })
-    rows.value = page.records ?? []
-    total.value = Number(page.total ?? 0)
-  } catch (e) {
-    ElMessage.error(e instanceof ApiError ? e.message : '加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-function onSearch() {
-  pageQuery.pageNum = 1
-  load()
-}
+    }),
+  { errorText: '账号加载失败' },
+)
 
 onMounted(() => {
   if (auth.hasAuthority('system:user:list')) load()
@@ -50,7 +34,7 @@ onMounted(() => {
           v-model="filters.keyword"
           placeholder="用户名 / 姓名"
           clearable
-          @keyup.enter="onSearch"
+          @keyup.enter="search"
         />
       </el-form-item>
       <el-form-item label="状态">
@@ -60,7 +44,7 @@ onMounted(() => {
         </el-select>
       </el-form-item>
       <el-form-item>
-        <el-button type="primary" @click="onSearch">查询</el-button>
+        <el-button type="primary" @click="search">查询</el-button>
         <el-button :icon="Refresh" :loading="loading" class="refresh-btn" @click="load">刷新</el-button>
         <el-tag type="info" size="small">共 {{ total }} 个账号</el-tag>
       </el-form-item>
@@ -91,13 +75,11 @@ onMounted(() => {
       </template>
     </el-table>
 
-    <el-pagination
-      class="pager"
-      layout="total, prev, pager, next"
+    <PagerBar
       :total="total"
-      :page-size="pageQuery.pageSize"
-      :current-page="pageQuery.pageNum"
-      @current-change="(p: number) => { pageQuery.pageNum = p; load() }"
+      :page-size="page.pageSize"
+      :page-num="page.pageNum"
+      @change="goTo"
     />
   </el-card>
 </template>
@@ -109,9 +91,5 @@ onMounted(() => {
 
 .refresh-btn {
   margin-left: 8px;
-}
-.pager {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 </style>

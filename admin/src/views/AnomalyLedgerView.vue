@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import {
@@ -10,9 +10,10 @@ import {
   rebuildFreeSet,
   resolveCompartment,
 } from '@/api'
-import type { Detail, LedgerView } from '@/api/schema-admin'
-import type { SummaryView } from '@/api/schema-admin'
+import type { Detail, LedgerView, SummaryView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
+import { usePagedList } from '@/composables/usePagedList'
+import PagerBar from '@/components/PagerBar.vue'
 import {
   anomalyTag,
   anomalyText,
@@ -30,11 +31,7 @@ const canResolve = computed(() => auth.hasAuthority('locker:compartment:resolve'
 const canForceOpen = computed(() => auth.hasAuthority('locker:door:force-open'))
 const canRebuild = computed(() => auth.hasAuthority('locker:freeset:rebuild'))
 
-const loading = ref(false)
-const rows = ref<LedgerView[]>([])
-const total = ref(0)
 const summary = ref<SummaryView[]>([])
-const pageQuery = reactive({ pageNum: 1, pageSize: 20 })
 const anomalyFilter = ref('')
 
 const anomalyOptions = [
@@ -44,32 +41,20 @@ const anomalyOptions = [
   { value: 'SENSOR_CONFLICT', label: '传感器矛盾' },
 ]
 
-async function load(): Promise<void> {
-  loading.value = true
-  try {
-    const page = await fetchAnomalies({
-      ...pageQuery,
-      anomaly: anomalyFilter.value || undefined,
-    })
-    rows.value = page.records ?? []
-    total.value = Number(page.total ?? 0)
+// 台账与概览是一起变的：翻页、筛完都要重算概览，所以副作用放在 loader 里，
+// 对外的返回仍然只是分页结果
+const { rows, total, loading, page, load, search, goTo } = usePagedList(
+  async (q) => {
+    const result = await fetchAnomalies({ ...q, anomaly: anomalyFilter.value || undefined })
     summary.value = await fetchAnomalySummary()
-  } catch (e) {
-    ElMessage.error(e instanceof ApiError ? e.message : '加载失败')
-  } finally {
-    loading.value = false
-  }
-}
+    return result
+  },
+  { errorText: '异常台账加载失败' },
+)
 
 function applyFilter(anomaly?: string | null): void {
   anomalyFilter.value = anomaly ?? ''
-  pageQuery.pageNum = 1
-  load()
-}
-
-function onPageChange(pageNum: number): void {
-  pageQuery.pageNum = pageNum
-  load()
+  search()
 }
 
 // ── 格口详情抽屉 ─────────────────────────────────────────────────
@@ -251,13 +236,11 @@ onMounted(() => {
       </template>
     </el-table>
 
-    <el-pagination
-      class="pager"
-      layout="total, prev, pager, next"
+    <PagerBar
       :total="total"
-      :page-size="pageQuery.pageSize"
-      :current-page="pageQuery.pageNum"
-      @current-change="onPageChange"
+      :page-size="page.pageSize"
+      :page-num="page.pageNum"
+      @change="goTo"
     />
   </el-card>
 
@@ -400,11 +383,6 @@ onMounted(() => {
 
 .filter-select {
   width: 190px;
-}
-
-.pager {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .section-title {

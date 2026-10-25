@@ -23,14 +23,11 @@ import {
   workOrderStatusText,
 } from '@/utils/dict'
 import { fmtTime } from '@/utils/format'
+import { usePagedList } from '@/composables/usePagedList'
+import PagerBar from '@/components/PagerBar.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
-
-const loading = ref(false)
-const rows = ref<OrderRow[]>([])
-const total = ref(0)
-const pageQuery = reactive({ pageNum: 1, pageSize: 20 })
 
 const statusOptions = [
   { value: 'INIT', label: '待分配格口' },
@@ -54,43 +51,26 @@ const filters = reactive({
   range: [] as string[],
 })
 
-async function load(): Promise<void> {
-  loading.value = true
-  try {
-    const page = await fetchOrders({
-      ...pageQuery,
+// 筛选条件在闭包里带上；翻页与加载态交给 usePagedList
+const { rows, total, loading, page, load, search, goTo } = usePagedList(
+  (q) =>
+    fetchOrders({
+      ...q,
       orderNo: filters.orderNo.trim() || undefined,
       phone: filters.phone.trim() || undefined,
       status: filters.status || undefined,
       from: filters.range[0] || undefined,
       to: filters.range[1] || undefined,
-    })
-    rows.value = page.records ?? []
-    total.value = Number(page.total ?? 0)
-  } catch (e) {
-    ElMessage.error(e instanceof ApiError ? e.message : '加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-function search(): void {
-  pageQuery.pageNum = 1
-  load()
-}
+    }),
+  { errorText: '订单加载失败' },
+)
 
 function reset(): void {
   filters.orderNo = ''
   filters.phone = ''
   filters.status = ''
   filters.range = []
-  pageQuery.pageNum = 1
-  load()
-}
-
-function onPageChange(pageNum: number): void {
-  pageQuery.pageNum = pageNum
-  load()
+  search()
 }
 
 // ── 详情抽屉：状态 + 钱 + 设备动作 + 证据 + 关联工单 ───────────────
@@ -216,13 +196,11 @@ onMounted(() => {
       </template>
     </el-table>
 
-    <el-pagination
-      class="pager"
-      layout="total, prev, pager, next"
+    <PagerBar
       :total="total"
-      :page-size="pageQuery.pageSize"
-      :current-page="pageQuery.pageNum"
-      @current-change="onPageChange"
+      :page-size="page.pageSize"
+      :page-num="page.pageNum"
+      @change="goTo"
     />
   </el-card>
 
@@ -415,11 +393,6 @@ onMounted(() => {
 
 .filter-range {
   width: 260px;
-}
-
-.pager {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .section-title {

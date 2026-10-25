@@ -36,15 +36,12 @@ import {
   workOrderTypeText,
 } from '@/utils/dict'
 import { fmtTime, newRequestId } from '@/utils/format'
+import { usePagedList } from '@/composables/usePagedList'
+import PagerBar from '@/components/PagerBar.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const activeSide = ref<'ONLINE' | 'FIELD'>('ONLINE')
-
-const loading = ref(false)
-const rows = ref<WorkOrderView[]>([])
-const total = ref(0)
-const pageQuery = reactive({ pageNum: 1, pageSize: 20 })
 
 const canClaim = computed(() => auth.hasAuthority('workorder:claim'))
 const canResolve = computed(() => auth.hasAuthority('workorder:resolve'))
@@ -67,30 +64,18 @@ function isWaiting(row?: WorkOrderView | null): boolean {
   return row?.slaPauseReason === 'WAITING_CUSTOMER'
 }
 
-async function load(): Promise<void> {
-  if (!sideAllowed(activeSide.value)) return
-  loading.value = true
-  try {
+// 两个队列只是 fetcher 不同，分页与加载态是同一套（openOnly 是队列语义，不是筛选）
+const { rows, total, loading, page, load, search, goTo } = usePagedList(
+  (q) => {
     const fetcher = activeSide.value === 'ONLINE' ? fetchOnlineQueue : fetchFieldQueue
-    const page = await fetcher({ ...pageQuery, openOnly: true })
-    rows.value = page.records ?? []
-    total.value = Number(page.total ?? 0)
-  } catch (e) {
-    ElMessage.error(e instanceof ApiError ? e.message : '加载失败')
-  } finally {
-    loading.value = false
-  }
-}
+    return fetcher({ ...q, openOnly: true })
+  },
+  { errorText: '工单队列加载失败' },
+)
 
 function switchSide(side: string | number): void {
   activeSide.value = side === 'FIELD' ? 'FIELD' : 'ONLINE'
-  pageQuery.pageNum = 1
-  load()
-}
-
-function onPageChange(pageNum: number): void {
-  pageQuery.pageNum = pageNum
-  load()
+  search()
 }
 
 // ── 详情抽屉：留痕 + 证据 + AI 简报 ─────────────────────────────
@@ -402,13 +387,11 @@ onMounted(() => {
       </template>
     </el-table>
 
-    <el-pagination
-      class="pager"
-      layout="total, prev, pager, next"
+    <PagerBar
       :total="total"
-      :page-size="pageQuery.pageSize"
-      :current-page="pageQuery.pageNum"
-      @current-change="onPageChange"
+      :page-size="page.pageSize"
+      :page-num="page.pageNum"
+      @change="goTo"
     />
   </el-card>
 
@@ -637,11 +620,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding-bottom: 8px;
-}
-
-.pager {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .section-title {

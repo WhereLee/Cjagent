@@ -7,6 +7,8 @@ import type { ArrearsView, DepositView } from '@/api/schema-admin'
 import { ApiError } from '@/api/http'
 import { depositStatusTag, depositStatusText } from '@/utils/dict'
 import { fmtTime, pointsToYuan } from '@/utils/format'
+import { usePagedList } from '@/composables/usePagedList'
+import PagerBar from '@/components/PagerBar.vue'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
@@ -14,43 +16,41 @@ const activeTab = ref<'arrears' | 'deposits'>(
   auth.hasAuthority('locker:arrears:list') ? 'arrears' : 'deposits',
 )
 
-const loading = ref(false)
-const arrearsRows = ref<ArrearsView[]>([])
-const depositRows = ref<DepositView[]>([])
-const total = ref(0)
-const pageQuery = reactive({ pageNum: 1, pageSize: 20 })
-
 const allowedArrears = computed(() => auth.hasAuthority('locker:arrears:list'))
 const allowedDeposits = computed(() => auth.hasAuthority('locker:deposit:unrefunded-list'))
 
-async function load(): Promise<void> {
-  loading.value = true
-  try {
-    if (activeTab.value === 'arrears') {
-      const page = await fetchArrears(pageQuery)
-      arrearsRows.value = page.records ?? []
-      total.value = Number(page.total ?? 0)
-    } else {
-      const page = await fetchUnrefundedDeposits(pageQuery)
-      depositRows.value = page.records ?? []
-      total.value = Number(page.total ?? 0)
-    }
-  } catch (e) {
-    ElMessage.error(e instanceof ApiError ? e.message : '加载失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-watch(activeTab, () => {
-  pageQuery.pageNum = 1
-  load()
+// 两个 tab 的数据类型不同（欠费客户 / 押金流水），所以各用一套分页；对外再转发成一个，
+// 多出来的只是两个 computed，而不是把两套 row/total/loading 再抄一遍
+const arrears = usePagedList<ArrearsView>((q) => fetchArrears(q), { errorText: '欠费清单加载失败' })
+const deposits = usePagedList<DepositView>((q) => fetchUnrefundedDeposits(q), {
+  errorText: '押金清单加载失败',
 })
 
-function onPageChange(pageNum: number): void {
-  pageQuery.pageNum = pageNum
-  load()
+// 必须解构到顶层：模板只会自动解**顶层**绑定的 ref，
+// 直接写 `:data="arrears.rows"` 传进去的是 Ref 对象，el-table 会报
+// `rows is not iterable` 并把整个页面渲染打断（build 和 lint 都发现不了这个）。
+const { rows: arrearsRows } = arrears
+const { rows: depositsRows } = deposits
+
+const isArrears = computed(() => activeTab.value === 'arrears')
+const total = computed(() => (isArrears.value ? arrears.total.value : deposits.total.value))
+const loading = computed(() => (isArrears.value ? arrears.loading.value : deposits.loading.value))
+const pageSize = computed(() => (isArrears.value ? arrears.page.pageSize : deposits.page.pageSize))
+const pageNum = computed(() => (isArrears.value ? arrears.page.pageNum : deposits.page.pageNum))
+
+function load(): Promise<void> {
+  return isArrears.value ? arrears.load() : deposits.load()
 }
+
+function goTo(target: number): Promise<void> {
+  return isArrears.value ? arrears.goTo(target) : deposits.goTo(target)
+}
+
+// 切 tab 回到第一页：两个清单的筛选条件不同，留在第 5 页没意义
+watch(activeTab, () => {
+  if (isArrears.value) arrears.search()
+  else deposits.search()
+})
 
 // ── 客户状态：禁用（0）/ 启用（1），两个动作必须由人明确选 ─────────
 const statusDialog = ref(false)
@@ -143,7 +143,7 @@ onMounted(() => {
     </template>
 
     <template v-else>
-      <el-table v-loading="loading" :data="depositRows">
+      <el-table v-loading="loading" :data="depositsRows">
         <el-table-column label="押金流水" prop="depositId" width="130" />
         <el-table-column label="订单号" prop="orderNo" min-width="170" show-overflow-tooltip />
         <el-table-column label="客户 ID" prop="customerId" width="140" />
@@ -166,14 +166,7 @@ onMounted(() => {
       </el-table>
     </template>
 
-    <el-pagination
-      class="pager"
-      layout="total, prev, pager, next"
-      :total="total"
-      :page-size="pageQuery.pageSize"
-      :current-page="pageQuery.pageNum"
-      @current-change="onPageChange"
-    />
+    <PagerBar :total="total" :page-size="pageSize" :page-num="pageNum" @change="goTo" />
   </el-card>
 
   <el-dialog v-model="statusDialog" title="调整客户状态" width="520px">
@@ -231,11 +224,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding-bottom: 8px;
-}
-
-.pager {
-  margin-top: 12px;
-  justify-content: flex-end;
 }
 
 .danger {
