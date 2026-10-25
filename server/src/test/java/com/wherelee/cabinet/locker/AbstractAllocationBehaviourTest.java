@@ -39,26 +39,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 格口分配并发行为基类：两种策略跑<b>同一套</b>断言，对比才有意义。
- *
- * <p>核心断言不是"性能多好"，而是三条不变量：
- * ① 成功数 == 可用格口数（不多不少）；② 同一格口不存在两条活动单；
- * ③ 失败方拿到的一定是 10409/10410 而不是 500（"抢不到"是业务结果，不是系统故障）。
- *
- * <p>这里<b>不加 @Transactional</b>：测试事务不会传播到工作线程，加了只会造成
- * "看起来回滚了、其实工作线程各开各的事务"的错觉。数据靠 @AfterEach 精确清理。
- */
 abstract class AbstractAllocationBehaviourTest {
 
     protected static final Long TENANT = 8101L;
     protected static final int THREADS = 20;
-    /** 模板里大格口 6 个：请求 LARGE 时，最多只能成功 6 单 */
     protected static final int LARGE_SLOTS = 6;
 
     @Autowired
     protected StorageOrderService storageOrderService;
-    /** 并发用例必须走门面（真实入口）：直接调 Service 会跳过柜机锁，redisson 策略就测了个寂寞。 */
     @Autowired
     protected StorageOrderFacade facade;
     @Autowired
@@ -79,12 +67,10 @@ abstract class AbstractAllocationBehaviourTest {
     private Long cabinetId;
     private String cabinetNo;
 
-    /** 子类需要拿柜机 ID 去定位锁等外部资源（字段本身保持 private）。 */
     protected Long currentCabinetId() {
         return cabinetId;
     }
 
-    /** 柜机锁是按 cabinetNo 加的，子类要校同一个 key。 */
     protected String currentCabinetNo() {
         return cabinetNo;
     }
@@ -135,7 +121,6 @@ abstract class AbstractAllocationBehaviourTest {
         if (cabinetId == null) {
             return;
         }
-        // 顺序：先单后格口再柜机点位；都用物理删（测试夹具，不留逻辑删除残行干扰计数）
         jdbc.update("delete from biz_storage_order where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_compartment where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_cabinet where id = ?", cabinetId);
@@ -143,7 +128,6 @@ abstract class AbstractAllocationBehaviourTest {
         TenantContext.clear();
     }
 
-    /** 每个线程一个独立事务 + 独立租户上下文（TenantContext 是 ThreadLocal，不会自动带到线程池）。 */
     protected List<Object> runConcurrentRequests(int threads, SizeType requested) throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(threads);
         CountDownLatch start = new CountDownLatch(1);
@@ -155,7 +139,6 @@ abstract class AbstractAllocationBehaviourTest {
             pool.submit(() -> {
                 try {
                     start.await();
-                    // requestId 每线程唯一：不能被幂等注解当作同一请求合并，否则测的是幂等不是并发
                     String requestId = "rt-" + UUID.randomUUID();
                     Object outcome = TenantContext.callAs(TENANT, () -> {
                         fund(900001L + seq);
@@ -186,10 +169,6 @@ abstract class AbstractAllocationBehaviourTest {
                 "基类容量与子类期望不一致，用例会假绿");
     }
 
-    /**
-     * 竞争强度：默认 20 线程抢 6 口（故意超卖压力）；
-     * 有界等锁的策略（redisson）会有一部分请求主动放弃，这是设计行为而不是 bug。
-     */
     @Test
     @DisplayName("N 个线程抢有限格口：不超卖、不脏数据、失败都是业务码")
     void concurrentAllocationNeverOversells() throws Exception {
@@ -202,7 +181,6 @@ abstract class AbstractAllocationBehaviourTest {
                 .map(r -> (BizException) r)
                 .toList();
 
-        // 硬不变量：成功数不得超过容量（超卖）、不得静默丢请求
         assertTrue(success <= LARGE_SLOTS,
                 "成功数超过可用容量＝超卖：success=" + success + " 策略=" + allocator.strategy());
         assertEquals(THREADS, success + failures.size(), "每个请求都必须有结果，不能静默丢失");
@@ -215,10 +193,6 @@ abstract class AbstractAllocationBehaviourTest {
         assertNoOversell();
     }
 
-    /**
-     * 容量刚好等于线程数：此时不该有人等待，三种策略都必须全部成功。
-     * 这条才是“恰等于”的确定断言，而不是在 20 抢 6 的场景里硬要求全抢到。
-     */
     @Test
     @DisplayName("线程数恰等于容量：全部成功抢到，无等待放弃")
     void allocationAtCapacityAllSucceed() throws Exception {
@@ -230,45 +204,32 @@ abstract class AbstractAllocationBehaviourTest {
         assertNoOversell();
     }
 
-    /** 子类声明自己在“线程数=容量”下应成功多少，防止基类容量改动后期望静默失配。 */
     protected int expectedSuccessesAtCapacity() {
         return LARGE_SLOTS;
     }
 
-    /** 共用的一组存储层不变量取证（失败时报错会带上策略名，便于定位是哪条路径）。 */
     private void assertNoOversell() {
-        // 不变量①：同一格口的活动单数必须 <= 1
         Integer doubleBooked = jdbc.queryForObject(
                 "select count(*) from (select slot_id from biz_storage_order where active_flag = 1 "
                         + "group by slot_id having count(*) > 1) t", Integer.class);
         assertEquals(0, doubleBooked, "出现同一格口多条活动单：超卖（策略=" + allocator.strategy() + "）");
 
-        // 不变量②：格口状态与订单必须一致（RESERVED 的格口都要有 current_order_id）
         Integer inconsistent = jdbc.queryForObject(
                 "select count(*) from biz_compartment where cabinet_id = ? "
                         + "and status = 'RESERVED' and current_order_id is null", Integer.class, cabinetId);
         assertEquals(0, inconsistent, "格口显示占用却没绑订单");
 
-        // 不变量③（库存守恒）：本刀只有 FREE/RESERVED 两态，两者相加必须等于总数；
-        // 出现“消失的格口”就是分配代码泄了状态（例如 CAS 抢到一半异常却没回滚）
         int total = countByStatus(null);
         int accounted = countByStatus(SlotStatus.FREE) + countByStatus(SlotStatus.RESERVED);
         assertEquals(total, accounted, "库存守恒被破坏：FREE + RESERVED != 总数（策略="
                 + allocator.strategy() + "）");
     }
 
-    /**
-     * 建单现在要先有钱（押金 + 预估冻结）。
-     *
-     * <p><b>辅助方法自己包租户上下文</b>：“记得包一层”这件事在这个项目里已经踩过五次，
-     * 靠自律不如靠默认安全。
-     */
     protected void fund(long customerId) {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 20000L,
                 "FUND-" + customerId + "-" + UUID.randomUUID(), "压测/用例 funding"));
     }
-    
-    /** status 传 null 表示统计该机全部格口。必须包在租户上下文里：断言跑在主线程，而租户守卫会拒无上下文的查询。 */
+
     protected int countByStatus(SlotStatus status) {
         return TenantContext.callAs(TENANT, () -> {
             Long count = slotMapper.selectCount(Wrappers.<BizCompartment>lambdaQuery()

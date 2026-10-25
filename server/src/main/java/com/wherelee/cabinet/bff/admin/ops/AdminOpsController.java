@@ -25,17 +25,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 运维 AI 诊断（第 24 刀）：诊断副驾的端点。
- *
- * <p>调研定的形态原样进契约：AI 只产出"给人看的报告/回答"——工具全只读、
- * 建议是草稿、报告不落库，重启/清理/改配置永远是人按运维手册手动执行。
- * 权限点 ops:diagnose（V24，授给 field_ops）：能看服务器内部状态与能看业务台账
- * 是两种能力，不共用语义。
- *
- * <p>频控比业务端点更紧（diagnose 3/60s）：一次诊断要读健康+两类日志+崩溃残留+台账，
- * 是四个 agent 里单次最贵的一笔。
- */
 @Tag(name = "后台-运维诊断", description = "AI 只读诊断：巡检解读、GC/OOM 初判、日志聚类、运维问答；建议为草稿，执行留给人")
 @RestController
 @RequestMapping("/api/admin/ops")
@@ -56,8 +45,6 @@ public class AdminOpsController {
     @PreAuthorize("hasAuthority('ops:diagnose')")
     @PostMapping("/diagnose")
     public R<Long> diagnose(@AuthenticationPrincipal Caller current) {
-        // 返回作业号而不是报告：生成一次要十几秒，不能占着请求线程。
-        // 诊断没有入参，所以只要上一个还没跑完，再点就会拿到同一个作业号（防双击）
         return R.ok(jobs.submit(AiJobType.DIAGNOSE, null, current.subjectId()));
     }
 
@@ -67,11 +54,8 @@ public class AdminOpsController {
     @PreAuthorize("hasAuthority('ops:diagnose')")
     @PostMapping("/ask")
     public R<Long> ask(@AuthenticationPrincipal Caller current, @Valid @RequestBody AskCommand cmd) {
-        // 问题正文直接作为入参：端口内部会压成请求键（列宽 128 放不下 500 字正文）、原文进载荷
         return R.ok(jobs.submit(AiJobType.ASK, cmd.question(), current.subjectId()));
     }
-
-    // ── 死信（outbox 接 broker 之后的运维出口）────────────────────────
 
     @Operation(summary = "死信列表",
             description = "重试耗尽仍失败的事实。RocketMQ 只留 3 天，这里永久归档；带正文，重放前先看清是什么")
@@ -91,7 +75,6 @@ public class AdminOpsController {
         return R.ok(deadLetters.replay(id));
     }
 
-    /** 问答请求体。 */
     public record AskCommand(
             @NotBlank(message = "问题不能为空") @Size(max = 500, message = "问题最长 500 字") String question) {
     }

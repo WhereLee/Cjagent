@@ -52,15 +52,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 设备通道与故障注入（第 11 刀验收）。
- *
- * <p>每条用例断言的是<b>业务在某种故障下的正确反应</b>，不是"模拟器能返回假数据"——
- * 后者没有价值。所以每条都同时看三处：指令状态、订单状态、故障事件。
- *
- * <p>故障<b>按柜机定向</b>注入（不是全局模式）：全局注入会把同库里别的柜机一起打挂，
- * 用例之间互相污染，最后只能靠执行顺序运气绿。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -138,7 +129,6 @@ class DeviceFaultInjectionTest {
                 }
             }
 
-            // 建单要先有钱（押金 + 预估）；本类只验设备容错，资金用例在 PointLedgerTest
             TenantContext.callAs(TENANT, () -> points.recharge(930001L, 20000L,
                     "FUND-" + cabinetNo, "设备用例 funding"));
             orderNo = TenantContext.callAs(TENANT, () -> facade.create(930001L,
@@ -153,8 +143,6 @@ class DeviceFaultInjectionTest {
         jdbc.update("delete from biz_device_report where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_device_command where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
-        // 要先清掉引用订单的流水与押金凭证，再删订单本身：顺序反了子查询就查不到任何东西，
-        // 残留数据会污染下一个用例（不变量校验会算错）
         jdbc.update("delete from biz_point_txn where ref_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
         jdbc.update("delete from biz_deposit where order_id in (select id from biz_storage_order where cabinet_id = ?)", cabinetId);
         jdbc.update("delete from biz_storage_order where cabinet_id = ?", cabinetId);
@@ -198,9 +186,7 @@ class DeviceFaultInjectionTest {
         assertEquals(CommandState.SUCCEEDED, lastCommand(CommandAction.OPEN).getStatus());
 
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
-        // 第 12 刀把 STORED→ACTIVE 合成一步：关门校验通过即开始计费，中间不需要额外的用户动作
         assertEquals("ACTIVE", order().getStatus().name());
-        // 定-23 之后是三段：预备开（HEARTBEAT）+ 真开 + 关门校验，各留一条上报流水
         assertEquals(3, TenantContext.callAs(TENANT, () -> reportMapper.selectCount(
                 Wrappers.<BizDeviceReport>lambdaQuery().eq(BizDeviceReport::getCabinetId, cabinetId))),
                 "三次动作应各留一条上报流水（含预备开）");
@@ -238,7 +224,6 @@ class DeviceFaultInjectionTest {
         assertEquals(CompartmentAnomaly.SENSOR_CONFLICT,
                 TenantContext.callAs(TENANT, () -> slotMapper.selectById(slotId)).getAnomaly(),
                 "系统判不了到底是门没关还是门磁坏了，就如实记矛盾而不是猜一边：两边猜错的代价都不可逆");
-        // 旧口径是直接转 ABNORMAL 等人工；现在是“计费继续 + 巡检接手”，所以单不能是终态
         assertFalse(order().getStatus().isTerminal(), "谎报不能把一张正在计费的单推到无人管的终态");
     }
 
@@ -263,10 +248,6 @@ class DeviceFaultInjectionTest {
 
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
 
-        // 这条用例以前提的是“seq 旧就不推进状态”，那是错的规则：
-        // dedupKey 用 cabinetId:seq 时，设备（模拟器）重启后 seq 归零，第一条正常回执会撞唯一键
-        // 被当成重复丢弃——表现为“柜机上线后开柜全部无效”。真实设备必然重启，所以生产上必发。
-        // 现在幂等键改成 requestId、序号只入库对账，期望因此从“不推进”翻转成“必须推进”。
         assertEquals("ACTIVE", order().getStatus().name(),
                 "序号小不代表事件旧：设备重启会重发 seq，拿它当判据会让上线后的柜机彻底不能用");
         assertEquals(SlotStatus.OCCUPIED, slotStatus(), "格口状态要跟着推进");
@@ -276,8 +257,6 @@ class DeviceFaultInjectionTest {
     @Test
     @DisplayName("连续失败达阈值：格口标故障、柜机停用，不再接客")
     void consecutiveFailDisablesCabinet() {
-        // 定-23 之后换用“真开不回话”来测这条停用保护：预备开失败按用户定的**不计入停用计数**
-        // （它只是问一句话），而连续无回执仍就是“这台柜机叫人踩坑”，必须停用
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
         for (int i = 0; i < 3; i++) {
             TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.OPEN));
@@ -321,8 +300,6 @@ class DeviceFaultInjectionTest {
     @Test
     @DisplayName("重试换新 requestId：同一动作的第 2 次尝试不会被幂等堵死")
     void retryGetsNewRequestId() {
-        // 用“真开不回话”而不用 EXEC_FAIL：后者现在会在预备开阶段就换格并退单（定-21），
-        // 这条用例守的是“重试必须换键”，与失败种类无关
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.OPEN));
         String firstId = lastCommand(CommandAction.OPEN).getRequestId();
@@ -336,7 +313,6 @@ class DeviceFaultInjectionTest {
         assertEquals("ACTIVE", retryToStored(), "恢复后应能正常走完开柜与关门校验");
     }
 
-    /** 第三次调用是 CLOSE_VERIFY，走完后应为 ACTIVE（已开始计费）。 */
     private String retryToStored() {
         TenantContext.runAs(TENANT, () -> facade.openDoor(930001L, orderNo, CommandAction.CLOSE_VERIFY));
         return order().getStatus().name();

@@ -21,15 +21,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 
-/**
- * 后台订单查询（只读）。
- *
- * <p>补的是运营台缺的第一块：客服接到的第一句话通常是“我的订单号是 xxx，东西取不出来”。
- * 这里只做“查得到、看得清”，不提供任何写操作——退款、减免、强制结束仍走原有入口。
- *
- * <p>不加 {@code @OperationLog}：只读请求进审计会把表立刻灌满（与账号列表同一理由）。
- * 返回的是应用层视图（{@link AdminOrderConsolePort.OrderRow}），不回传实体（ArchUnit 会拦）。
- */
 @Tag(name = "后台-订单", description = "按订单号/手机号/状态/时间查寄存单；只读，不改任何单")
 @RestController
 @RequestMapping("/api/admin/orders")

@@ -28,16 +28,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/**
- * 后台-储物柜现场运营（第 14 刀）。
- *
- * <p>读接口<b>不加</b> {@code @OperationLog}：只读请求进审计会让表迅速被翻页灌满，
- * 审计噪音一高，真正该看的写操作就没人看了（沿用底座账号查询接口的约定）。
- *
- * <p>权限点<b>逐个分开</b>，没有一个"运营万能权限"：看台账、清格口异常、强制开柜、免除费用、
- * 禁用客户、重建空闲集合是六件事。尤其 {@code locker:order:waive-fee} 是动钱的动作，
- * 必须与"改个状态"的权限不同人可持有。
- */
 @Tag(name = "后台-储物柜现场运营")
 @RestController
 @RequestMapping("/api/admin/locker")
@@ -45,9 +35,7 @@ import java.util.List;
 public class AdminLockerController {
 
     private final LockerConsolePort console;
-    /** 空闲集合校准是预占策略的运行时结构，归 locker 管；不预占的策略下它只是空转。 */
     private final SlotPoolPort slotPool;
-    /** 客户禁用/启用是身份的事：控制器只转发，不在柜机服务里改客户表。 */
     private final com.wherelee.cabinet.identity.api.CustomerAdminPort customers;
 
     public AdminLockerController(LockerConsolePort console, SlotPoolPort slotPool,
@@ -56,8 +44,6 @@ public class AdminLockerController {
         this.slotPool = slotPool;
         this.customers = customers;
     }
-
-    // ------------------------------------------------------------------ 只读
 
     @Operation(summary = "异常格口台账", description = "默认按判定时刻升序（卡最久的在前）；可按原因码与点位过滤")
     @PreAuthorize("hasAuthority('locker:ledger:list')")
@@ -98,8 +84,6 @@ public class AdminLockerController {
         return R.ok(console.arrears(query));
     }
 
-    // ------------------------------------------------------------------ 写（逐个权限点）
-
     @Operation(summary = "清柜：解除格口异常", description = "要求门已关并填写现场说明；说明会进审计与故障流水")
     @OperationLog(module = "locker-console", operation = "清柜解除异常")
     @Idempotent(message = "该处置正在处理中，请勿重复提交")
@@ -133,11 +117,9 @@ public class AdminLockerController {
         return R.ok();
     }
 
-    /** 清柜说明必填：它是"人来现场看过"的唯一凭据。 */
     public record ResolveRequest(@NotBlank @Size(max = 200) String note) {
     }
 
-    /** {@code confirmed} 是二次确认的显式痕迹，避免前端误发一个 POST 就开了别人的柜门。 */
     public record ForceOpenRequest(boolean confirmed, @NotBlank @Size(max = 200) String reason) {
     }
 
@@ -153,7 +135,6 @@ public class AdminLockerController {
         return R.ok();
     }
 
-    /** 禁用与启用共用一个入口（状态只有两个值），但<b>事由必填</b>：无因的状态变更无法复盘。 */
     public record CustomerStatusRequest(@jakarta.validation.constraints.NotNull @Min(0) @Max(1) Integer status,
                                         @NotBlank @Size(max = 200) String reason) {
     }

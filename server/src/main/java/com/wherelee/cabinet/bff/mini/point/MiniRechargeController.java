@@ -22,19 +22,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 用户端充值接口。
- *
- * <p>它补的是一个真实存在的洞：第 12 刀只有内部 {@code recharge()} 调用，dev 环境新用户
- * 一上线就是 0 点，任何下单都被"点数不足"挡死——<b>没有入口的资金系统等于没有资金系统</b>。
- *
- * <p>{@code @Idempotent(requireKey = true)} 在这里不是防双击那么轻：充值是<b>加钱</b>的动作，
- * 弱网重发如果没有业务键，服务端看到的就是两笔独立请求，只能各收一次、各入一次。
- * 真正兜住这件事的是通道侧幂等（服务端生成的 outTradeNo + 唯一键 + 条件更新），
- * 这一层只是把无谓的第二次下单挡在前面。
- *
- * @param cmd 请求体：requestId 由客户端生成（本次尝试的唯一标识）
- */
 @Tag(name = "用户端-充值")
 @RestController
 @RequestMapping("/api/mini/points")
@@ -47,7 +34,6 @@ public class MiniRechargeController {
         this.recharge = recharge;
     }
 
-    /** @param points 购买点数（1 点 = 1 分，S-01） */
     public record RechargeCommand(@NotBlank @Size(max = 64) String requestId,
                                   @NotNull @Positive Long points) {
     }
@@ -64,5 +50,4 @@ public class MiniRechargeController {
         return R.ok(recharge.recharge(current.subjectId(), cmd.points()));
     }
 
-    // 退押金入口已随押金整套作废（2026-10-11 定稿：改为预收四小时，多退少补）。
 }

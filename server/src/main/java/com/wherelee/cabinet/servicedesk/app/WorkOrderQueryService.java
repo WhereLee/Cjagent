@@ -23,20 +23,9 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Set;
 
-/**
- * 工单的读侧：队列分页、单张视图、父子关系、留痕、证据、相似案例、用户侧“我的工单”。
- *
- * <p>为什么从生命周期里拆出来：开单/认领/处理/关闭每写一步都在改状态，
- * 而读侧只回答“现在长什么样”。混在一起时，任何一次查询字段调整都要重新理解整条流转；
- * 拆开之后，写侧不再持有任何视图装配逻辑。
- *
- * <p>视图记录仍然挂在 {@link WorkOrderService} 上（那是它们对外暴露的位置），
- * 这里只负责把它们装配出来。
- */
 @Service
 public class WorkOrderQueryService {
 
-    /** 允许前端自定义排序的字段（PageSupport 白名单）：开单时间与要求处理时刻。 */
     private static final Set<String> QUEUE_SORTABLE = Set.of("createTime", "dueAt");
 
     private final BizWorkOrderMapper orders;
@@ -57,31 +46,16 @@ public class WorkOrderQueryService {
         this.phoneAuditor = phoneAuditor;
     }
 
-    /**
-     * 队列分页：紧急在前、开单时间在前的先办（兜底排序，用户传了 orderBy 再追加）。
-     *
-     * <p>原来这里是写死的 {@code limit 200}——第 201 张单在队列里永远看不到，
-     * 而项目的统一分页约定（PageQuery/PageResult）早已立好，这里补齐而不是另造一套。
-     */
     public PageResult<WorkOrderConsolePort.WorkOrderView> queue(String queueSide, boolean openOnly, PageQuery query) {
         Page<BizWorkOrder> page = PageSupport.toPage(query, QUEUE_SORTABLE);
         return PageSupport.toResult(orders.selectPage(page, Wrappers.<BizWorkOrder>lambdaQuery()
                 .eq(BizWorkOrder::getQueueSide, queueSide)
                 .eq(BizWorkOrder::getDeleted, 0)
-                // 未关闭用 active_flag 而不是 status 列表：它就是这个口径的结构化定义
-                // （开单写 1、关闭置 NULL），并作为等值前缀命中
-                // idx_wo_queue(tenant_id, queue_side, active_flag, priority, create_time)，
-                // 让过滤与排序走同一棵索引，不再 filesort。
                 .eq(openOnly, BizWorkOrder::getActiveFlag, 1)
                 .orderByAsc(BizWorkOrder::getPriority)
                 .orderByAsc(BizWorkOrder::getCreateTime)), this::toView);
     }
 
-    /**
-     * 单张工单视图（第 23 刀：AI 简报工具的数据源；详情类端点未来也可走它）。
-     * <p>注意 {@code customerPhone} 在这里只给打电话的人看：AI 简报的工具层负责把它滤掉，
-     * 不让电话进模型上下文。
-     */
     public WorkOrderConsolePort.WorkOrderView one(Long workOrderId) {
         BizWorkOrder order = journal.require(workOrderId);
         String parentNote = null;
@@ -92,7 +66,6 @@ public class WorkOrderQueryService {
         return toView(order, parentNote, csatOf(workOrderId));
     }
 
-    /** 父子单关系：详情页要能双向跳转，且子单看得到父单结论。 */
     public WorkOrderConsolePort.Family family(Long workOrderId) {
         BizWorkOrder order = journal.require(workOrderId);
         WorkOrderConsolePort.WorkOrderView self = toView(order, null, csatOf(workOrderId));
@@ -106,7 +79,6 @@ public class WorkOrderQueryService {
         return new WorkOrderConsolePort.Family(self, parent, children);
     }
 
-    /** 同格口同类型、已人工处理完结的历史工单（第 23 刀：AI 简报“以前怎么处理的”唯一数据源）。 */
     public List<WorkOrderConsolePort.SimilarCase> similarResolved(Long workOrderId, int limit) {
         BizWorkOrder order = journal.require(workOrderId);
         int size = Math.min(Math.max(limit, 1), 5);
@@ -134,12 +106,6 @@ public class WorkOrderQueryService {
                 .toList();
     }
 
-    /**
-     * 这张工单相关格口的证据时间线（19C）。
-     *
-     * <p>按格口取而不是按单号取：代关、上报遗留这些事可能根本没有活动单可挂，
-     * 而业务员要看的是这个格子先后被看到过什么。
-     */
     public List<WorkOrderConsolePort.EvidenceView> evidenceFor(Long workOrderId) {
         BizWorkOrder order = journal.require(workOrderId);
         if (order.getSlotId() == null) {
@@ -151,7 +117,6 @@ public class WorkOrderQueryService {
                 .toList();
     }
 
-    /** 用户侧“我的工单”：最近若干张，不返回内部交接与指派细节。 */
     public List<WorkOrderConsolePort.CustomerView> myOrders(Long customerId, int limit) {
         int size = Math.min(Math.max(limit, 1), 50);
         return orders.selectList(Wrappers.<BizWorkOrder>lambdaQuery()
@@ -162,7 +127,6 @@ public class WorkOrderQueryService {
                 .stream().map(this::toCustomerView).toList();
     }
 
-    /** 用户侧单张工单：只能看自己的，避免拿 id 猜别人的单。 */
     public WorkOrderConsolePort.CustomerView myOrder(Long workOrderId, Long customerId) {
         BizWorkOrder order = journal.require(workOrderId);
         if (customerId == null || !customerId.equals(order.getCustomerId())) {
@@ -202,9 +166,6 @@ public class WorkOrderQueryService {
     }
 
     private WorkOrderConsolePort.WorkOrderView toView(BizWorkOrder o, String parentResultNote, BizWorkOrderCsat csat) {
-        // 柜机编号/点位地址/检测值必须从快照带出来：业务员接了单要能凭这一行知道去哪、看什么，
-        // 而不是只看到一句“格口 S12 门未关”就出发（这三个字段一直在快照里，只是以前没读）
-        // 看了明文就留痕：记谁看了哪个客户，不记号码本身
         if (PhoneVisibility.allowed() && o.getCustomerId() != null) {
             phoneAuditor.record(o.getCustomerId());
         }

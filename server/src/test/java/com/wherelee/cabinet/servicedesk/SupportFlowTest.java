@@ -29,14 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 第 22 刀智能客服：AI 只递话，规则全部复用既有服务。
- *
- * <p>专设断言集中在三处安全底线：<b>桩模式永不触付费接口</b>（端到端拿到的是引导话术）；
- * <b>AI 建单走 WorkOrderIntake 统一入口</b>（快照补齐、幂等合并在真 DB 下成立）；
- * <b>归属守卫</b>（别人的单一律"未找到"，模型连探测的口子都没有）。
- * 工具的穷举语义（重开一次/类型白名单）在 {@code AgentToolsTest} 单测覆盖。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -170,7 +162,6 @@ class SupportFlowTest {
         assertEquals("AI", created.get("actor_type"), "AI 动作不能混成人工/系统动作");
         assertNotNull(created.get("trace_id"), "AI 动作必须带对话追踪号");
 
-        // 再转一次：幂等合并到同一张，记 REPEATED，不重复建
         AgentTools again = new AgentTools(queries, doors, intake, orderMapper, workOrderPort,
                 new com.wherelee.cabinet.servicedesk.app.WorkOrderHandoffService(),
                 new SupportAgentPort.SupportSession(CUSTOMER, orderNo, "还是打不开"));

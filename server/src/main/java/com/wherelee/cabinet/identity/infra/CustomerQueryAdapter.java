@@ -10,7 +10,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-/** 客户只读查询适配器：客户表只由 identity 读。 */
 @Component
 public class CustomerQueryAdapter implements CustomerQueryPort {
 

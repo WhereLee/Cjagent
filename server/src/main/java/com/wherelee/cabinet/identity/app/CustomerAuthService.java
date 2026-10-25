@@ -23,18 +23,6 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 
-/**
- * 用户端登录编排：code 换 openid → 定位/注册客户 → 签发凭证。
- *
- * <p><b>租户归属怎么定（当前实现的口径）</b>：openid 全局唯一，登录时先按 openid 反查客户
- * （这一步必须跳过租户过滤，见 {@code BizCustomerMapper#selectByOpenId}）；
- * 老账号直接沿用它自己的 {@code tenant_id}，请求里若又传了别的租户编码会被拒绝；
- * 新客户首次登录必须带 {@code tenantCode} 才能落租户。
- *
- * <p>这是对真实业务的<b>有意简化</b>（已登记）：储物柜场景下归属应由<b>扫柜机码带过来的
- * 站点/运营商</b>决定，而不是前端传值。接口形态（code + 上下文 → token）保持不变，
- * 第 15 刀做用户端扫码流程时替换归属解析这一环。
- */
 @Service
 public class CustomerAuthService implements com.wherelee.cabinet.identity.api.CustomerAuthPort {
 
@@ -87,9 +75,6 @@ public class CustomerAuthService implements com.wherelee.cabinet.identity.api.Cu
             throw new BizException(ResultCode.TENANT_INVALID, "首次登录需要指定归属运营商（扫码或选择服务商）");
         }
         SysTenant tenant = tenantGuard.requireUsableByCode(tenantCode);
-        // 定-26：注册强制绑定手机号。校验只看格式，不做归属核验（没短信通道也没微信手机号接口）。
-        // 这个因子的真实价值与局限写在 CustomerLoginRequest 上；少了它，定-25 的双因子取件会因无号可用而永远走不通。
-        // 顺序在租户之后：“归属不存在”是比“没填号”更根本的拒绝，把它排后面会让现有用例拿到错的错因
         String trimmed = phone == null ? null : phone.trim();
         if (trimmed == null || !trimmed.matches("1[3-9]\\d{9}")) {
             throw new BizException(ResultCode.PARAM_INVALID, "首次注册需绑定手机号（十一位）");
@@ -101,9 +86,7 @@ public class CustomerAuthService implements com.wherelee.cabinet.identity.api.Cu
         customer.setNickname("客户" + openId.substring(Math.max(0, openId.length() - 4)));
         customer.setStatus(1);
         customer.setRegisterTime(LocalDateTime.now());
-        // 注册本次就是首次登录；不写的话新客户进"我的"会看到"最后登录 -"这种语义空缺
         customer.setLastLoginAt(LocalDateTime.now());
-        // 写入必须在该租户上下文里做：biz_customer 不是白名单表，租户守卫会拒绝无上下文的写入
         TenantContext.runAs(tenant.getId(), () -> customerMapper.insert(customer));
         return customer;
     }
@@ -115,13 +98,11 @@ public class CustomerAuthService implements com.wherelee.cabinet.identity.api.Cu
         if (StringUtils.hasText(requestedTenantCode)) {
             SysTenant requested = tenantGuard.requireUsableByCode(requestedTenantCode);
             if (!requested.getId().equals(customer.getTenantId())) {
-                // 老账号的归属不容更改：否则"A 运营商的客户"能通过传 B 的编码切到 B 的池子里
                 log.warn("客户租户不符 customerId={} 归属={} 请求={}", customer.getId(), customer.getTenantId(),
                         requested.getId());
                 throw new BizException(ResultCode.TENANT_INVALID, "该账号不属于此运营商");
             }
         } else {
-            // 没带编码也要确认原租户仍然可用（停用/到期后客户不该还能进）
             tenantGuard.requireUsableById(customer.getTenantId());
         }
     }
@@ -136,12 +117,6 @@ public class CustomerAuthService implements com.wherelee.cabinet.identity.api.Cu
         tokenIssuer.logout(AuthConstants.END_MINI, currentAccess, refreshToken);
     }
 
-    /**
-     * 当前客户信息。租户上下文已由过滤器按凭证建立，所以 selectById 自带租户条件。
-     *
-     * <p>回的是 {@link CustomerView} 而不是实体：openId / unionId 属于服务端侧身份标识，
-     * 下发给客户端没有任何用处，却把一个稳定主键泄露到了前端与日志里。
-     */
     @Override
     public CustomerView currentProfile(Caller current) {
         BizCustomer customer = customerMapper.selectById(current.subjectId());

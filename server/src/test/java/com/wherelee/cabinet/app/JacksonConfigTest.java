@@ -11,12 +11,6 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 直接跑 JacksonConfig 里的 customizer，不启动 Spring 上下文。
- *
- * <p>为什么要单独一个不依赖容器的测试：这两条约定（Long 转字符串、时间格式）一旦回归，
- * 坏的是所有接口的返回结构；用纯单测守住它，秒级就能发现，不用等集成测试起库。
- */
 class JacksonConfigTest {
 
     record Payload(Long id, Long primitiveLike, LocalDateTime createTime, LocalDate bizDate) {

@@ -12,12 +12,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 悲观锁策略下的分配行为（默认策略）。
- *
- * <p>压测时这一份的表现是"吞吐被串行化"：同一柜机的空闲格口逐个加锁，
- * 20 个线程排队通过。功能上没问题，性能差异留到 JMeter 报告里量化。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = "cabinet.alloc.strategy=pessimistic")

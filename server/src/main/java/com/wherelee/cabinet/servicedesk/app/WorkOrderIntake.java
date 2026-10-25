@@ -27,23 +27,12 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
-/**
- * 开单入口（19B）：把“格口被标了异常”翻译成“有人该管这件事”。
- *
- * <p>只挂在一个地方（异常标记的唯一出口），不在各业务分支里到处调 ——
- * 分散调用一定会漏掉某条路径，而漏掉的那条恰好是异常路径（这正是本项目反复踩过的形状：
- * “台账数得出来、没人被指向它”）。
- *
- * <p>位置、柜机编号、格口编号、用户电话都在这里补齐并快照。调用方只说“哪个格口、什么异常、为什么”，
- * 抄一份现场的责任集中在这里，避免每个分支各抄一次、各漏一处。
- */
 @Component
 public class WorkOrderIntake implements WorkOrderIntakePort {
 
     private static final Logger log = LoggerFactory.getLogger(WorkOrderIntake.class);
 
     private final WorkOrderService workOrders;
-    /** 格口/柜机/点位的只读查询：工单不直接读 locker 的三张表。 */
     private final SlotQueryPort slotQueries;
     private final CustomerQueryPort customers;
     private final BizStorageOrderMapper orderMapper;
@@ -61,17 +50,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
         this.slaPolicy = slaPolicy;
     }
 
-    /**
-     * 异常 → 工单。映射规则写在一处，方便你后面改口径时只动一张表：
-     * <ul>
-     *   <li>门未关：普通异常；<b>但柜内检测到有物就升紧急</b>（你的原话：紧急异常需快速处理）；</li>
-     *   <li>遗留物 / 测不准：都算紧急 —— 前者可能贵重，后者根本没有凭据可判；</li>
-     *   <li>传感器矛盾：设备故障，按普通排队（它不影响钱，只影响判断可信度）。</li>
-     * </ul>
-     *
-     * <p>{@code dueAt}：门未关按你定的“10 分钟必须处理”，其余给 2 小时。
-     * 这只是**要求时刻**，不是自动动作——到点该由谁被提醒属于 19D。
-     */
     public void onAnomaly(Long slotId, CompartmentAnomaly anomaly, String reason) {
         SlotSnapshot slot = slotQueries.slot(slotId).orElse(null);
         if (slot == null) {
@@ -90,7 +68,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
                 urgent = true;
             }
             case CONTENT_UNVERIFIED -> {
-                // 门关了却拿不到“柜内已空”的凭据：最需要人来判，按紧急排队
                 type = WorkOrderType.ITEM_LEFT;
                 urgent = true;
             }
@@ -98,7 +75,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
                 type = WorkOrderType.DEVICE_FAULT;
                 urgent = false;
             }
-            // FAULT/MAINTENANCE 之类是硬件与人工停用，不属于“异常事件工单”这条流
             default -> {
                 return;
             }
@@ -107,19 +83,12 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
         CabinetSnapshot cabinet = slotQueries.cabinet(slot.cabinetId()).orElse(null);
         SiteSnapshot site = cabinet == null || cabinet.siteId() == null
                 ? null : slotQueries.site(cabinet.siteId()).orElse(null);
-        // 绑在这个格口上的活动单（可能没有：空格的传感器矛盾就没有物主）
         BizStorageOrder order = slot.currentOrderId() == null
                 ? null : orderMapper.selectById(slot.currentOrderId());
-        // 客户回退路径：单子一旦结算完成，格口上的 `current_order_id` 就被抹掉了，
-        // 而“门未关/结束后遗留”这类异常往往正是在那之后才标上的——只认绑定关系就会开出
-        // 一张**没有电话、拨不了也发不出消息**的紧急工单（审计报告缺陷 13）。
-        // “是谁把这格打开的”就是当下用这一格的人，这个事实格口自己记着。
         Long customerId = order != null ? order.getCustomerId() : slot.doorOpenedBy();
         CustomerSnapshot customer = customerId == null ? null : customers.byId(customerId).orElse(null);
 
         LocalDateTime now = LocalDateTime.now();
-        // 设备异常不经过用户现象分诊，优先级按“紧急即 P1”钉死（门未关且有物 = 用户定的 10 分钟），
-        // 两个时限仍从 SLA 策略取，数值不再散落在开单代码里。
         WorkOrderPriority priority = urgent ? WorkOrderPriority.P1 : WorkOrderPriority.P3;
         LocalDateTime responseDue = now.plusMinutes(slaPolicy.responseMinutes(priority));
         LocalDateTime resolveDue = now.plusMinutes(slaPolicy.resolveMinutes(priority));
@@ -140,12 +109,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
                 resolveDue, responseDue, resolveDue, null, null));
     }
 
-    /**
-     * 按格口开一张“超封顶未结束”的单（19D 第 3 条）。
-     *
-     * <p>调度处理器手里只有单与格口，让它自己拼地址/编号/电话就得每个分支各抄一份；
-     * 这里统一补齐，也让开单幂等只依赖一个入口。
-     */
     public void longRunningFor(Long slotId, String reason) {
         SlotSnapshot slot = slotId == null ? null : slotQueries.slot(slotId).orElse(null);
         BizStorageOrder order = slot == null || slot.currentOrderId() == null
@@ -158,12 +121,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
                 java.time.LocalDateTime.now().plusHours(2));
     }
 
-    /**
-     * 直接开一张（超封顶未结束这类没有“异常标记”事件的场景）。
-     *
-     * <p>返回工单 ID：新建的返回新 ID，幂等合并的返回已存在那张的 ID。
-     * AI 客服转报建单（第 22 刀）靠它把单号回给用户，其余调用方不关心返回值，不受影响。
-     */
     @Override
     public Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
                              String detection, String title, LocalDateTime dueAt) {
@@ -171,7 +128,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
                 WorkOrderKind.INCIDENT, WorkOrderSource.SYSTEM, null, null, null, null, null);
     }
 
-    /** 智能工单入口：AI 转报带 intent/handoff，系统任务仍可走上面的旧签名。 */
     @Override
     public Long onOrderEvent(BizStorageOrder order, WorkOrderType type, boolean urgent,
                              String detection, String title, LocalDateTime dueAt,
@@ -185,8 +141,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
         CustomerSnapshot customer = order.getCustomerId() == null
                 ? null : customers.byId(order.getCustomerId()).orElse(null);
         WorkOrderKind actualKind = kind == null ? WorkOrderKind.INCIDENT : kind;
-        // 柜机离线是快照事实：它只把“本来要连柜机才能自助”的现象改判为设备故障，
-        // 不参与在线判定（在线与否以 Redis 心跳为准，见 OnlineState）。
         boolean deviceOffline = cabinet != null && OnlineState.OFFLINE.name().equals(cabinet.onlineState());
         WorkOrderTriageService.Result triaged = actualKind == WorkOrderKind.REQUEST && intent != null
                 ? triage.triage(intent, new WorkOrderTriageService.Facts(deviceOffline, false, false, urgent))
@@ -235,7 +189,6 @@ public class WorkOrderIntake implements WorkOrderIntakePort {
         };
     }
 
-    /** 检测值快照：红外/重量/AI 的结论在这里合并成一行可读文本（19C 补上照片记录与 AI 标签）。 */
     private String detection(SlotSnapshot slot) {
         return "门=" + (slot.doorOpen() ? "开着" : "已关")
                 + "；柜内=" + presenceText(slot.presence())

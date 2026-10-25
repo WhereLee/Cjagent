@@ -16,16 +16,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/**
- * 消费 {@code OWNER_NOTICE}：遗留物归因到终态单后通知物主。
- *
- * <p>与 {@link WorkOrderAnomalyConsumer} 同构。差别在于通知侧的去重更"自带"：
- * {@code NoticeService} 靠唯一索引 {@code tenant + dedup_key} 挡住重发，
- * 内部 catch 了 {@code DuplicateKeyException} 并打 info 返回——所以正常重复投递到这里不会抛。
- *
- * <p>仍然保留 {@link BizException} 的兜底：通知链路自己也可能因为别的原因抛业务异常，
- * 那种情况重试同样没意义，吞掉并计数比推进死信队列好。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.outbox.transport", havingValue = "mq", matchIfMissing = true)
 @RocketMQMessageListener(

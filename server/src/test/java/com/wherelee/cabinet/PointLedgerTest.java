@@ -47,13 +47,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 点数账本与资金流转（第 12 刀验收）。
- *
- * <p>这一刀把从第 8 刀起就写在规划里、一直没有断言的<b>不变量 3</b> 变成真检查：
- * {@code points == Σ(影响可用栏的流水)} 且 {@code frozen == Σ(影响冻结栏的流水)}。
- * 只要有一条路径"改了余额没记流水"或"记了流水没改余额"，这里的每个用例都会红。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -182,7 +175,6 @@ class PointLedgerTest {
 
         var account = TenantContext.callAs(TENANT, () -> points.accountOf(customerId));
         assertNotNull(account);
-        // 1000 - 300 + 120 - 80 - 5 = 735；冻结 300 - 120 = 180
         assertEquals(735L, account.getPoints());
         assertEquals(180L, account.getFrozenPoints());
     }
@@ -227,7 +219,6 @@ class PointLedgerTest {
         assertTrue(done.await(60, TimeUnit.SECONDS), "并发扣减未收敛，可能卡在行锁上");
         pool.shutdownNow();
 
-        // 100 点、每次 30：最多成功 3 次，且绝不能出现"多成功一次"
         assertEquals(3, succeeded.get(), "成功次数超过余额允许的上限＝超扣");
         assertEquals(threads, succeeded.get() + insufficient.get(), "每个请求都必须有明确结果");
 
@@ -261,8 +252,6 @@ class PointLedgerTest {
 
         String orderNo = createOrder(customerId, SizeType.MEDIUM);
         BizStorageOrder created = order(orderNo);
-        // C 定案：下单不再预冻任何费用（只把账户押金划足），所以下单后冻结栏应为 0；
-        // 价格是否生效不在这一步证，看下面结算完的 settledPoints
         assertEquals(0L, created.getFrozenPoints(), "C：下单不再预冻任何费用");
         assertEquals(1900L, accountPoints(customerId), "可用栏 = 充值 - 划账户押金（不再有冻结）");
         assertEquals(0L, created.getDepositPoints(), "新单不再有每单押金（历史单仍按自己身上的金额退）");
@@ -276,7 +265,6 @@ class PointLedgerTest {
         assertEquals(OrderStatus.ACTIVE.name(), order(orderNo).getStatus().name(), "关门校验后应开始计费");
         assertEquals(SlotStatus.OCCUPIED, slotStatus(orderNo), "件已入柜，格口必须是 OCCUPIED 而不是 RESERVED");
 
-        // 计时不会自己流逝：不回填 started_at，结算永远落在免费窗口里（need=0），这个用例就什么也没测到
         backdateStart(orderNo, 120);
 
         var view = TenantContext.callAs(TENANT, () -> facade.pickup(customerId, orderNo));
@@ -285,14 +273,12 @@ class PointLedgerTest {
         BizStorageOrder settled = order(orderNo);
         assertEquals(0L, settled.getFrozenPoints(), "结算后不得留有冻结");
         assertEquals(0L, settled.getArrearsPoints(), "余额充足却记欠费＝结算算错");
-        // 120 分钟 - 10 免费 = 110 → 向上取整 2 小时 × 25 = 50
         assertEquals(50L, settled.getSettledPoints(), "结算额必须等于快照单价 × 计费小时");
 
         var account = TenantContext.callAs(TENANT, () -> points.accountOf(customerId));
         assertTrue(account.getFrozenPoints() == 0L, "冻结栏必须清零，押金要回到可用栏");
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "取件后格口必须释放");
 
-        // 19A：下单只预收 4 小时费用（本用例里 SMALL/MEDIUM 均按测试库单价），不存任何押金
         assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
                 "账户不应再有押金：预收已经替它完成了担保");
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
@@ -302,7 +288,6 @@ class PointLedgerTest {
     @DisplayName("欠费仍可取件：实际用时远超预收、扣不到部分记未支付，但不锁件")
     void pickupWorksEvenWhenBroke() {
         Long customerId = newCustomer();
-        // 只给“预收 + 少量余额”：真实用时远超预收时就会扣不到，差额应进未支付而不是锁件
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 200, "CHG-" + UUID.randomUUID(), "只够预收+一点余额"));
 
         String orderNo = createOrder(customerId, SizeType.MEDIUM);
@@ -310,8 +295,6 @@ class PointLedgerTest {
             facade.openDoor(customerId, orderNo, CommandAction.OPEN);
             facade.openDoor(customerId, orderNo, CommandAction.CLOSE_VERIFY);
         });
-        // 用时长制造欠费（而不是改余额造现场）：手工把 points 清 0 会直接破坏不变量 3，
-        // 那样连“账还是不是平的”都没法验
         backdateStart(orderNo, 1000);
 
         var view = TenantContext.callAs(TENANT, () -> facade.pickup(customerId, orderNo));
@@ -319,18 +302,13 @@ class PointLedgerTest {
         assertEquals(OrderStatus.CLOSED.name(), view.status(), "欠费不能阻塞取件——东西是用户的");
         assertEquals(SlotStatus.FREE, slotStatus(orderNo), "件必须能拿出来");
         BizStorageOrder after = order(orderNo);
-        // 19A：MEDIUM 25 点/小时，预收 4 小时 = 100；充 200 后可用只剩 100。
-        // 用 1000 分钟→计费 17 小时，但单日封顶 10 小时 → 应缴 250；
-        // 能收到手的只有 100（预收）+ 100（余额）= 200 → 欠 50
         assertEquals(200L, after.getSettledPoints(), "能扣的先扣完（预收已到账，不算扣不到的那部分）");
         assertEquals(50L, after.getArrearsPoints(), "扣不到的部分必须记成未支付，不能抹掉");
         assertEquals(250L, after.getSettledPoints() + after.getArrearsPoints(),
                 "应缴总额 = 封顶后的 10 小时价；超过单日封顶的那 7 小时不得再收（规划 §5.10）");
 
-        // 押金已整套作废（19A）：欠费不会自动去占任何担保，预收就是全部担保
         assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getDepositPoints(),
                 "欠费不得自动占用任何担保额度");
-        // 欠费不产生流水（它只是“没收到的钱”），所以账依然必须是平的
         assertEquals("", TenantContext.callAs(TENANT, () -> points.verifyLedger(customerId)));
     }
 
@@ -342,7 +320,6 @@ class PointLedgerTest {
         String orderNo = createOrder(customerId, SizeType.SMALL);
         long orderId = order(orderNo).getId();
 
-        // 把快照里的单价改成一个配置里根本不存在的值，等价于"这单是在历史价格下创建的"
         jdbc.update("update biz_storage_order set pricing_snapshot = "
                 + "json_set(pricing_snapshot, '$.unitPointsPerHour', 1234) where id = ?", orderId);
 
@@ -350,7 +327,6 @@ class PointLedgerTest {
             facade.openDoor(customerId, orderNo, CommandAction.OPEN);
             facade.openDoor(customerId, orderNo, CommandAction.CLOSE_VERIFY);
         });
-        // 不回填时间就落在免费窗口（need=0），“读不读配置”根本测不出来
         backdateStart(orderNo, 120);
         TenantContext.runAs(TENANT, () -> facade.pickup(customerId, orderNo));
 
@@ -366,7 +342,6 @@ class PointLedgerTest {
         Long customerId = newCustomer();
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 1000, "CHG-" + UUID.randomUUID(), "充值"));
         String orderNo = createOrder(customerId, SizeType.LARGE);
-        // 预估（120 分 - 10 免费 = 110 → 2 小时 × LARGE 40 = 80）；C 之后这些全部不预冻
         assertEquals(0L, accountFrozen(customerId), "C：下单后不应有任何冻结");
 
         TenantContext.runAs(TENANT, () -> facade.cancel(customerId, orderNo));
@@ -383,7 +358,6 @@ class PointLedgerTest {
         return TenantContext.callAs(TENANT, () -> slotMapper.selectById(slotId)).getStatus();
     }
 
-    /** 回填计费开始时间：把“实际用时”变成可控量（而不是真等 2 小时）。 */
     private void backdateStart(String orderNo, long minutesAgo) {
         jdbc.update("update biz_storage_order set started_at = date_sub(now(3), interval ? minute) where order_no = ?",
                 minutesAgo, orderNo);

@@ -5,15 +5,6 @@ import org.springframework.ai.tool.annotation.Tool;
 
 import java.util.List;
 
-/**
- * 工单简报的工具集（第 23 刀）：<b>全部只读</b>——简报 agent 没有任何写工具，
- * 想自动关单连入口都没有（这与"你没有判定权"的 schema 铁律互为表里：
- * 规则管模型，工具集管代码，两层都挡）。
- *
- * <p>每次简报 new 一个实例：workOrderId 构造时注入，四个工具一个 ID 参数都没有——
- * 模型不可能查到这张单之外的数据。客户电话永远不出现在任何工具返回里
- * （电话只给打电话的人看，不进模型上下文）。
- */
 public class BriefTools {
 
     private final WorkOrderConsolePort workOrders;

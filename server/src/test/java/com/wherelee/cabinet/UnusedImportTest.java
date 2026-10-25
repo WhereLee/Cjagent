@@ -15,26 +15,10 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 未使用 import 的机器守卫。
- *
- * <p>为什么要有它：项目里曾经一次扫出 224 处未用 import，集中在 8 个从大类拆出来的文件里
- * （拆的时候把 import 整块复制过去）。它们不影响编译，但会<b>误导读者</b>——
- * 一个 handler 里 import 了 `BizDeposit` 与 `FaultType`，读的人会以为它碰押金和故障分类。
- * 清了还会长回来，所以要有机器守。
- *
- * <p>为什么不用 checkstyle：项目已经为模块边界、接口契约各发明过一个"测试即守卫"的手法
- * （{@code ModuleBoundaryTest}、{@code OpenApiContractTest}），用同一套不需要新依赖，
- * 也不会出现"清理脚本一套标准、检查工具另一套标准"的分裂。
- *
- * <p><b>判定是保守的</b>：文件其余部分（含注释）出现过的类名就算"用到"。
- * 所以只会漏报，不会误报——{@code javadoc} 里 {@code {@link Xxx}} 提到的类不会被误删。
- */
 class UnusedImportTest {
 
     private static final Path SOURCE_ROOT = Path.of("src/main/java");
 
-    /** 只处理普通 import：{@code import static} 的末段是成员名，不能按类名判。 */
     private static final Pattern IMPORT = Pattern.compile("^import\\s+(?!static)([\\w.]+)\\.(\\w+)\\s*;");
 
     @Test
@@ -76,7 +60,6 @@ class UnusedImportTest {
             if ("*".equals(simpleName)) {
                 continue;
             }
-            // 按整词匹配：Foo 的 import 被 FooBar 的使用命中，是这里唯一要防的误判
             if (!Pattern.compile("\\b" + Pattern.quote(simpleName) + "\\b").matcher(text).find()) {
                 offenders.add(file + "  ->  " + simpleName);
             }

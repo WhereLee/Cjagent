@@ -61,17 +61,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 运营后台现场处置（第 14 刀验收）。
- *
- * <p>测的是<b>处置的前置条件与后果</b>，不是"接口能不能通"：清柜前门必须已关、说明必须留、
- * 强制开柜必须二次确认、免除必须两条证据互相打脸、欠费必须真挡住下单。
- * 这些判据写不住，后台就从"闭环"变成"绕过业务规则的后门"。
- *
- * <p>权限点用注解断言而不是跑安全链路：403 的机制底座已有用例覆盖（第三刀），
- * 本刀要守的是"每个处置动作各自有权限点、没借用 system:*"这一条，注解上写得清清楚楚，
- * 用反射断言比再造一套登录-授权-调用夹具便宜得多也稳得多。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -106,7 +95,6 @@ class AdminLockerConsoleTest {
     private CompartmentStateService states;
     @Autowired
     private LockerConsoleService console;
-    /** 客户禁用/启用已归 identity，控制台不再改客户表。 */
     @Autowired
     private com.wherelee.cabinet.identity.app.CustomerAdminService customers;
     @Autowired
@@ -164,7 +152,6 @@ class AdminLockerConsoleTest {
         reviewPort.reset();
         Object[] customers = customerIds.toArray();
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
-        // 第 21 刀起 markContentLeft 会给物主发站内消息，按租户清掉避免共享库堆积
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_item_evidence where cabinet_id = ?", cabinetId);
@@ -218,9 +205,6 @@ class AdminLockerConsoleTest {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, orderNo, action));
     }
 
-    // blockedWithDispute 已删除（2026-10-12）：它靠“pickup 会被拒”来造争议现场，
-    // 而 19A 之后结束一律不拦人，这条造法与它服务的“误报免除”用例一起作废。
-
     @Test
     @DisplayName("台账分页与概览：异常格口能按原因码翻出来，停留时长算得出来")
     void ledgerPagesAnomaliesWithStuckTime() {
@@ -261,7 +245,6 @@ class AdminLockerConsoleTest {
                 () -> console.resolveAnomaly(slotId, "现场已看过")), "门没关不能标正常");
         assertTrue(doorBlocked.getMessage().contains("柜门"), doorBlocked.getMessage());
 
-        // 门关上之后才允许清；解除动作必须留下"谁看过、看到什么"
         simulator.simulateDoor(cabinetId, slotId, true);
         TenantContext.runAs(TENANT, () -> states.afterDoorClosed(slotForClose(slotId), customerId));
         TenantContext.runAs(TENANT, () -> console.resolveAnomaly(slotId, "现场柜内为空，已关门"));
@@ -284,13 +267,9 @@ class AdminLockerConsoleTest {
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
-        // 造现场改走今天唯一可达的那条路：结束不拦人，但物检仍有东西→本格自动标遗留物
-        // （旧的 orderService.abandon“声明放弃”入口随误报免除一起作废了）
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
         Long slotId = order(order.getOrderNo()).getSlotId();
-        // 定-17：遗留判定不在点结束时做（那时柜里必然还是他自己的东西），
-        // 而是等他取完东西、把门关上之后那一次检测
         simulator.simulateDoor(cabinetId, slotId, true);
         TenantContext.runAs(TENANT, () -> states.afterDoorClosed(slotForClose(slotId), customerId));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(),
@@ -320,12 +299,10 @@ class AdminLockerConsoleTest {
         door(first.getOrderNo(), debtor, CommandAction.OPEN);
         door(first.getOrderNo(), debtor, CommandAction.CLOSE_VERIFY);
         TenantContext.runAs(TENANT, () -> orderService.pickup(debtor, first.getOrderNo()));
-        // 造一笔欠费：直接改单上的欠额，模拟"补扣时余额不够"的落库结果
         jdbc.update("update biz_storage_order set arrears_points = 1 where id = ?", first.getId());
 
         Long fresh = newCustomer();
         TenantContext.runAs(TENANT, () -> points.recharge(fresh, 5000L, "CHG-" + UUID.randomUUID(), "对照"));
-        // 对照：没欠费的客户仍可下单（证明拦住的原因只有欠费这一条）
         assertNotNull(TenantContext.callAs(TENANT, () -> orderService.create(fresh,
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))));
 
@@ -350,7 +327,6 @@ class AdminLockerConsoleTest {
 
         TenantContext.runAs(TENANT, () -> customers.changeCustomerStatus(customerId, 0, "反复拒付，客服核验后禁用"));
         assertEquals(0, jdbc.queryForObject("select status from biz_customer where id = ?", Integer.class, customerId));
-        // 再点一次同样值不该报错（运营重复提交是常态）
         TenantContext.runAs(TENANT, () -> customers.changeCustomerStatus(customerId, 0, "重复提交"));
         TenantContext.runAs(TENANT, () -> customers.changeCustomerStatus(customerId, 1, "已补缴，恢复使用"));
         assertEquals(1, jdbc.queryForObject("select status from biz_customer where id = ?", Integer.class, customerId));
@@ -365,7 +341,6 @@ class AdminLockerConsoleTest {
         assertPermission("arrears", "locker:arrears:list");
         assertPermission("resolve", "locker:compartment:resolve");
         assertPermission("forceOpen", "locker:door:force-open");
-        // “免除争议费用”的权限点已随误报免除一起作废（2026-10-12），V21 软删该权限行
         assertPermission("changeCustomerStatus", "locker:customer:disable");
         assertPermission("rebuildFreeSet", "locker:freeset:rebuild");
     }
@@ -388,7 +363,6 @@ class AdminLockerConsoleTest {
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
-        // 新口径：结束不拦人，照收钱并关闭；证据不靠“结束被拒”产生，而是四个采集点各自留底
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
 
         assertNotNull(TenantContext.callAs(TENANT, () -> console.compartmentDetail(order.getSlotId())),

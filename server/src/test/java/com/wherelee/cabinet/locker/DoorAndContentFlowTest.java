@@ -52,24 +52,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 门态、物检与结束判据（第 13B 刀验收）。
- *
- * <p>这一刀真正要证明的是一句话：<b>门关了不等于柜内是空的</b>。所以每条用例都同时看三处——
- * 订单状态（钱）、格口门态与异常（货）、以及“下一位还能不能被分到这一格”（卖错与否）。
- * 只看订单状态是不够的：钱对了但把别人还留着东西的格子卖出去，仍然是事故。
- *
- * <p>设备侧只借两个能力：把某格口“柜内有物”当真、把某柜机的物检设成不可用。
- * 这就是模拟器该有的样子——能回答我们要问的问题，不多做物理还原。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
         "cabinet.scheduler.hold-grace-minutes=0",
-        // 容错期设 0：用例自己决定"到期前 / 到期后"，不靠等待
         "cabinet.door-watch.first-remind-minutes=0",
-        // 定-23 的预备开重试间隔归零：本类验的是“重试几次、何时换格、何时退单”这个顺序，不是等 sleep
         "cabinet.device.open-retry-interval-ms=0",
 })
 @DisplayName("门态与柜内物品：计费锚点、结束三条件、放弃与远程结束")
@@ -148,7 +136,6 @@ class DoorAndContentFlowTest {
         simulator.reset();
         Object[] customers = customerIds.toArray();
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
-        // 第 21 刀起 markContentLeft 会给物主发站内消息，按租户清掉避免共享库堆积
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
         if (!customerIds.isEmpty()) {
@@ -197,7 +184,6 @@ class DoorAndContentFlowTest {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, orderNo, action));
     }
 
-    /** 开柜 + 关门校验，把单推到计费中。 */
     private BizStorageOrder activate(Long customerId, BizStorageOrder order) {
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
@@ -232,8 +218,6 @@ class DoorAndContentFlowTest {
                 "起点只能是开门时刻，不能比下单还早");
         LocalDateTime start = opened.getStartedAt();
 
-        // 中途取物：再开一次门不得重新发半小时免费（起点不动）。临时开柜要求单在计费中，
-        // 所以先把门关回去进入 ACTIVE，再点临时开柜
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
         var tempView = TenantContext.callAs(TENANT, () -> orderService.openDoor(customerId,
                 order.getOrderNo(), CommandAction.OPEN_TEMP));
@@ -242,7 +226,6 @@ class DoorAndContentFlowTest {
         assertEquals(start.withNano(0), order(order.getOrderNo()).getStartedAt().withNano(0),
                 "暂时开柜不得把起点往后推：那等于每开一次门就白得一段免费时间");
 
-        // 关回来了：起点仍不许动（只是停止“门未关”那个异常的前进）
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
         assertEquals(start.withNano(0), order(order.getOrderNo()).getStartedAt().withNano(0),
                 "起点一旦落定就不许再改，否则账单与逾期都在读一个会飘的数字");
@@ -257,8 +240,6 @@ class DoorAndContentFlowTest {
         BizCompartment slot = slot(order.getSlotId());
         assertNotNull(slot.getDoorOpenAt(), "开门起点必须落库：计费时长与可分配判定都据它");
 
-        // 注意拦下它的是 door_open_at 而不是 anomaly：异常要等容错期满才标（容错期内开着是正常态），
-        // 如果可分配只看过不过异常，容错期内就会把锁不上的格子卖出去
         List<Long> candidates = TenantContext.callAs(TENANT, () -> slotMapper
                 .selectList(SlotCandidateQuery.assignable(cabinetId, List.of(SizeType.SMALL))))
                 .stream().map(BizCompartment::getId).toList();
@@ -272,16 +253,12 @@ class DoorAndContentFlowTest {
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
-        // 19A：柜内有物不再拦结束。他自己点结束，单就结、费就收；
-        // 但这一格在有人清走东西之前不算空位（I9/I12：“记事实”取代了“拦人”）
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
-        // 定-17：遗留判定在“取物后门又关上”这一刻发生，不在点结束时
         simulator.simulateDoor(cabinetId, order.getSlotId(), true);
         BizCompartment closedSlotA = slot(order.getSlotId());
         TenantContext.runAs(TENANT, () -> states.afterDoorClosed(closedSlotA, customerId));
         Long slotId = order(order.getOrderNo()).getSlotId();
 
-        // 门是关着的、物检也报“没有”，也必须等人来清：自动解除只服务 DOOR_OPEN
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
                 new Sensing(true, Presence.ABSENT, LocalDateTime.now())));
 
@@ -304,11 +281,9 @@ class DoorAndContentFlowTest {
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(), "19A：柜内有东西也不能把用户钉在柜机前");
         assertNotNull(closed.getFinishedAt());
-        // 定-17：点结束时不再读柜内，也不再顺手开单——门开着本身就是超时回扫的输入
         assertTrue(slot(closed.getSlotId()).getAnomaly() == null,
                 "取物之后什么都没判才是对的：那时他随时可能把东西拿走");
 
-        // 他东西没拿走就把门关上了——这一刻才判得出遗留
         simulator.simulateDoor(cabinetId, closed.getSlotId(), true);
         BizCompartment openedSlotA = slot(closed.getSlotId());
         TenantContext.runAs(TENANT, () -> states.afterDoorClosed(openedSlotA, customerId));
@@ -334,8 +309,6 @@ class DoorAndContentFlowTest {
 
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(), "旧口径里“门没关就拒绝结束”已作废（他会卡在柜机前）");
-        // 结束把单与格口解绑是对的（钱已清、物主已走），但这一格仍不可售：
-        // 拦它的不是 status 而是“门还开着 + 挂着 DOOR_OPEN 异常”，两者都在候选判据里
         assertEquals(CompartmentAnomaly.DOOR_OPEN, slot(closed.getSlotId()).getAnomaly(),
                 "不拦人不等于不记：门未关必须进台账（19D 接提醒阶梯与工单）");
         assertNotNull(slot(closed.getSlotId()).getDoorOpenAt(),
@@ -374,7 +347,6 @@ class DoorAndContentFlowTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
-        // 这台柜机的柜内传感器不报结果（坏了/离线）：门磁照常说，但“有没有东西”只能答 UNKNOWN
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.SENSOR_NO_ITEM);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
         assertEquals(OrderStatus.ACTIVE, order(order.getOrderNo()).getStatus(),
@@ -384,7 +356,6 @@ class DoorAndContentFlowTest {
 
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(), "用户不该被一台坏传感器钉在柜机前");
-        // 定-17：门关上之后才判得出“拿不到凭据”，而这时必须锁格（无凭据绝不放回可售池）
         simulator.simulateDoor(cabinetId, closed.getSlotId(), true);
         BizCompartment closedSlotB = slot(closed.getSlotId());
         TenantContext.runAs(TENANT, () -> states.afterDoorClosed(closedSlotB, customerId));
@@ -421,7 +392,6 @@ class DoorAndContentFlowTest {
         door(order.getOrderNo(), customerId, CommandAction.OPEN_TEMP);
         assertEquals(OrderStatus.TEMP_OPEN, order(order.getOrderNo()).getStatus(), "前提：现在在临时开柜中");
 
-        // 以前这一步会撞“不允许从 TEMP_OPEN 迁移到 SETTLING”：用户拿着东西、门开着，系统告诉他不能结单
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
 
         BizStorageOrder closed = order(order.getOrderNo());
@@ -444,7 +414,6 @@ class DoorAndContentFlowTest {
                 "结束要回一句话告诉用户门开了（缺陷 16：以前这种结果只进服务端日志）：" + view.message());
         BizCompartment after = TenantContext.callAs(TENANT, () -> slotMapper.selectById(order.getSlotId()));
         assertNotNull(after.getDoorOpenAt(), "结束后这一格的门必须是开着的：门不开他拿不出东西，就是“结束=放弃”");
-        // 取物窗口不靠新增锁：这一格不可卖是“门已关”这个现成判据自己说的
         Integer opened = jdbc.queryForObject(
                 "select count(*) from biz_item_evidence where compartment_id = ? and moment = 'DOOR_OPENED'",
                 Integer.class, order.getSlotId());
@@ -460,7 +429,6 @@ class DoorAndContentFlowTest {
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
 
-        // 前面两次开门是好的，到结束这一步柜机才开始“自己说开不了”
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.EXEC_FAIL);
         com.wherelee.cabinet.storage.api.StorageOrderView view =
                 TenantContext.callAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
@@ -488,7 +456,6 @@ class DoorAndContentFlowTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
         Long firstSlot = order.getSlotId();
-        // 预备开失败是“确认坏了”：门肯定没动过，所以这一步可以安全换格与退钱
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.PREPARE_FAIL);
 
         BizException failed = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
@@ -518,7 +485,6 @@ class DoorAndContentFlowTest {
         BizStorageOrder order = newOrder(customerId);
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.NO_RECEIPT);
 
-        // 无回执不抛异常也不退单（维持定-23 之前的行为：交给回扫与待收敛回收）
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(), CommandAction.OPEN));
         assertNotEquals(OrderStatus.CANCELLED, order(order.getOrderNo()).getStatus(),
                 "不回话不是“确认坏了”：自动退单会把格子卖下一个人，而柜里可能已经有件");
@@ -570,7 +536,6 @@ class DoorAndContentFlowTest {
                 "屏幕说 0，下单就得说没格：两处必须同一个答案：" + soldOut.getMessage());
     }
 
-    /** 这台柜机小格的剩余数（走的就是对外接口那一个方法；必须带租户上下文，否则租户隔离插件报错）*/
     private long freeSmall() {
         return TenantContext.callAs(TENANT, () -> availabilityService.of(cabinetNo).sizes().stream()
                 .filter(s -> "SMALL".equals(s.sizeType()))
@@ -595,8 +560,6 @@ class DoorAndContentFlowTest {
 
         var wallet = TenantContext.callAs(TENANT, () -> queries.wallet(customerId));
         assertEquals(1L, wallet.activeOrders(), "刚下的这张单要算成活动单（一人只能占一格靠它可见）");
-        // 不写死数字：本夹具给自己建了点位价目，单价不是默认值。
-        // 真正要钉的是口径：单上记了多少预收，余额就应当少多少——两处对不上就是记账分裂
         long prepay = jdbc.queryForObject(
                 "select prepay_points from biz_storage_order where order_no = ?", Long.class,
                 order.getOrderNo());
@@ -614,8 +577,6 @@ class DoorAndContentFlowTest {
                 "select site_id from biz_cabinet where id = ?", Long.class, cabinetId);
         Long anySlot = jdbc.queryForObject(
                 "select id from biz_compartment where cabinet_id = ? limit 1", Long.class, cabinetId);
-        // 直接用 SQL 造 51 张已结束的欠费单：走下单接口会被“一人只能一张活动单”挡住，
-        // 这里要验的是只读汇总口径，不是下单规则。
         for (int i = 0; i < 51; i++) {
             jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                             + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, "
@@ -638,17 +599,14 @@ class DoorAndContentFlowTest {
     void openReceiptCannotBillTheUser() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
-        // 这一类故障以前不在矩阵里：柜机回一句“开了”，但门磁从未动作
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.LYING_OPENED);
 
         door(order.getOrderNo(), customerId, CommandAction.OPEN);
         BizStorageOrder opened = order(order.getOrderNo());
         assertNotNull(opened.getStartedAt(),
                 "现状如实记下：计费起点只看回执，设备说谎也会落下起点（没有独立门磁佐证）");
-        // 谎报后单停在 OPENING，跟正常流程一样要过一道关门校验才能结束（物理上本就没开，传感器会诚实地答“关着”）
         door(order.getOrderNo(), customerId, CommandAction.CLOSE_VERIFY);
 
-        // 用户站在柜子前，门没开——他一定当场发现，于是直接结束
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, order.getOrderNo()));
         BizStorageOrder closed = order(order.getOrderNo());
 
@@ -671,7 +629,6 @@ class DoorAndContentFlowTest {
         assertEquals(detail, siteFreeSmall(siteCode),
                 "点位列表里的数与柜机明细里的数必须同一条判据算出来，不能各写一套 SQL");
 
-        // 标一个格口异常：两边都得跟着减一（只改一处 SQL 的人会被这里拦下）
         Long slotId = jdbc.queryForList(
                 "select id from biz_compartment where cabinet_id = ? and size_type = 'SMALL' and status = 'FREE'"
                         + " and anomaly is null and door_open_at is null limit 1", Long.class, cabinetId).get(0);

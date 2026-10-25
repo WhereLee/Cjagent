@@ -16,17 +16,9 @@ import org.springframework.util.StringUtils;
 
 import java.util.Set;
 
-/**
- * 后台账号查询（只读）。租户隔离不需要在这里写任何条件：
- * {@code sys_user} 不在白名单，SQL 会被自动加上 {@code tenant_id = 当前租户}。
- */
 @Service
 public class UserQueryService implements com.wherelee.cabinet.identity.api.UserQueryPort {
 
-    /**
-     * 本接口允许排序的属性白名单。加字段前先想清楚：
-     * 能被排序的字段，攻击者就能通过二分/时序观察其值分布，所以只放展示型与时间型字段。
-     */
     private static final Set<String> SORTABLE =
             Set.of("id", "username", "realName", "status", "createTime", "lastLoginAt");
 
@@ -40,8 +32,6 @@ public class UserQueryService implements com.wherelee.cabinet.identity.api.UserQ
     public PageResult<UserView> page(String keyword, Integer status, PageQuery pageQuery) {
         Page<SysUser> page = PageSupport.toPage(pageQuery, SORTABLE);
         if (!pageQuery.hasSort()) {
-            // 无排序时 MySQL 不保证翻页稳定，同一条记录可能被跳过或重复出现，
-            // 所以必须有一个兜底排序；用 id 倒序（新记录优先，且值唯一、天然稳定）
             page.addOrder(OrderItem.desc("id"));
         }
 

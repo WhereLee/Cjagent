@@ -14,13 +14,6 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 
-/**
- * 死信消费者：{@code OWNER_NOTICE} 重试 16 次仍失败的消息，归档进 {@code biz_dead_letter}。
- *
- * <p>与 {@link WorkOrderDeadLetterConsumer} 同构，只有 tag、原组、本组三处不同。
- * 分成两个类而不是一个类订阅两个 DLQ：{@code @RocketMQMessageListener} 一个注解只能挂一个
- * topic，而且两个业务的死信本来就该各自独立——一个卡住不该拖另一个。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.outbox.transport", havingValue = "mq", matchIfMissing = true)
 @RocketMQMessageListener(

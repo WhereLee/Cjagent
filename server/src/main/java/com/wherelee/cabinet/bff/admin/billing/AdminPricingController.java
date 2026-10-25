@@ -25,15 +25,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 后台-计价策略发布与按点位灰度（第 14D 刀）。
- *
- * <p>只有两个权限点：<b>查看</b>与<b>发布</b>。回滚不单设权限——它本质就是"把旧内容再发一版"，
- * 需要的是同一个发布权限；单开一个反而会出现"能发布不能回滚"这种没人在设计时想过的死角。
- *
- * <p>预览接口挂在查看权限下而不是发布权限：它不写任何东西，而运营在决定要不要发布之前必须先看得到价。
- * 预览与下单/结算走<b>同一个 {@code PricingPolicy}</b>，所以页面上那个数字就是真实会扣的数字。
- */
 @Tag(name = "后台-计价策略")
 @RestController
 @RequestMapping("/api/admin/pricing")
@@ -90,7 +81,6 @@ public class AdminPricingController {
         return R.ok(rules.rollback(ruleId, request.reason(), current.subjectId()));
     }
 
-    /** 回滚也要事由：改价的理由和回滚的理由是同一类东西，都得留下。 */
     public record ReasonRequest(@NotBlank @Size(max = 200) String reason) {
     }
 }

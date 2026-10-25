@@ -2,7 +2,6 @@ package com.wherelee.cabinet.servicedesk.api;
 
 import java.util.Locale;
 
-/** 工单优先级：由影响范围和紧急度共同决定，不再用一个 urgent 布尔表达。 */
 public enum WorkOrderPriority {
 
     P1,

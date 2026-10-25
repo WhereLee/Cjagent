@@ -14,16 +14,6 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * PII 出参的机器守卫（单向）。
- *
- * <p>为什么要有它：手机号是项目里唯一真实的个人敏感字段，"谁能看到明文"目前靠调用方自觉。
- * 这张清单把现状冻下来，也是批 11 做权限点分级的输入。
- *
- * <p><b>为什么是单向的</b>：只校验"清单里的每条都还在、脱敏状态没变"，不校验"源码里有没有清单外的 PII"。
- * 双向扫描会被 {@code @JsonMask(MaskType.PHONE)} 里的括号干扰，误判"已脱敏字段缺失"；
- * 那种噪音会让人直接把守卫关掉，比漏判更糟。新增 PII 字段仍需人工过一遍这份清单。
- */
 class PiiExposureGuardTest {
 
     private static final Path API_ROOT = Path.of("src/main/java/com/wherelee/cabinet");
@@ -78,7 +68,6 @@ class PiiExposureGuardTest {
     }
 
     private Path findApiSource(String type) throws IOException {
-        // 先把分隔符归一成 /：Windows 上 toString() 是反斜杠，直接拼 "/api/" 永远匹配不上
         String suffix = "/api/" + type + ".java";
         try (Stream<Path> files = Files.walk(API_ROOT)) {
             return files.filter(path -> path.toString().replace('\\', '/').endsWith(suffix))
@@ -87,9 +76,6 @@ class PiiExposureGuardTest {
         }
     }
 
-    /**
-     * @return 该字段所在行有没有 {@code @JsonMask}；字段不存在返回 {@code null}
-     */
     private Boolean scanMasked(Path source, String field) throws IOException {
         Pattern declaration = Pattern.compile("\\b" + Pattern.quote(field) + "\\b\\s*[,)]");
         boolean found = false;

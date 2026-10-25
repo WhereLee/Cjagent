@@ -16,13 +16,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * 格口/柜机/点位的只读查询适配器：把“格口的表归格口读”这件事落成代码。
- *
- * <p>为什么要这一层：订单、工单、运营台以前各自 selectById 这些表，于是同一条
- * “可分配”判据在四处各写一遍。只读查询收到这里之后，调用方拿到的是快照，
- * 想自己拼状态也没有实体可以改。
- */
 @Component
 public class SlotQueryAdapter implements SlotQueryPort {
 

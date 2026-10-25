@@ -19,12 +19,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 后台认证接口：登录、刷新、注销、当前账号。
- *
- * <p>Controller 只做参数校验与转换，业务在 application 层——两端接口形态将来会分化
- * （后台多一套权限与租户管理），薄一层容易保持边界。
- */
 @Tag(name = "后台-认证")
 @RestController
 @RequestMapping("/api/admin/auth")

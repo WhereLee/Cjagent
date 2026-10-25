@@ -28,12 +28,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * 后台认证与授权链路（第三刀验收）。
- *
- * <p>覆盖：统一响应体的 401/403、跨端 token 不可用、权限点与角色两种判定、
- * 同用户名跨租户互不串号、refresh 一次性轮换、注销后 access 立刻失效、租户停用拒登。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -60,7 +54,6 @@ class AdminAuthFlowTest {
 
     @BeforeEach
     void preparePasswords() {
-        // 口令由测试现算，仓库里不留任何可用凭据；同时清掉权限缓存，避免上一次运行的残留
         setPassword(9301L, 8101L, PWD_ONE);
         setPassword(9302L, 8102L, PWD_TWO);
         permissionService.evict(9301L);
@@ -92,7 +85,6 @@ class AdminAuthFlowTest {
                 .andExpect(jsonPath("$.data.accessToken").isNotEmpty())
                 .andExpect(jsonPath("$.data.refreshToken").isNotEmpty())
                 .andReturn();
-        // 只取 accessToken，避免把整段 JSON 拼进断言里
         String body = result.getResponse().getContentAsString();
         int start = body.indexOf("\"accessToken\":\"") + "\"accessToken\":\"".length();
         int end = body.indexOf('"', start);
@@ -111,7 +103,6 @@ class AdminAuthFlowTest {
                 .andExpect(jsonPath("$.data.tenantId").value("8101"))
                 .andExpect(jsonPath("$.data.authorities").value(org.hamcrest.Matchers.hasItems("ROLE_OPS", "probe:read")));
 
-        // Long 必须以字符串返回（第一刀的约定在这里生效），否则前端精度丢失
         mockMvc.perform(get("/api/admin/auth/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(jsonPath("$.data.userId").isString());
 
@@ -172,7 +163,6 @@ class AdminAuthFlowTest {
     @Test
     @DisplayName("已登录但权限不足 → 403（不是 401，前端不该跳登录）")
     void authenticatedWithoutPermissionGets403() throws Exception {
-        // 9302 在租户二，故意不绑任何角色
         String token = login(TENANT_TWO, "ops-admin", PWD_TWO);
 
         mockMvc.perform(get("/api/admin/probe/authenticated").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -188,7 +178,6 @@ class AdminAuthFlowTest {
         login(TENANT_ONE, "ops-admin", PWD_ONE);
         login(TENANT_TWO, "ops-admin", PWD_TWO);
 
-        // 拿租户一的账号去试租户二的口令：必须失败，且与"用户不存在"响应完全一致
         mockMvc.perform(post("/api/admin/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -229,7 +218,6 @@ class AdminAuthFlowTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(40100));
 
-        // 新的 refresh 仍可用
         mockMvc.perform(post("/api/admin/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"refreshToken\":\"" + newRefresh + "\"}"))
@@ -278,8 +266,6 @@ class AdminAuthFlowTest {
                 .andExpect(jsonPath("$.code").value(40000));
     }
 
-    // ---------- 以下为第5刀：分页约定 + 权限 + 脱敏 + 默认拒绝 ----------
-
     @Test
     @DisplayName("账号列表：有权限才可见，只返回本租户数据，手机号已脱敏且不透出哈希")
     void userListIsAuthorizedScopedAndMasked() throws Exception {
@@ -288,9 +274,6 @@ class AdminAuthFlowTest {
         mockMvc.perform(get("/api/admin/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                // 分页计数必须是 JSON 数字。这里故意用 isNumber/isString 而不是 value(...)：
-                // value() 对 number 与 string 是宽容比较，曾让 Long→String 全局规则
-                // 把 total 变成 "1" 也测不出来（真实 HTTP 才发现）
                 .andExpect(jsonPath("$.data.pageNum").isNumber())
                 .andExpect(jsonPath("$.data.pageSize").isNumber())
                 .andExpect(jsonPath("$.data.total").isNumber())
@@ -299,10 +282,8 @@ class AdminAuthFlowTest {
                 .andExpect(jsonPath("$.data.pageSize").value(20))
                 .andExpect(jsonPath("$.data.total").value(1))
                 .andExpect(jsonPath("$.data.records[0].username").value("ops-admin"))
-                // 脱敏生效在真接口上：不是一行单测里的 mapper 输出
                 .andExpect(jsonPath("$.data.records[0].phone").value("138****8000"))
                 .andExpect(jsonPath("$.data.records[0].passwordHash").doesNotExist())
-                // 雪花 ID 以字符串返回（否则前端会静默丢精度）
                 .andExpect(jsonPath("$.data.records[0].id").isString());
     }
 
@@ -311,8 +292,6 @@ class AdminAuthFlowTest {
     void userListRequiresPermission() throws Exception {
         String token = login(TENANT_TWO, "ops-admin", PWD_TWO);
 
-        // 租户隔离本身由上一个用例的 total=1 证明（库里有 9301/9302 两条，只看得见自己那条）；
-        // 本用例只管一件事：没权限就是 403
         mockMvc.perform(get("/api/admin/users").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(40300));
@@ -355,12 +334,8 @@ class AdminAuthFlowTest {
     @Test
     @DisplayName("dev 下指标已埋：JVM 与 HTTP 请求指标都在（只埋不采）")
     void metricsEndpointHasJvmAndHttpIndicators() throws Exception {
-        // 不用 /actuator/prometheus：那个端点靠内容协商输出 Prometheus 文本格式，
-        // MockMvc 的请求没 Accept 头时会 404（真实 HTTP 实测是 200）。
-        // 这里只断言指标已注册，格式本身由真实 curl 验证。
         mockMvc.perform(get("/actuator/metrics"))
                 .andExpect(status().isOk())
-                // names 有几十项，只能断言“包含”而非“等于”（containsInAnyOrder 要求集合全等）
                 .andExpect(jsonPath("$.names").value(org.hamcrest.Matchers.hasItems(
                         "jvm.memory.used", "http.server.requests")));
     }

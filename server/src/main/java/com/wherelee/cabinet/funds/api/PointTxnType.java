@@ -4,66 +4,26 @@ import java.util.EnumSet;
 import java.util.Locale;
 import java.util.Set;
 
-/**
- * 点数流水类型。
- *
- * <p><b>设计约束：一笔流水只影响一栏（{@link Bucket#POINTS 可用点数} 或
- * {@link Bucket#FROZEN 冻结点数}），且符号由类型唯一确定。</b>
- * 这样才能把"账平"写成两条纯求和断言：
- * <pre>
- *   points        == Σ amount where bucket = POINTS
- *   frozen_points == Σ amount where bucket = FROZEN
- * </pre>
- * 一旦允许某笔流水同时动两栏（常见的"冻结：可用减、冻结加"写成一条），
- * 上面两条就不再成立，余额校验只能靠人工推导——那是账务代码最难维护的形态。
- * 所以"冻结"在这里拆成 {@link #FREEZE_OUT} + {@link #FREEZE_IN} 两笔。
- *
- * <p>这是"轻档"记账（用户拍板）：<b>不做</b>双分录、本金/赠送分栏、退款折算、对账四分类。
- * 放弃的东西是明确不做的，不是没想到。
- */
 public enum PointTxnType {
 
-    /** 充值入账 */
     RECHARGE(Bucket.POINTS, Sign.PLUS),
-    /** 人工调整，符号由 amount 决定（唯一允许任意符号的类型） */
     ADJUST(Bucket.POINTS, Sign.EITHER),
-    /** 真实消耗：结算与补扣 */
     CONSUME(Bucket.POINTS, Sign.MINUS),
-    /** 冻结：从可用移出 */
     FREEZE_OUT(Bucket.POINTS, Sign.MINUS),
-    /** 冻结：进入冻结栏（与 FREEZE_OUT 成对） */
     FREEZE_IN(Bucket.FROZEN, Sign.PLUS),
-    /** 解冻：从冻结栏移出 */
     UNFREEZE_OUT(Bucket.FROZEN, Sign.MINUS),
-    /** 解冻：回到可用栏（与 UNFREEZE_OUT 成对；押金退还也走这一对） */
     UNFREEZE_IN(Bucket.POINTS, Sign.PLUS),
-    /**
-     * 划押金：从可用移出（2026-10-10 账户级押金）。与 DEPOSIT_IN 成对，和冻结同构：
-     * 一笔只动一栏，否则“某栏 == 该栏流水求和”这条对账判据不成立。
-     */
     DEPOSIT_OUT(Bucket.POINTS, Sign.MINUS),
-    /** 划押金：进入押金栏 */
     DEPOSIT_IN(Bucket.DEPOSIT, Sign.PLUS),
-    /** 退押金：从押金栏移出（抵欠款那一笔走 CONSUME，不走这里） */
     DEPOSIT_BACK_OUT(Bucket.DEPOSIT, Sign.MINUS),
-    /** 退押金：回到可用栏 */
     DEPOSIT_BACK_IN(Bucket.POINTS, Sign.PLUS),
-    /**
-     * 下单预收（19A，2026-10-11 定稿）：先收该格口 4 小时的钱。
-     *
-     * <p>它是**真实消费**而不是冻结：余额不够就下单失败（不能先开门再催钱）。
-     */
     PREPAY(Bucket.POINTS, Sign.MINUS),
-    /** 预收退还：结算时“多退”的那一部分（也是唯一能把点数退回可用的非解冻类型） */
     PREPAY_REFUND(Bucket.POINTS, Sign.PLUS);
 
-    /** 流水影响哪一栏。 */
     public enum Bucket { POINTS, FROZEN, DEPOSIT }
 
-    /** 该类型允许的符号。 */
     public enum Sign { PLUS, MINUS, EITHER }
 
-    /** 消耗类：需要真实扣减点数，可能因余额不足失败。 */
     private static final Set<PointTxnType> CONSUMING =
             EnumSet.of(CONSUME, FREEZE_OUT, DEPOSIT_OUT, PREPAY);
 
@@ -79,18 +39,15 @@ public enum PointTxnType {
         return bucket;
     }
 
-    /** 把带符号的 amount 规范化成"该类型应有的符号"，防止调用方传错正负导致账越对越乱。 */
     public long normalize(long amount) {
         long abs = Math.abs(amount);
         return switch (sign) {
             case PLUS -> abs;
             case MINUS -> -abs;
-            // ADJUST 保留原符号；其余类型强制归一
             case EITHER -> amount;
         };
     }
 
-    /** 是否需要从可用点数里真扣（余额不足要失败的那些）。 */
     public boolean consumesAvailable() {
         return CONSUMING.contains(this);
     }
@@ -99,12 +56,6 @@ public enum PointTxnType {
         return valueOf(value.trim().toUpperCase(Locale.ROOT));
     }
 
-    /**
-     * 某一栏全部类型名（供 SQL 的 {@code in (...)} 用）。
-     *
-     * <p>为什么由枚举而不是 SQL 决定：把枚举串写死在 SQL 里，新增一个类型时忘了归类，
-     * 账平校验会<b>静默漏算那一笔</b>——比直接不过校验更危险（第 12 刀的结论）。
-     */
     public static java.util.List<String> namesOf(Bucket bucket) {
         return java.util.Arrays.stream(values())
                 .filter(type -> type.bucket() == bucket)

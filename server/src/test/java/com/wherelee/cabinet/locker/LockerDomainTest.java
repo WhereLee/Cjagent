@@ -38,14 +38,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 业务地基（V4）的集成验证。
- *
- * <p>覆盖三件"只有真库才能证明"的事：
- * ① 结构性防超卖（唯一索引 {@code uk_order_active_slot}）；
- * ② 新建业务表吃租户隔离（拦截器对 biz_* 生效）；
- * ③ 索引真的被优化器使用（EXPLAIN 断言，而不是"DDL 里写了就算"）。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -67,12 +59,6 @@ class LockerDomainTest {
     @Autowired
     private BizStorageOrderMapper orderMapper;
 
-    /**
-     * EXPLAIN 走 JdbcTemplate 而不是 Mapper：
-     * 租户拦截器会把 SQL 交给 JSqlParser 解析，而它**认不得 EXPLAIN 语句**（实测报
-     * “Failed to process, Error SQL: EXPLAIN FORMAT=JSON ...”）。
-     * 另外这里测的是“查询形状能不能命中索引”，不带 tenant_id 与带上的结论一致，不影响断言。
-     */
     @Autowired
     private DataSource dataSource;
 
@@ -88,11 +74,9 @@ class LockerDomainTest {
         TenantContext.clear();
     }
 
-    /** 一台柜机 + 它所属点位的主键，测试里到处要用这两个 ID，故一起返回。 */
     private record CabinetRef(Long siteId, Long cabinetId) {
     }
 
-    /** 按 6 大 / 8 中 / 10 小建一台柜机及其 24 个格口（模拟"按型号模板生成"）。 */
     private CabinetRef newCabinetWithSlots(String cabinetNo) {
         return TenantContext.callAs(TENANT, () -> {
             BizSite site = new BizSite();
@@ -122,7 +106,6 @@ class LockerDomainTest {
         for (int i = 1; i <= count; i++) {
             BizCompartment slot = new BizCompartment();
             slot.setCabinetId(cabinetId);
-            // 格口号按尺寸前缀编号，如 L01 / M01 / S01，与现场贴纸一致，便于对账
             slot.setSlotNo(size.name().charAt(0) + String.format("%02d", i));
             slot.setSizeType(size);
             slot.setStatus(SlotStatus.FREE);
@@ -192,7 +175,6 @@ class LockerDomainTest {
 
             DuplicateKeyException thrown = assertThrows(DuplicateKeyException.class,
                     () -> orderMapper.insert(second));
-            // 断言"冲突来自哪个索引"而不是恒真：如果哪天有人把唯一键改错列，这条会红
             assertTrue(thrown.getMessage() != null && thrown.getMessage().contains("uk_order_active_slot"),
                     "应是 uk_order_active_slot 冲突，实际：" + thrown.getMessage());
             return null;
@@ -208,7 +190,6 @@ class LockerDomainTest {
         TenantContext.callAs(TENANT, () -> {
             BizStorageOrder first = newOrder(ref, slot, "SO-SEQ-1");
             orderMapper.insert(first);
-            // 走完正常生命周期
             first.transitTo(OrderStatus.RESERVED);
             first.transitTo(OrderStatus.OPENING);
             first.transitTo(OrderStatus.STORED);
@@ -243,14 +224,6 @@ class LockerDomainTest {
         assertEquals(0L, visibleOrders, "跨租户不该看见订单");
     }
 
-    /**
-     * 断言索引的**形状**而不是优化器的选择，这是个有意的设计。
-     *
-     * <p>24 行的小表上，EXPLAIN 对“只按 status 过滤”也会选 idx_slot_acquire
-     * （access_type=index，全索引扫——实际上比扫聚簇索引便宜），所以“用不用某索引”
-     * 在小数据量下根本不是可靠断言（实测踩过）。列顺序错了则是**确定性的错**，
-     * 它直接带走“最左前缀”能不能用。真正的执行计划断言等有量级数据后再加（第 13 刀）。
-     */
     @Test
     @DisplayName("关键索引存在且列顺序正确（形状回归，不依赖优化器）")
     void indexShapesAreAsDesigned() {
@@ -258,7 +231,6 @@ class LockerDomainTest {
                 indexColumns("biz_compartment", "idx_slot_acquire"));
         assertEquals(List.of("cabinet_id", "slot_no"),
                 indexColumns("biz_compartment", "uk_slot_cabinet_no"));
-        // ★ 防超卖的唯一索引：顺序不能反，slot_id 在前才能按格口定位；active_flag 在后才能允许 NULL 重复
         assertEquals(List.of("slot_id", "active_flag"),
                 indexColumns("biz_storage_order", "uk_order_active_slot"));
         assertEquals(List.of("status", "expected_finish_at"),
@@ -282,9 +254,6 @@ class LockerDomainTest {
         BizCompartment slot = firstFreeSlot(ref, SizeType.LARGE);
 
         TenantContext.callAs(TENANT, () -> {
-            // 不能用“同一会话读两次”来模拟两个并发者：MyBatis 一级缓存会返回**同一个对象实例**，
-            // 第一个更新把 version 抬上去，第二个“并发者”跟着变新，测不出冲突（实测踩到）。
-            // 所以手工造一个“迟到的写入者”：只带 id + 旧 version + 它要改的字段。
             BizCompartment fresh = slotMapper.selectById(slot.getId());
             assertEquals(0, fresh.getVersion(), "新建格口应从 0 版开始");
 

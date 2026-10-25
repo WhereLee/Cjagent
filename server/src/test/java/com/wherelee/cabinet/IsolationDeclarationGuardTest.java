@@ -17,17 +17,6 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-/**
- * {@code @Transactional(isolation = ...)} 声明点的机器守卫。
- *
- * <p>为什么要有它：Spring 默认 {@code validateExistingTransaction=false}，声明了 isolation 的方法
- * 被"已有事务"调用时以 REQUIRED 加入外层，<b>隔离级别被静默忽略</b>。
- * 于是那句注解是不是装饰，完全取决于"有没有一条无事务入口能走到它"——
- * 这件事只看代码看不出来，只看文档记不住（第三册 1.1 节记过三条失效路径，长期没人发现）。
- *
- * <p>做法：把声明点冻成清单（{@code isolation-baseline.txt}），新增或删除都会红。
- * 新增时必须先在清单里回答"它的无事务入口在哪"——回答的过程就是这次守卫的全部价值。
- */
 class IsolationDeclarationGuardTest {
 
     private static final Path SOURCE_ROOT = Path.of("src/main/java");
@@ -36,7 +25,6 @@ class IsolationDeclarationGuardTest {
     private static final Pattern ISOLATION =
             Pattern.compile("@Transactional\\([^)]*isolation\\s*=");
 
-    /** 方法签名：允许泛型、数组、限定名与跨行参数（{@code \\s+名字\\s*\\(} 在左括号前就停）。 */
     private static final Pattern METHOD = Pattern.compile(
             "^\\s*(?:public|private|protected)\\s+[\\w<>\\[\\], .]+?\\s+(\\w+)\\s*\\(");
 
@@ -76,7 +64,6 @@ class IsolationDeclarationGuardTest {
         return found;
     }
 
-    /** 注解与方法签名之间可能还有别的注解（@Override 等），所以给一小段窗口。 */
     private String firstMethodAfter(List<String> lines, int from) {
         int end = Math.min(from + 8, lines.size());
         for (int i = from; i < end; i++) {
@@ -88,7 +75,6 @@ class IsolationDeclarationGuardTest {
         return null;
     }
 
-    /** 清单允许注释行（以 # 开头）与空行；其余每行是一个声明点。 */
     private List<String> readBaseline() throws IOException {
         List<String> entries = new ArrayList<>();
         for (String line : Files.readAllLines(BASELINE, StandardCharsets.UTF_8)) {

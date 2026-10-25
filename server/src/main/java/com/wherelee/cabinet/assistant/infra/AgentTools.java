@@ -22,22 +22,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
-/**
- * 客服 agent 的工具集（第 22 刀）。
- *
- * <p><b>每次对话 new 一个实例</b>：身份（customerId）与关联订单在构造时由 agent 注入，
- * 三个工具<b>一个身份参数都没有</b>——模型想伪造"帮别人查单"连入口都找不到。
- * 对话期间的动作状态（重开是否已试、是否已建单）记在实例字段上，
- * 天然不会被跨对话串走。
- *
- * <p>工具的返回值是给<b>模型看的</b>：它要把这些内容转述给用户，所以每条返回
- * 都是"事实 + 建议的下一步"，错误也一样——失败不是异常字符串，是可转述的话术。
- * 真正的业务动作全部复用既有服务（查询走 StorageQueryService、开门走 StorageOrderFacade、
- * 建单走 WorkOrderIntake 统一入口），本类不写一行新的业务规则。
- */
 public class AgentTools {
 
-    /** 重开一次门的动作：中途取物（临时开）——格口仍归该订单占用，不是新的业务动作。 */
     private static final int SUMMARY_MAX = 200;
     private static final int DETECTION_MAX = 400;
     private static final int TITLE_MAX = 80;
@@ -49,7 +35,6 @@ public class AgentTools {
     private final WorkOrderPort workOrderPort;
     private final Long customerId;
     private final String orderNo;
-    /** 本次对话的追踪号：AI 动作留痕要和人工/系统动作分开。 */
     private final String traceId = UUID.randomUUID().toString();
 
     private boolean doorRetryAttempted;
@@ -81,7 +66,6 @@ public class AgentTools {
         return ticketNo;
     }
 
-    /** 查本人寄存单概览。与本次对话关联的订单排第一并打标，让模型一眼认出"说的是哪张"。 */
     @Tool(description = "查询当前用户本人的寄存单概览：订单号、柜机/格口编号、状态、有无待取回标记、已结算与欠费点数。"
             + "与本次对话关联的订单排在第一个并带[本次相关]标记。查不到就说明用户名下没有寄存单。")
     public String myOrderOverview() {
@@ -110,10 +94,6 @@ public class AgentTools {
         }
     }
 
-    /**
-     * 替用户重开一次柜门。<b>一次对话只允许试一次</b>：开不了就转报，不许反复摇设备
-     * （21 刀已确认无回执重试会真开两次门，客服侧更要克制）。
-     */
     @Tool(description = "替用户重开一次柜门（远程开门，只允许尝试一次）。需要本次对话关联了订单。"
             + "失败时按返回话术告知用户，并使用 raiseTicket 转报，不要再次调用本工具。")
     public String retryMyDoor() {
@@ -129,8 +109,6 @@ public class AgentTools {
         doorRetryAttempted = true;
         try {
             var result = doors.openDoor(customerId, orderNo, CommandAction.OPEN_TEMP);
-            // 设备无回执时 openDoor 返回的是“已下发、请确认”，不是“门已打开”。
-            // 原话必须转述：把“已下发”说成“已打开”，用户站在柜前看到门没动就会认为客服在骗人。
             if (result != null && result.message() != null && !result.message().isBlank()) {
                 lastAttemptSummary = "OPEN_TEMP：" + result.message();
                 return "开门结果：" + result.message()
@@ -139,7 +117,6 @@ public class AgentTools {
             lastAttemptSummary = "OPEN_TEMP：指令执行成功，设备未返回具体话术";
             return "开门指令执行成功：柜门已重新打开。请提醒用户尽快完成取放，并关好柜门。";
         } catch (BizException e) {
-            // 业务异常的 message 本来就是面向用户的话术（离线/锁定/状态不符），直接给模型转述
             lastAttemptSummary = "OPEN_TEMP 失败：" + e.getMessage();
             return "开门失败：" + e.getMessage() + "。请使用 raiseTicket 转报人工处理。";
         } catch (Exception e) {
@@ -148,17 +125,10 @@ public class AgentTools {
         }
     }
 
-    /**
-     * 转报工单。类型只开放两种（设备故障 / 用户自述门未关），
-     * 建单走 WorkOrderIntake 统一入口：快照补齐、幂等合并都是既有规则，本工具只递话。
-     * 建出的单进线上队列，派线下仍是业务员的决策——agent 不越权。
-     */
-    /** 兼容旧调用：把旧类型翻译成 intent，真正的分诊由系统规则做。 */
     public String raiseTicket(String issueKind, String issueSummary) {
         return raiseTicket(intentOfKind(issueKind).name(), issueSummary, null, null);
     }
 
-    /** 兼容三参调用（测试与旧路径）：不提供“用户是否在原地”。 */
     public String raiseTicket(String issueIntent, String issueSummary, String attemptSummary) {
         return raiseTicket(issueIntent, issueSummary, attemptSummary, null);
     }
@@ -181,18 +151,15 @@ public class AgentTools {
 
         BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getOrderNo, orderNo));
-        // 归属守卫：单不存在或不是本人的，一律"未找到"——不给模型任何探测他人订单的口子
         if (order == null || !customerId.equals(order.getCustomerId())) {
             return "未找到这张订单，无法转报（归属校验未通过）。";
         }
         WorkOrderIntent intent = parseIntent(issueIntent);
-        // 只有“门打不开”有对应的自助动作；其他现象没有可重试的远程动作，不强制试。
         if (intent == WorkOrderIntent.DOOR_NOT_OPEN && !doorRetryAttempted) {
             return "门打不开属于可自助尝试的问题：请先调用 retryMyDoor 尝试一次，并把结果写进 attemptSummary。";
         }
         String attempt = firstNonBlank(attemptSummary, lastAttemptSummary);
         try {
-            // “用户自述”必须标明：这段文字不是设备检测结论，不能让业务员当成现场事实。
             Long workOrderId = intake.onOrderEvent(order, null, false,
                     truncate("AI 客服转报（用户自述，未经设备核实）：" + summary
                             + "；已尝试：" + (attempt == null ? "未记录" : attempt), DETECTION_MAX),
@@ -209,7 +176,6 @@ public class AgentTools {
         }
     }
 
-    /** 查本人未关闭工单的进度：只读，不返回内部备注。 */
     @Tool(description = "查询当前用户本人未关闭的工单进度：工单号、类型、状态、优先级、要求处理时刻、标题。"
             + "不返回工单内部备注。关联了订单时只查该订单，没有关联订单时查本人全部未关单。")
     public String myTicketStatus() {
@@ -239,7 +205,6 @@ public class AgentTools {
             try {
                 return WorkOrderIntent.of(raw);
             } catch (IllegalArgumentException ignored) {
-                // 模型给了未知现象：落 OTHER，由规则进人工分拣，不硬派。
             }
         }
         return WorkOrderIntent.OTHER;

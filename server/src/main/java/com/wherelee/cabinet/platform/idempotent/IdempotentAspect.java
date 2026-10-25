@@ -27,19 +27,6 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
 
-/**
- * 幂等切面：Redis {@code SETNX} 抢占，重复请求返回 40900（HTTP 409）。
- *
- * <p>释放策略：<b>业务异常时删掉占位</b>（否则一次失败就把这个业务键永久锁死，用户重试无门）；
- * 成功时保留到窗口结束（这才是"防重复提交"的本意）。
- *
- * <p><b>Redis 不可用时 fail-closed（拒绝）</b>，与限流切面相反：幂等是正确性约束，
- * 宁可拒绝一次请求，也不能在无法判断"是不是重复"的时候放行——那会产生重复下单、重复开锁。
- *
- * <p>关于 SpEL 的安全性：表达式文本取自注解常量（编译期确定），<b>用户输入只作为变量绑定</b>，
- * 永远不拼进表达式字符串。所以这里用 StandardEvaluationContext 不构成 SpEL 注入面；
- * 反过来，如果哪天改成"表达式由配置或数据库提供"，就必须换 SimpleEvaluationContext。
- */
 @Aspect
 @Component
 @Order(-100)
@@ -79,7 +66,6 @@ public class IdempotentAspect {
         try {
             return joinPoint.proceed();
         } catch (Throwable throwable) {
-            // 业务失败：释放占位，允许重试
             releaseQuietly(key);
             throw throwable;
         }
@@ -96,7 +82,6 @@ public class IdempotentAspect {
                 return KEY_PREFIX + declaring + "#" + method + ":" + value;
             }
             if (idempotent.requireKey()) {
-                // 注解写错（业务键为空）不能静默退化成兜底键，否则幂等保护形同不存在
                 throw new IllegalStateException("@Idempotent(requireKey=true) 的 key 表达式解析为空："
                         + declaring + "#" + method + " 表达式=" + expression);
             }
@@ -106,7 +91,6 @@ public class IdempotentAspect {
                     + declaring + "#" + method);
         }
 
-        // 兜底键：调用者 + 方法 + 入参摘要哈希，用于防连点
         Caller principal = AuthenticatedPrincipal.currentOrNull();
         String actor = principal != null ? "u" + principal.subjectId() : "anon";
         String summary = MaskUtils.toMaskedSummary(objectMapper, joinPoint.getArgs());
@@ -124,7 +108,6 @@ public class IdempotentAspect {
                 context.setVariable(names[i], args[i]);
             }
         }
-        // 参数名被编译选项抹掉时（-parameters 缺失），仍可用 #a0/#p0/#args 取值的兜底
         for (int i = 0; i < args.length; i++) {
             context.setVariable("a" + i, args[i]);
             context.setVariable("p" + i, args[i]);
@@ -139,7 +122,6 @@ public class IdempotentAspect {
         try {
             redis.delete(key);
         } catch (RuntimeException e) {
-            // 删不掉就等 TTL 自然过期；这里再抛异常会盖掉业务本来的失败原因
             log.warn("幂等占位释放失败，将等 TTL 过期 key={} 原因={}", key, e.getMessage());
         }
     }

@@ -17,19 +17,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.LocalDateTime;
 
-/**
- * 触发方式三：RocketMQ 定时/延迟消息唤醒。
- *
- * <p>优势是<b>不占用扫描、天然支持长延迟</b>，也最贴近"超时未取"这类业务分钟级到小时级的精度需求。
- *
- * <p>为什么收到消息还要去 DB 抢：延迟消息<b>至少一次投递</b>，重复唤醒和并发唤醒都会发生；
- * 若把"收到消息"当成"可以执行"，同一订单就会被释放两次。所以消息只当闹钟用。
- *
- * <p>短板也写清：rocketmq-spring 2.3.1 的 {@code syncSend(dest,msg,timeout,delayLevel)} 只支持
- * <b>18 个固定延迟档位</b>，不是任意时刻（任意定时需 5.x 的 TIMER_DELIVER_MS 头）。
- * 因此选档位时<b>向上取整</b>：对"超时释放"这类任务，提前触发会误释放还在用的格口，
- * 晚几秒只是用户多等——两个方向的不对称决定了必须往安全的一侧取。broker 不可用时同样有慢轮询兜底。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.scheduler.trigger", havingValue = "mq")
 @RocketMQMessageListener(topic = "${cabinet.scheduler.wake-topic:storage-task-wake}",
@@ -49,7 +36,6 @@ public class MqTrigger implements DelayReminder, RocketMQListener<String> {
         this.rocketMQTemplate = rocketMQTemplate;
     }
 
-    /** 经典延迟档位（秒）：1s 5s 10s 30s 1m 2m … 2h，共 18 级。 */
     private static final long[] DELAY_LEVEL_SECONDS = {
             1L, 5L, 10L, 30L, 60L, 120L, 180L, 240L, 300L, 360L, 420L, 480L, 540L, 600L,
             1200L, 1800L, 3600L, 7200L};
@@ -65,7 +51,6 @@ public class MqTrigger implements DelayReminder, RocketMQListener<String> {
         }
     }
 
-    /** 选"不早于目标延迟"的最小档位（向上取整）；超出最大档位则靠顶格 + 轮询兜底。 */
     static int delayLevelAtLeast(long delayMs) {
         long need = (delayMs + 999L) / 1000L;
         for (int i = 0; i < DELAY_LEVEL_SECONDS.length; i++) {
@@ -82,12 +67,10 @@ public class MqTrigger implements DelayReminder, RocketMQListener<String> {
         try {
             tasks.runDue();
         } catch (RuntimeException e) {
-            // 上抛让 broker 重投：这次没跑成不代表任务丢了（DB 里还在），但重投能更快补上
             throw e;
         }
     }
 
-    /** 保底慢轮询：broker 抖动或消息丢失时仍能推进。 */
     @Scheduled(fixedDelayString = "${cabinet.scheduler.poll-interval-ms:60000}",
             initialDelayString = "${cabinet.scheduler.poll-interval-ms:60000}")
     public void fallbackPoll() {

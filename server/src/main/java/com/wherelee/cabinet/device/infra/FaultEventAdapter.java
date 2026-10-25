@@ -5,7 +5,6 @@ import com.wherelee.cabinet.device.api.FaultType;
 import com.wherelee.cabinet.device.domain.BizFaultEvent;
 import org.springframework.stereotype.Component;
 
-/** {@link FaultPort} 的进程内实现：故障台账只由设备服务写。 */
 @Component
 public class FaultEventAdapter implements FaultPort {
 

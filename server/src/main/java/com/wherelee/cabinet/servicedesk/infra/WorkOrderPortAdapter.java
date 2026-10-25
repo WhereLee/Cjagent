@@ -12,13 +12,6 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * 工单端口适配器：把格口状态机要的那几个动作翻译成工单服务的方法。
- *
- * <p>为什么不直接让格口状态机注入 WorkOrderService：那个类 58KB、方法几十个，
- * 一旦交出去，“顺手在这里改个工单字段”这种事迟早会发生。适配器把可见面压到七个动作，
- * 也把“格口用到工单”这件事写在了明面上。
- */
 @Component
 public class WorkOrderPortAdapter implements WorkOrderPort {
 

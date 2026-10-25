@@ -10,15 +10,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 
-/**
- * 租户可用性判定：存在、启用、未过期。
- *
- * <p>两端登录都要这道关，所以单独一处实现。sys_tenant 在租户拦截器白名单里，
- * 因此这里<b>不需要</b>租户上下文（有反而会把自己过滤没）。
- *
- * <p>用 40301（{@code TENANT_INVALID}）而不是 40100：区别在于"凭证没问题，是这个租户
- * 不再被允许使用"，前端应该提示"联系管理员"而不是"重新登录"。
- */
 @Service
 public class TenantGuard {
 
@@ -49,7 +40,6 @@ public class TenantGuard {
         }
     }
 
-    /** 按 ID 查（客户已归属某租户时用得上），不存在或不可用同样拒绝。 */
     public SysTenant requireUsableById(Long tenantId) {
         SysTenant tenant = tenantMapper.selectById(tenantId);
         if (tenant == null) {

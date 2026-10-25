@@ -9,15 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
-/**
- * 分层约定的机器检查。
- *
- * <p>为什么值得为它引一个依赖：分层规则写在文档里靠人自律，一定会被破——通常是"赶进度时
- * Controller 直接注入 Mapper"，一次破例之后满屏照抄。这里让破坏约定的提交直接红。
- *
- * <p>刻意<b>不</b>检查 {@code config} 包：它是装配层，天然要同时引用 infrastructure 的东西
- * （切面、Provider）和配置属性，纳入环形依赖检查只会产生无意义告警。
- */
 class ArchitectureTest {
 
     private static final String ROOT = "com.wherelee.cabinet";
@@ -93,7 +84,6 @@ class ArchitectureTest {
     @Test
     @DisplayName("技术细节不外泄：entity 的持久化注解只允许出现在 domain/infrastructure")
     void mybatisAnnotationsStayInPersistenceLayers() {
-        // 防止 Mapper/PO 直接当接口出参：那样一改表结构就击穿到接口契约
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".bff..")
                 .should().dependOnClassesThat().resideInAPackage("com.baomidou.mybatisplus.core.mapper..");
         rule.check(PRODUCTION_CLASSES);
@@ -119,8 +109,6 @@ class ArchitectureTest {
     @Test
     @DisplayName("实体不得出现在接口层（防实体直出）")
     void entitiesMustNotLeakToInterfaces() {
-        // 起因：/api/mini/auth/me 直接返回了 SysRider，把 openId/unionId/deleted 下发给客户端。
-        // 实体一旦当响应用，前端就会“顺手用起来”，以后改名或拆字段就是破契约
         ArchRule rule = noClasses().that().resideInAPackage(ROOT + ".bff..")
                 .should().dependOnClassesThat().resideInAPackage(ROOT + ".domain.entity..");
         rule.check(PRODUCTION_CLASSES);
@@ -137,8 +125,6 @@ class ArchitectureTest {
     @Test
     @DisplayName("AI 框架不外泄：spring-ai 只允许出现在 infrastructure（换模型/框架不击穿端口）")
     void springAiStaysInInfrastructure() {
-        // 第 22 刀起 agent 依赖 Spring AI：SupportAgentPort 是业务端口，
-        // 哪天换 LangChain4j 或自写循环，改的只是 infrastructure.ai 一个包
         ArchRule rule = noClasses().that().resideInAnyPackage(
                         ROOT + ".domain..", ROOT + "..app..",
                         ROOT + ".bff..", ROOT + ".common..")

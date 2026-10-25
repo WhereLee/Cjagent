@@ -40,11 +40,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 关闭闭环（批次 6）：关闭依据要能被事实支撑，用户能确认/重开，自动关闭要通知到位。
- *
- * <p>关掉后台轮询：用例自己调 {@code autoClose()}，否则测的是调度器的运气。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {

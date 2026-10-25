@@ -42,25 +42,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 后台轮询触发（第 13 刀）。
- *
- * <p>其余调度用例都把 {@code poll-enabled} 关掉、自己显式调 {@code runDue()}——那样能测语义，
- * 却<b>测不到"真的有个线程在跑"</b>。本刀就是这个空白让我把生产路径写坏了还没人报警：
- * worker 线程没有租户上下文，而它抢完任务后用的是被租户拦截器托管的 {@code selectById}，
- * 守卫按约定拒执，于是<b>后台轮询一个任务也执行不了</b>，症状只是"超时永远不生效"。
- *
- * <p>所以这个类的唯一职责：<b>不开挂地等真实的调度线程把事做了</b>。
- * 断言用轮询而不是 sleep 一次，避免慢机器上飘红。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
-// 本类故意不关轮询，于是它的调度线程会在上下文缓存期间继续抢**其他测试类**的到期任务
-// （同一个 cabinet_test、worker 又是跳租户的）。必须跑完就销毁上下文，
-// 否则症状是随机某个后续用例“什么都不发生”——这类跨类干扰比单类内飘红难查得多。
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @SpringBootTest(properties = {
-        // 这次不关轮询：要测的就是它
         "cabinet.scheduler.poll-enabled=true",
         "cabinet.scheduler.poll-interval-ms=500",
         "cabinet.scheduler.initial-delay-ms=500",
@@ -162,7 +147,6 @@ class SchedulerBackgroundPollTest {
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
 
-        // grace=0：这张单一开始就是"已超时"，剩下的事必须全部由后台线程完成
         BizDelayTask planted = TenantContext.callAs(TENANT, () -> taskMapper.selectOne(
                 Wrappers.<BizDelayTask>lambdaQuery()
                         .eq(BizDelayTask::getTaskType, TaskType.SLOT_RELEASE)
@@ -198,9 +182,7 @@ class SchedulerBackgroundPollTest {
         assertEquals(TaskStatus.DONE, done.getStatus(), "任务本身要被后台收尾，不是只改了业务数据");
         assertTrue(done.getAttempt() >= 1, "attempt 要真实记录被抢过（租约条件更新生效的证据）");
 
-        // 轮询模式的固有延迟下限：到期后平均还要等半轮，最差等一整轮
         long latencyMs = java.time.Duration.between(done.getFireAt(), done.getUpdateTime()).toMillis();
-        // 这一行是给三实现对比取数用的（对比报告里的数字必须来自真实运行）
         System.out.printf("MEASURED trigger=poll intervalMs=500 observedLatencyMs=%d%n", latencyMs);
         assertTrue(latencyMs < 5_000L,
                 "poll-interval-ms=500 时实测延迟 " + latencyMs + "ms；上限给到 10 倍间隔而不是 2 倍，"

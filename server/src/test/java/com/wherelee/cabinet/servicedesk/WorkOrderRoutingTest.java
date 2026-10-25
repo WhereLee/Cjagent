@@ -20,12 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 责任组 → 值班人：组内启用账号轮转，不建排班表。
- *
- * <p>轮转计数在 Redis：多实例部署时也必须保证“这一单给 A、下一单给 B”，
- * 进程内的计数器在集群里会各自为政。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {

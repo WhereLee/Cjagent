@@ -25,14 +25,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 第 24 刀运维诊断：AI 只读归纳，执行权在人。
- *
- * <p>专设断言三处：<b>真实组合健康可展开</b>（CompositeHealth 构造器包私有，
- * 单测只能测叶子分支，组合递归在这里用真实 HealthEndpoint 验证）；
- * <b>故障台账真 DB 可读</b>（运维问答"最近出过什么故障"的数据源）；
- * <b>桩模式装配可用</b>——AI 未开启时运维拿到明确话术而不是异常。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {

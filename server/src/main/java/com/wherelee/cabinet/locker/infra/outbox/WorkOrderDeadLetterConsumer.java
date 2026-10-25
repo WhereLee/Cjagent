@@ -14,15 +14,6 @@ import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 
-/**
- * 死信消费者：{@code WORK_ORDER_ANOMALY} 重试 16 次仍失败的消息，归档进 {@code biz_dead_letter}。
- *
- * <p><b>必须是独立的 consumerGroup</b>：RocketMQ 的死信消息不会被原消费组再次消费，
- * 换一个组订阅 {@code %DLQ%{原组}} 才是标准做法。用原组订阅，一条也收不到。
- *
- * <p>这里只归档、不重试。归档之后消息就算"被吃掉了"——证据在数据库里，不在 MQ 里。
- * 处理靠 {@code DeadLetterPort.replay}：先看清原因，再决定投回去。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.outbox.transport", havingValue = "mq", matchIfMissing = true)
 @RocketMQMessageListener(
@@ -32,7 +23,6 @@ public class WorkOrderDeadLetterConsumer implements RocketMQListener<MessageExt>
 
     private static final Logger log = LoggerFactory.getLogger(WorkOrderDeadLetterConsumer.class);
 
-    /** 重放目标：这条消息本来该去哪。 */
     private static final String ORIGIN_TAG = "WORK_ORDER_ANOMALY";
 
     private final DeadLetterPort deadLetters;
@@ -53,7 +43,6 @@ public class WorkOrderDeadLetterConsumer implements RocketMQListener<MessageExt>
                 new String(message.getBody(), StandardCharsets.UTF_8), null, message.getReconsumeTimes());
     }
 
-    /** 坏消息可能连租户都没有；为 null 时那条将不可重放，只能人工看。 */
     private static Long tenantOf(MessageExt message) {
         String raw = message.getUserProperty(RocketMqOutboxPublisher.HEADER_TENANT_ID);
         try {

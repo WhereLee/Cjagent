@@ -2,7 +2,6 @@ package com.wherelee.cabinet.servicedesk.api;
 
 import java.util.Locale;
 
-/** 紧急度：影响范围之外的第二维，用来算优先级和 SLA。 */
 public enum WorkOrderUrgency {
 
     HIGH,

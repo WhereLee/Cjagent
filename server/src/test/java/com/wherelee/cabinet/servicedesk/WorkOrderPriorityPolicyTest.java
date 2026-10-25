@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/** 优先级矩阵：影响 × 紧急度 → P1-P4，纯规则，不起容器。 */
 @DisplayName("工单优先级矩阵：影响大、时间急的先办")
 class WorkOrderPriorityPolicyTest {
 

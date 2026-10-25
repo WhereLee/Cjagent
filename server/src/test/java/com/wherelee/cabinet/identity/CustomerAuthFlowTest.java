@@ -24,12 +24,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * 用户端登录链路（dev 用 mock 微信，不需要 AppID）。
- *
- * <p>验证的是"归属与状态"两件事：首次注册必须带运营商编码且不能事后改归属；
- * 冻结账号后凭证仍然有效但业务接口给 403（而不是 401，因为身份本身没问题）。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -48,7 +42,6 @@ class CustomerAuthFlowTest {
         TenantContext.clear();
     }
 
-    /** 登录并返回 accessToken；断言 200 与 code=0 已在这里完成。 */
     private String login(String code, String tenantCode) throws Exception {
         String json = tenantCode == null
                 ? "{\"code\":\"" + code + "\"}"
@@ -77,7 +70,6 @@ class CustomerAuthFlowTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.newRegister").value(true))
                 .andExpect(jsonPath("$.data.tenantId").value("8101"))
-                // 第一刀约定：雪花 ID 以字符串返回，避开前端精度丢失
                 .andExpect(jsonPath("$.data.customerId").isString())
                 .andReturn().getResponse().getContentAsString();
 
@@ -87,12 +79,8 @@ class CustomerAuthFlowTest {
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.tenantId").value("8101"))
                 .andExpect(jsonPath("$.data.customerId").isString())
-                // 注册本次就是首次登录：不能出现"刚注册完却显示从未登录过"这种语义空缺
                 .andExpect(jsonPath("$.data.lastLoginAt").isNotEmpty())
-                // 定-26：注册带的号必须真的落库（脱敏回显也证明读得出来）
                 .andExpect(jsonPath("$.data.phone").isNotEmpty())
-                // 实体不得直出：openId / unionId / deleted 是服务端内部字段，
-                // 之前这个用例反过来断言了 openId 存在，等于把泄露固化进测试
                 .andExpect(jsonPath("$.data.openId").doesNotExist())
                 .andExpect(jsonPath("$.data.unionId").doesNotExist())
                 .andExpect(jsonPath("$.data.deleted").doesNotExist());

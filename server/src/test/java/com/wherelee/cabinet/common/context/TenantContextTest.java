@@ -44,8 +44,6 @@ class TenantContextTest {
     @DisplayName("运行时异常原样上抛（不重新包装），且租户被还原")
     void callAsRestoresOnException() {
         TenantContext.set(1L);
-        // 必须保持原类型：上抛 IllegalStateException 包装会让 BizException 的
-        // 错误码信息在 GlobalExceptionHandler 里丢失，返回给前端就成了 50000
         assertThrows(IllegalArgumentException.class, () -> TenantContext.runAs(2L, () -> {
             throw new IllegalArgumentException("boom");
         }));

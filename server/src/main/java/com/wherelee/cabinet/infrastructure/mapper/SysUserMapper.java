@@ -9,17 +9,9 @@ import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
-/**
- * 后台用户与 RBAC 读取。
- *
- * <p>这里的 SQL 都会被租户拦截器自动加上 {@code tenant_id} 条件（sys_user / sys_role /
- * sys_user_role / sys_role_permission 都不在白名单），所以"同名账号跨租户串号"不可能发生；
- * 而 {@code sys_permission} 是全局字典，join 它不会被加条件。
- */
 @Mapper
 public interface SysUserMapper extends BaseMapper<SysUser> {
 
-    /** 按用户名查（配合登录时已设定的租户上下文，实际条件是 username + tenant_id）。 */
     @Select("""
             select id, tenant_id, username, password_hash, real_name, phone, status,
                    last_login_at, create_time, update_time, deleted
@@ -28,7 +20,6 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
             """)
     SysUser selectByUsername(@Param("username") String username);
 
-    /** 权限编码集合，用于 Spring Security 的 hasAuthority 判定。 */
     @Select("""
             select distinct p.code
             from sys_permission p
@@ -54,7 +45,6 @@ public interface SysUserMapper extends BaseMapper<SysUser> {
     @Update("update sys_user set last_login_at = NOW(3) where id = #{userId} and deleted = 0")
     int touchLastLogin(@Param("userId") Long userId);
 
-    /** 某角色下所有启用账号：值班轮转的候选人（租户隔离由拦截器补 tenant_id）。 */
     @Select("""
             select distinct u.id
             from sys_user u

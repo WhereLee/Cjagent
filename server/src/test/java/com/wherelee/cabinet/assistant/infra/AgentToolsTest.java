@@ -42,13 +42,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-/**
- * 客服工具集的安全语义（第 22 刀）：这三条是 agent 不得越过的线，
- * 用穷举而不是靠模型自觉——
- * <b>身份只在构造时注入</b>（模型没有任何身份参数可伪造）、
- * <b>重开只试一次</b>（失败不重复摇设备）、
- * <b>建单前归属校验</b>（别人的单一律"未找到"）。
- */
 class AgentToolsTest {
 
     private static final Long CUSTOMER = 77L;
@@ -187,7 +180,6 @@ class AgentToolsTest {
         assertTrue(out.contains("555"), out);
         assertTrue(agent.escalated() && "555".equals(agent.ticketNo()));
 
-        // 现象说不清：落 OTHER，交给规则进人工分拣，不在工具层硬拒。
         String unknown = tools(ORDER_NO).raiseTicket("NOT_A_REAL_INTENT", "用户说不清什么问题");
         assertTrue(unknown.contains("556"), unknown);
         verify(intake, times(2)).onOrderEvent(any(), any(), anyBoolean(), anyString(), anyString(),

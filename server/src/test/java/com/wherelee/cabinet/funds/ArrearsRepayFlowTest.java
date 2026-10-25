@@ -43,21 +43,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 欠费清偿（补缴）链路。
- *
- * <p>这组用例存在的原因是第 14 刀上线时<b>只做了"欠费挡单"，没做"还完放行"</b>：
- * 拒单文案写着"请先在点数页补缴后再下单"，可系统里根本没有补缴这条路（充值只加余额、不碰订单上的欠额），
- * 于是一次余额不足就变成永久禁单。规则本身没错，错在只实现了拦、没实现出口。
- *
- * <p>两条最要紧的断言：
- * ① <b>不足额时一分钱都不扣</b>——"吃掉 50 点还是不能下单"是最容易被投诉的形态；
- * ② <b>还完必须真的能下单</b>——走真实充值链路验，不是手工 UPDATE 一个 0 出来。
- *
- * <p>造欠费的方式全部走业务动作（下单→开柜→关门→把计费起点前移→取件结算），
- * 因为"结算补扣不足"本身就是要覆盖的分支；只有<b>时间</b>用 SQL 前移（计费以服务端时间为准，
- * 不能为了测试去改时钟）。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -68,7 +53,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("欠费清偿：不足额不动钱、足额自动放行、先欠先还、重复触发不双扣")
 class ArrearsRepayFlowTest {
 
-    /** 默认价（dev 配置）：押金 200 + 小格口 15 点/小时；封顶 3 天 × 12 小时 = 36 小时。 */
     private static final long FREEZE_DEFAULT = 215L;
 
     private static final Long TENANT = 8123L;
@@ -163,7 +147,6 @@ class ArrearsRepayFlowTest {
         return customerIds.stream().map(id -> "?").reduce((a, b) -> a + "," + b).orElse("?");
     }
 
-    /** 新客户默认不带余额：余额由用例自己决定（造欠费需要"刚好只够冻结"的金额）。 */
     private Long newCustomer() {
         Long id = 997000L + Math.abs(UUID.randomUUID().getLeastSignificantBits() % 20000);
         customerIds.add(id);
@@ -193,17 +176,12 @@ class ArrearsRepayFlowTest {
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
     }
 
-    /** 走完"开门 → 关门起计"，返回已进入计费中的单号。 */
     private String openAndClose(Long customerId, String orderNo) {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, orderNo, CommandAction.OPEN));
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, orderNo, CommandAction.CLOSE_VERIFY));
         return orderNo;
     }
 
-    /**
-     * 把计费起点前移 100 小时后取件：应缴被封顶成 36 小时 × 15 = 540，
-     * 而冻结只有 215，于是结算真实走到"补扣不足 → 记欠费"这一支。
-     */
     private BizStorageOrder settleIntoArrears(Long customerId, String orderNo) {
         jdbc.update("update biz_storage_order set started_at = date_sub(now(3), interval 100 hour) where order_no = ?", orderNo);
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, orderNo));
@@ -214,7 +192,6 @@ class ArrearsRepayFlowTest {
         return settled;
     }
 
-    /** 一张真实欠费单：只给冻结额，结算必然不够。 */
     private BizStorageOrder oneArrearsOrder(Long customerId) {
         fund(customerId, FREEZE_DEFAULT);
         String orderNo = createOrder(customerId);
@@ -237,7 +214,6 @@ class ArrearsRepayFlowTest {
         assertTrue(blocked.getMessage().contains("未缴清"), blocked.getMessage());
         assertTrue(blocked.getMessage().contains("补缴"), "文案指向的动作必须真的存在：" + blocked.getMessage());
 
-        // 走真实充值链路：第一笔不够（欠 525），第二笔才补足
         TenantContext.runAs(TENANT, () -> rechargeService.recharge(customerId, 40L));
 
         assertTrue(order(owed.getOrderNo()).getArrearsPoints() > 0, "没还完就不得放行");
@@ -246,8 +222,6 @@ class ArrearsRepayFlowTest {
         assertEquals(0L, order(owed.getOrderNo()).getArrearsPoints(), "补足后欠额必须归零");
         assertEquals(1, repayTxnCount(customerId, owed.getOrderNo()), "清偿要留下一条流水");
 
-        // 清偿会真的把余额扣掉（400-325=75），所以再补一笔“新单需要的冻结额”，
-        // 否则这一步会因“余额不够冻结”失败——那不是本用例要证的事
         fund(customerId, FREEZE_DEFAULT);
         assertNotNull(TenantContext.callAs(TENANT, () -> orderService.create(customerId,
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))),
@@ -275,7 +249,6 @@ class ArrearsRepayFlowTest {
         BizStorageOrder owed = oneArrearsOrder(customerId);
         long each = owed.getArrearsPoints();
 
-        // 先把余额补得大大的再试：拦住他的不是钱不够，而是那笔欠款本身
         fund(customerId, each * 2);
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
                 () -> orderService.create(customerId,
@@ -307,8 +280,6 @@ class ArrearsRepayFlowTest {
     void clearedCustomerLeavesTheArrearsLedger() {
         Long customerId = newCustomer();
         BizStorageOrder owed = oneArrearsOrder(customerId);
-        // 台账查询也要租户上下文（缺上下文的无租户条件 SQL 会被守卫直接拒执），
-        // 拦截、台账、清偿三者必须走同一条 sumCustomerArrears
         assertTrue(TenantContext.callAs(TENANT, () -> consoleMapper.sumCustomerArrears(customerId)) > 0,
                 "台账应先显示他欠着");
 

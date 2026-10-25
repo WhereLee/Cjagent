@@ -7,7 +7,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/** {@link FaultQueryPort} 的进程内实现。 */
 @Component
 public class FaultQueryAdapter implements FaultQueryPort {
 

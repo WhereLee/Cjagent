@@ -12,12 +12,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * {@link EvidencePort} 的进程内实现。
- *
- * <p>两个查询的排序刻意不同，沿用原来的调用方预期：格口时间线新→旧（客服先看最近一次），
- * 一张单的证据旧→新（按发生顺序读才看得懂）。换顺序会悄悄改掉页面语义。
- */
 @Component
 public class EvidenceQueryAdapter implements EvidencePort {
 
@@ -66,7 +60,6 @@ public class EvidenceQueryAdapter implements EvidencePort {
         evidenceRow.setTenantId(record.tenantId());
         evidenceRow.setCabinetId(record.cabinetId());
         evidenceRow.setCompartmentId(record.compartmentId());
-        // 三值结论直接带上：测不准就是 UNKNOWN，不折成“没东西”
         evidenceRow.setPresence(record.presence() == null ? Presence.UNKNOWN : Presence.valueOf(record.presence()));
         evidenceRow.setSource(record.source() == null ? EvidenceSource.DEVICE_PROBE : EvidenceSource.valueOf(record.source()));
         evidenceRow.setMoment(record.moment() == null ? null : EvidenceMoment.valueOf(record.moment()));

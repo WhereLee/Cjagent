@@ -8,35 +8,9 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
-/**
- * 运营后台的**读模型**（台账与清单）。
- *
- * <p>为什么不塞进各业务的单表 Mapper：台账查询天生是跨表聚合（格口 + 柜机 + 点位 + 订单 + 押金），
- * 还带"停留多久""谁欠多少"这种派生列。放进单表 Mapper 会让人误以为它是普通 CRUD，
- * 进而有人往里面加写方法——读模型只读的边界要靠文件边界来守。
- *
- * <p>三条口径写在 SQL 里而不是在 Java 里补：
- * <ul>
- *   <li><b>租户条件手写</b>：这几条都是 join/聚合，多租户拦截器对 join 的注入结果不易核对，
- *       写错就是跨租户看数据（与对账作业同一取向）；</li>
- *   <li><b>异常台账按 <code>abnormal_at</code> 算停留时长</b>：运营排片的依据是"卡了多久"，
- *       不是"什么时候建的"；</li>
- *   <li><b>欠费只统计已终态的单</b>：进行中的单 <code>arrears_points</code> 恒为 0，
- *     把它们算进去不会错，但会让聚合白扫一遍活动单。</li>
- * </ul>
- */
 @Mapper
 public interface BizLockerConsoleMapper {
 
-    /**
-     * 台账行：格口 + 异常原因 + 停留分钟 + 柜机/点位与当前占用人。
-     *
-     * <p><b>别名一律用下划线</b>：{@code PageSupport} 会把排序属性 {@code stuckMinutes} 转成
-     * {@code stuck_minutes} 拼进 ORDER BY，用驼峰别名就会“能查不能排”（unknown column）；
-     * 而下划线别名正好也能被 MyBatis 映射回驼峰属性。
-     *
-     * <p>SQL 里不放 {@code --} 注释：分页插件会重写这条语句取 count，拼成一行时注释会吃掉后面的 SQL。
-     */
     @Select("""
             select c.id, c.tenant_id, c.cabinet_id, c.slot_no, c.size_type, c.status, c.current_order_id,
                    c.door_open_at, c.door_closed_at, c.presence, c.presence_checked_at,
@@ -60,7 +34,6 @@ public interface BizLockerConsoleMapper {
                                    @Param("anomaly") String anomaly,
                                    @Param("siteId") Long siteId);
 
-    /** 台账按原因码计数：后台顶部的"哪类积压多少"，让排片有依据而不是逐条翻页。 */
     @Select("""
             select c.anomaly as anomaly, count(*) as rows_count,
                    coalesce(max(timestampdiff(MINUTE, c.anomaly_at, now(3))), 0) as longest_minutes
@@ -72,7 +45,6 @@ public interface BizLockerConsoleMapper {
             """)
     List<AnomalySummary> summarizeAnomalies(@Param("siteId") Long siteId);
 
-    /** 未退押金清单：凭证仍是 HELD/REFUNDING/FAILED，且订单已进终态（在线单挂着押金是正常态）。 */
     @Select("""
             select d.id as deposit_id, d.order_id as order_id, d.customer_id as customer_id,
                    d.points as points, d.status as deposit_status, o.order_no as order_no,
@@ -86,7 +58,6 @@ public interface BizLockerConsoleMapper {
             """)
     IPage<UnrefundedDeposit> pageUnrefundedDeposits(IPage<UnrefundedDeposit> page);
 
-    /** 欠费客户清单：按客户汇总未缴金额，追缴与禁用判断都看这张表。 */
     @Select("""
             select o.customer_id as customer_id, sum(o.arrears_points) as arrears_points,
                    count(*) as arrears_orders, max(o.finished_at) as last_finished_at
@@ -97,12 +68,6 @@ public interface BizLockerConsoleMapper {
             """)
     IPage<ArrearsRow> pageArrears(IPage<ArrearsRow> page);
 
-    /**
-     * 某个客户的欠费合计。<b>下单拦截靠它</b>：规则是"欠费 &gt; 0 就不得再下单"，没有阈值。
-     *
-     * <p>coalesce 包在聚合上而不是包在列上：把 {@code coalesce(arrears_points,0)} 写进 where
-     * 会让索引失效（架构约定 §16.4 的那条），这里只对外层结果取 0。
-     */
     @Select("""
             select coalesce(sum(o.arrears_points), 0)
               from biz_storage_order o
@@ -110,7 +75,6 @@ public interface BizLockerConsoleMapper {
             """)
     long sumCustomerArrears(@Param("customerId") Long customerId);
 
-    /** 台账行（继承格口实体字段，附柜机/点位与停留时长）。 */
     class LedgerRow extends BizCompartment {
         private String cabinetNo;
         private Long cabinetId;

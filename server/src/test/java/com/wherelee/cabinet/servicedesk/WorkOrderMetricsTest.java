@@ -13,12 +13,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 批次 7：指标可算且能区分“AI 解决了”与“AI 挂了”。
- *
- * <p>不断言具体比率：工单结果指标是全库窗口聚合，其他用例的数据会一起参与；
- * 这里证明计数器分桶正确、Gauge 已注册、刷新不抛错。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {

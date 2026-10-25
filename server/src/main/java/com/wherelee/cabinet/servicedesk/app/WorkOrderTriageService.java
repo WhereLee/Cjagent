@@ -19,13 +19,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * 分诊：用户现象 + 事实 → 处置分类 / 队列 / 优先级 / SLA。
- *
- * <p>规则优先从 {@code biz_triage_rule} 读，按租户缓存；没有配置的租户用内置默认规则，
- * 这样新租户不会因为“没填规则”就无法建单。规则未命中一律落 CUSTOMER_SERVICE + UNSORTED，
- * 不硬派给线上或线下。
- */
 @Service
 public class WorkOrderTriageService implements com.wherelee.cabinet.servicedesk.api.WorkOrderTriagePort {
 
@@ -58,8 +51,6 @@ public class WorkOrderTriageService implements com.wherelee.cabinet.servicedesk.
     public Result triage(WorkOrderIntent intent, Facts facts) {
         Map<WorkOrderIntent, Rule> loaded = rulesForCurrentTenant();
         Rule rule = loaded.getOrDefault(intent, unsorted(intent));
-        // 事实优先于规则默认值：柜机离线时，“门打不开/关不上、取件码”不是单格门故障，
-        // 按整柜设备故障处置——否则会派一个人去修一扇门，而整柜根本连不上。
         if (facts != null && facts.deviceOffline() && needsOnlineDevice(intent)) {
             rule = loaded.getOrDefault(WorkOrderIntent.DEVICE_OFFLINE,
                     defaultRules().get(WorkOrderIntent.DEVICE_OFFLINE));
@@ -75,7 +66,6 @@ public class WorkOrderTriageService implements com.wherelee.cabinet.servicedesk.
         } else if (facts != null && facts.urgent()) {
             urgency = WorkOrderUrgency.HIGH;
         }
-        // 优先级：规则可以按现象钉死（门未关且有物必须 10 分钟内处理），否则走影响×紧急度矩阵。
         WorkOrderPriority priority = rule.priority() == null
                 ? priorityPolicy.of(impact, urgency) : rule.priority();
         if (facts != null && (facts.deviceOffline() || facts.cabinetImpact() || facts.accountImpact())) {
@@ -84,7 +74,6 @@ public class WorkOrderTriageService implements com.wherelee.cabinet.servicedesk.
                 && (priority == WorkOrderPriority.P3 || priority == WorkOrderPriority.P4)) {
             priority = WorkOrderPriority.P2;
         }
-        // SLA：规则里的分钟数可覆盖（按现象定制），为空按优先级档位取配置。
         int responseMinutes = rule.responseMinutes() == null
                 ? slaPolicy.responseMinutes(priority) : rule.responseMinutes();
         int resolveMinutes = rule.resolveMinutes() == null
@@ -94,14 +83,12 @@ public class WorkOrderTriageService implements com.wherelee.cabinet.servicedesk.
                 rule.ruleCode(), rule.ruleVersion());
     }
 
-    /** 这些现象都要靠柜机在线才能自助完成；柜机离线时改按设备故障处置。 */
     private static boolean needsOnlineDevice(WorkOrderIntent intent) {
         return intent == WorkOrderIntent.DOOR_NOT_OPEN
                 || intent == WorkOrderIntent.DOOR_NOT_CLOSE
                 || intent == WorkOrderIntent.PICKUP_CODE;
     }
 
-    /** 管理端改完规则后调用：清缓存，下一次请求重新装载。 */
     @Override
     public void reload() {
         cache.clear();
@@ -185,10 +172,6 @@ public class WorkOrderTriageService implements com.wherelee.cabinet.servicedesk.
                 queueSide, group, priority, impact, urgency, null, null, 0));
     }
 
-    /**
-     * REQUEST 单仍需一个兼容 type 参与同队列唯一索引；category 仍是真正的处置分类。
-     * UNSORTED 没有兼容 type，允许同一格口存在多张待人工分拣的请求。
-     */
     private static WorkOrderType typeOf(WorkOrderCategory category) {
         return switch (category) {
             case DOOR_FAULT, DEVICE_OFFLINE, BILLING_DISPUTE, PICKUP_CODE -> WorkOrderType.DEVICE_FAULT;

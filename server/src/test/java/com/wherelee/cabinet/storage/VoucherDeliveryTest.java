@@ -47,16 +47,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 取件凭据交付闭环（第 25 刀）。
- *
- * <p>这一刀修的是一条"有锁没钥匙"的链路：码会生成、会校验、错五次会锁定，但没有任何
- * 渠道把码交到用户手上——凭码取件事实上不可达。用例因此全部围绕"码到了谁手里、
- * 换码之后旧码还算不算数"来断言，而不是再测一遍校验逻辑（那部分在
- * {@code SingleSlotAndVoucherTest} 里已经钉住）。
- *
- * <p>造数走真实下单链路：交付发生在下单里，手工插订单测不到它。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -171,9 +161,6 @@ class VoucherDeliveryTest {
     }
 
     private StorageOrderView place(Long customerId) {
-        // 走真实 HTTP 链同一入口并关门：下单+开门进 OPENING 后，取件（结算）要求
-        // 先过 CLOSE_VERIFY 进 ACTIVE——状态机不许 OPENING 直接跳 SETTLING。
-        // 只造一张"开过门并关好"的活单，后面的取件与重置才能面对真实现场
         StorageOrderView placed = TenantContext.callAs(TENANT, () -> orderFacade.place(customerId,
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, SizeType.SMALL.name())));
         door(placed.orderNo(), customerId, CommandAction.CLOSE_VERIFY);
@@ -260,12 +247,10 @@ class VoucherDeliveryTest {
         assertTrue(newCode.matches("V\\d{8}"));
         assertNotEquals(oldCode, newCode, "重置必须换码");
 
-        // 旧码作废：按码查活单已经查不到这张单，走的是与"码不存在"同一句失败话术
         BizException stale = assertThrows(BizException.class,
                 () -> TenantContext.callAs(TENANT, () -> publicPickup.pickup(oldCode, tail)));
         assertTrue(stale.getMessage().contains("不正确"), stale.getMessage());
 
-        // 新码可用，并完成取件（双因子那条路径）
         TenantContext.runAs(TENANT, () -> publicPickup.pickup(newCode, tail));
         assertNotNull(order(orderNo).getFinishedAt(), "新码必须能真的取件");
 
@@ -280,8 +265,6 @@ class VoucherDeliveryTest {
         String orderNo = place(customerId).orderNo();
         String code = order(orderNo).getVoucherCode();
 
-        // 错码要发在**这张真单**上才会计数：匿名路径按码找不到单，走的是“码不存在”同一句话，
-        // 不进错次——锁定计数只属于被反复试的那张单
         for (int i = 0; i < 5; i++) {
             String bad = String.format("V%08d", 10000000 + i);
             assertThrows(BizException.class,
@@ -291,7 +274,6 @@ class VoucherDeliveryTest {
         assertNotNull(locked.getVoucherLockedAt(), "连错 5 次应写下锁定时刻");
         assertEquals(5, locked.getVoucherWrongCount().intValue());
 
-        // 锁定期间不许开柜（出路文案指向"重置"，本用例断言它真的能走通）
         BizException doorBlocked = assertThrows(BizException.class,
                 () -> TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, orderNo,
                         CommandAction.OPEN_TEMP)));
@@ -304,7 +286,6 @@ class VoucherDeliveryTest {
         assertNotEquals(code, reset.voucherCode());
         assertTrue(!reset.locked());
 
-        // 解锁后凭新码正常取件
         TenantContext.runAs(TENANT, () -> publicPickup.pickup(reset.voucherCode(), tailOf(customerId)));
         assertNotNull(order(orderNo).getFinishedAt(), "解锁后东西应能拿走");
     }
@@ -325,4 +306,3 @@ class VoucherDeliveryTest {
         }
     }
 }
-

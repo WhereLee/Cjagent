@@ -40,15 +40,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 用户侧三条新规则（2026-10-10 定稿 定-5、定-6、定-8）。
- *
- * <p>三条都是"把系统往更保守的方向收"：一人一单、不给升尺寸、码错多了就锁。
- * 这类规则最容易被后来的优化悄悄放宽（"体验不好，帮他升一格吧"），所以每条都留断言钉住。
- *
- * <p>造数走真实下单链路，不直接插订单行——一人一单的判定依赖 {@code active_flag}
- * 这个结构化标记，手工插的行会把"占位是否真的生效"这件事测漏。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -59,7 +50,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DisplayName("用户侧：一人只能占一格、没位就是没位、取件码错 5 次锁定")
 class SingleSlotAndVoucherTest {
 
-    /** 当前默认价：押金 200 + 小格 1 小时 15 点。账户级押金改造（18-2）后这个数会变。 */
     private static final long FREEZE = 215L;
 
     private static final Long TENANT = 8125L;
@@ -81,7 +71,6 @@ class SingleSlotAndVoucherTest {
     @Autowired
     private com.wherelee.cabinet.storage.app.PublicPickupService publicPickup;
 
-    /** 夹具里写下的客户手机号，双因子用例要拿它的后四位。 */
     private final java.util.Map<Long, String> phoneOf = new java.util.concurrent.ConcurrentHashMap<>();
 
     private JdbcTemplate jdbc;
@@ -111,7 +100,6 @@ class SingleSlotAndVoucherTest {
             cabinetMapper.insert(cabinet);
             cabinetId = cabinet.getId();
 
-            // 每档 3 个：够把小格占满，用来验"没位就是没位，不会去抢中格"
             for (SizeType size : SizeType.values()) {
                 for (int i = 1; i <= 3; i++) {
                     BizCompartment slot = new BizCompartment();
@@ -156,8 +144,6 @@ class SingleSlotAndVoucherTest {
     private Long newCustomer() {
         Long id = 998000L + Math.abs(UUID.randomUUID().getLeastSignificantBits() % 15000);
         customerIds.add(id);
-        // 定-25 的第二条路径要手机尾号：夹具里的客户以前根本不写 phone，
-        // 不补上就只能测“永远不可能命中”的那一支
         String phone = "1390" + String.format("%07d", Math.abs(id % 10000000));
         phoneOf.put(id, phone);
         jdbc.update("insert into biz_customer (id, tenant_id, open_id, nickname, phone, status, register_time, create_time, update_time, deleted) "
@@ -184,8 +170,6 @@ class SingleSlotAndVoucherTest {
     }
 
     private long occupiedBy(SizeType size) {
-        // 数“有没有绑着活动单”而不是数 status 字面量：枚举入库形式属于框架细节，
-        // 而“这一格里已经站了一张单”才是本用例要断的业务事实
         Long count = jdbc.queryForObject("select count(*) from biz_compartment "
                         + "where cabinet_id = ? and size_type = ? and current_order_id is not null and deleted = 0",
                 Long.class, cabinetId, size.name());
@@ -202,7 +186,6 @@ class SingleSlotAndVoucherTest {
                 () -> orderNo(customerId, SizeType.SMALL));
         assertTrue(second.getMessage().contains("未结束"), second.getMessage());
 
-        // 结束掉第一张之后，同一个账户应该能正常开新格——拦截不是封号
         door(first, customerId, CommandAction.OPEN);
         door(first, customerId, CommandAction.CLOSE_VERIFY);
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, first));
@@ -219,7 +202,6 @@ class SingleSlotAndVoucherTest {
     @Test
     @DisplayName("小格占满就是【没位】，不会悄悄给用户一个更贵的大格")
     void noFallbackToBiggerSize() {
-        // 三个小格被三个不同客户占满（一人一单，所以必须三个客户）
         orderNo(newCustomer(), SizeType.SMALL);
         orderNo(newCustomer(), SizeType.SMALL);
         orderNo(newCustomer(), SizeType.SMALL);
@@ -229,7 +211,6 @@ class SingleSlotAndVoucherTest {
         BizException noSlot = assertThrows(BizException.class, () -> orderNo(fourth, SizeType.SMALL));
         assertTrue(noSlot.getMessage() != null && !noSlot.getMessage().isBlank(), "要说清为什么下不了单");
 
-        // 关键断言：中格与大格一个都没被吃掉。以前"往上找第一个可用"会在这里偷偷给用户一个中格
         assertEquals(0L, occupiedBy(SizeType.MEDIUM), "不允许向上升级到中格");
         assertEquals(0L, occupiedBy(SizeType.LARGE), "不允许向上升级到大格");
     }
@@ -252,7 +233,6 @@ class SingleSlotAndVoucherTest {
         }
         assertEquals(4, order(orderNo).getVoucherWrongCount().intValue());
 
-        // 第 5 次输对：计数归零，并且能正常结束——上限是“连续”错五次，不是一共错五次
         TenantContext.runAs(TENANT, () -> orderService.pickup(customerId, orderNo, realCode));
         BizStorageOrder settled = order(orderNo);
         assertNotNull(settled.getFinishedAt(), "正确码应当放行取件");
@@ -273,8 +253,6 @@ class SingleSlotAndVoucherTest {
         }
         assertNotNull(order(orderNo).getVoucherLockedAt(), "第 5 次错应写下锁定时刻");
 
-        // 锁的是“凭这张单开柜”，不是“把这张单结掉”：
-        // 柜内空、门已关时他本人登录态点结束必须能结，否则被锁住的反而是物主
         BizException lockedTemp = assertThrows(BizException.class,
                 () -> door(orderNo, customerId, CommandAction.OPEN_TEMP));
         assertTrue(lockedTemp.getMessage().contains("锁定"), lockedTemp.getMessage());
@@ -296,7 +274,6 @@ class SingleSlotAndVoucherTest {
         String phone = phoneOf.get(customerId);
         String tail = phone.substring(phone.length() - 4);
 
-        // 码真、尾号不对：不能结算，而且报的话与“码不存在”一模一样
         BizException wrongTail = assertThrows(BizException.class, () -> TenantContext.callAs(TENANT,
                 () -> publicPickup.pickup(code, "0000")));
         assertTrue(wrongTail.getMessage().contains("取件码或手机尾号不正确"), wrongTail.getMessage());
@@ -304,12 +281,10 @@ class SingleSlotAndVoucherTest {
         assertEquals(1, order(orderNo).getVoucherWrongCount().intValue(),
                 "拿着真码试尾号就是在猜号，必须计入这张单的错次（定-15 同一套）");
 
-        // 码根本不存在：同一句话（能区分就等于把“哪些码是真实存在的”送出去）
         BizException noOrder = assertThrows(BizException.class, () -> TenantContext.callAs(TENANT,
                 () -> publicPickup.pickup("V00000000", tail)));
         assertEquals(wrongTail.getMessage(), noOrder.getMessage(), "两种失败必须同一句话");
 
-        // 两个都对了：结单、取物开门、错次归零
         com.wherelee.cabinet.storage.api.StorageOrderView view =
                 TenantContext.callAs(TENANT, () -> publicPickup.pickup(code, tail));
         BizStorageOrder done = order(orderNo);

@@ -7,10 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * wiki 装载（第 22 刀）：agent 的知识底座必须在 classpath 上齐全——
- * 少一页，模型对那一类问题就没有口径可依，只会现编。
- */
 class WikiLoaderTest {
 
     @Test

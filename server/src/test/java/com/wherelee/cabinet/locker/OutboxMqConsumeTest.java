@@ -36,18 +36,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
-/**
- * MQ 消费侧的四条契约。
- *
- * <p><b>为什么不真发 MQ</b>：同一个 JVM 里的 {@code @RocketMQMessageListener} 会立刻消费
- * 自己刚发的消息，于是"手工再调一次消费者"变成第二次投递、被幂等跳过——症状是单跑绿、连跑红。
- * 所以这里直接 {@code new} 消费者、手工构造 {@code MessageExt}，测的才是消费者本身。
- *
- * <p>直接 new 还有个好处：集成测试的 {@code cabinet.outbox.transport=in-process} 下
- * 消费者 bean 本来就不装配，这里绕开了装配条件，而不是为了测试去改生产配置。
- *
- * <p>断言用<b>相对增量</b>而不是绝对条数：格口是共享资源，别的用例可能已经在这个格口上开过单。
- */
 @SpringBootTest
 @ActiveProfiles({"dev", "integration"})
 @Tag("integration")
@@ -72,8 +60,6 @@ class OutboxMqConsumeTest {
 
     private JdbcTemplate jdbc() {
         if (jdbc == null) {
-            // 与 WorkOrderFlowTest 同一写法：注入 DataSource 自己 new，
-            // 不按类型注 JdbcTemplate（容器里有两个数据源时按类型注会注错）
             jdbc = new JdbcTemplate(dataSource);
         }
         return jdbc;
@@ -81,9 +67,6 @@ class OutboxMqConsumeTest {
 
     @BeforeEach
     void pickSlot() {
-        // 自己造一个格口：CI 的 cabinet_test 是空库，不能指望里面已经有格口
-        // （本地能过是因为别的用例留下的数据，那正是“本地绿、CI 红”的经典来源）。
-        // 写法照抄 WorkOrderFlowTest：随机 id + 同一租户，避免与别的用例撞主键。
         Long seed = ThreadLocalRandom.current().nextLong(82_0000_0000L, 88_9999_9999L);
         tenantId = jdbc().queryForObject("select id from sys_tenant limit 1", Long.class);
         Long siteId = seed;
@@ -113,7 +96,6 @@ class OutboxMqConsumeTest {
         message.setTopic("cabinet-outbox");
         message.setBody(json.writeValueAsBytes(payload));
         message.putUserProperty("tenantId", String.valueOf(tenantId));
-        // KEYS 是 RocketMQ 的系统属性，只能用 setKeys；putUserProperty 会直接报错
         message.setKeys(dedupKey);
         message.setReconsumeTimes(0);
         return message;
@@ -133,16 +115,12 @@ class OutboxMqConsumeTest {
         MessageExt message = anomalyMessage("test-dup-" + UUID.randomUUID());
         WorkOrderAnomalyConsumer consumer = consumer();
 
-        // 消费线程没有请求上下文，租户由消息头重建——onMessage 内部会做这件事
         TenantContext.clear();
         consumer.onMessage(message);
         int afterFirst = openWorkOrders();
 
-        // 第一次消费不断言 +1：这个格口在别的用例里可能已经有同类型活动单，
-        // uk_work_order_open 会让本次合并到那张（findOpen 回读并返回），那是正确行为。
         assertTrue(afterFirst >= before, "消费一次不该让活动单变少");
 
-        // 本条用例真正要验的是幂等：第二次投递不能再多出一张
         consumer.onMessage(message);
         assertEquals(afterFirst, openWorkOrders(), "重复投递不能再开第二张");
     }
@@ -151,13 +129,11 @@ class OutboxMqConsumeTest {
     @DisplayName("BizException 被吞掉并 ACK：重试无意义的失败不该占满 16 次重试预算")
     void bizExceptionIsAckedNotRetried() throws Exception {
         WorkOrderPort failing = mock(WorkOrderPort.class);
-        // openForAnomaly 返回 void，只能用 doThrow；when(...) 在 void 方法上编译不过
         doThrow(new BizException(ResultCode.SYSTEM_ERROR, "工单唯一索引冲突但找不到未关闭的那张"))
                 .when(failing).openForAnomaly(any(), any(), any());
         WorkOrderAnomalyConsumer consumer =
                 new WorkOrderAnomalyConsumer(failing, json, new SimpleMeterRegistry());
 
-        // 不抛 = ACK 掉，消息不会进重试队列；抛了这条用例就会红
         consumer.onMessage(anomalyMessage("test-bizex-" + UUID.randomUUID()));
         assertTrue(true, "吞掉即通过");
     }
@@ -181,7 +157,6 @@ class OutboxMqConsumeTest {
     @Test
     @DisplayName("重放：投回原 topic 并把状态改成 REPLAYED；再点一次返回 false")
     void replayPublishesAndMarksReplayed() {
-        // 用测试专用 topic：真投进业务 topic 会被 listener 消费，干扰别的用例
         String key = "test-replay-" + UUID.randomUUID();
         String payload = "{\"slotId\":" + slotId + ",\"anomaly\":\"DOOR_OPEN\",\"reason\":\"replay\"}";
         deadLetters.archive("cabinet-outbox-test", "WORK_ORDER_ANOMALY",

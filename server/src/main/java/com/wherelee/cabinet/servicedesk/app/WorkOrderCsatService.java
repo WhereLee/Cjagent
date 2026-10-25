@@ -14,15 +14,6 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/**
- * 工单满意度：用户点「确认已解决」后的可选评价。
- *
- * <p>三条边界：<b>只有本人</b>能评自己的单；<b>只有用户确认解决</b>的单能评（业务员关闭/自动关闭
- * 不邀请）；<b>一单一次</b>由 {@code uk_csat_work_order} 兜底，不靠“先查再插”——并发双击时
- * 先查再插会双写，唯一索引才是裁判。
- *
- * <p>评价只是事实记录：不改变工单状态、不影响 SLA、不触发任何通知。
- */
 @Service
 public class WorkOrderCsatService implements WorkOrderCsatPort {
 

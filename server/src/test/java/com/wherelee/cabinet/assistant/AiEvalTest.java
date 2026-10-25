@@ -26,16 +26,6 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * AI 客服金问题集（离线评测）：<b>只在显式开启且配置了模型密钥时运行</b>。
- *
- * <p>为什么单独一套而不是并进日常用例：真模型结论不可重现、要花钱、可能限流；
- * CI 与默认测试只跑确定性用例。这里由 {@code -Dai.eval=true} 手动触发，
- * 每条的回复都打印出来供人工复核语气与口径。
- *
- * <p>断言只覆盖<b>硬边界</b>：该转人工的必须转、回复不得泄露手机号/密钥、不得承诺退款赔偿、
- * 计费事实必须来自 wiki。措辞自由，不做逐字匹配。
- */
 @Tag("integration")
 @Tag("ai-eval")
 @EnabledIfSystemProperty(named = "ai.eval", matches = "true")
@@ -120,10 +110,8 @@ class AiEvalTest {
         int index = 0;
         for (EvalCase c : cases) {
             index++;
-            // 每条之间清掉工单，保证“声称转报”一定是本条真的建了单
             jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
             jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
-            // 门打不开这条需要设备不可用，重开失败才会转报；跑完恢复
             if ("door-cannot-open".equals(c.id())) {
                 jdbc.update("update biz_cabinet set online_state = 'OFFLINE' where id = ?", cabinetId);
             }
@@ -192,7 +180,6 @@ class AiEvalTest {
         }
     }
 
-    /** 一条金问题：期望的转人工（null=不判定）、必含事实、任一命中、禁含内容。 */
     record EvalCase(String id, String message, boolean withOrder, Boolean expectEscalated,
                     List<String> mustContain, List<String> mustContainAny,
                     List<String> mustNotContain, String note) {

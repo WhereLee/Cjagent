@@ -11,19 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-/**
- * 定价参数缺配置必须起不来。
- *
- * <p>这条测试存在的唯一理由：{@link PricingPolicy} 的八个 {@code @Value} 全部不带默认值。
- * 上一版带默认值，而且停在作废旧价 15/25/40——集成测试走的是"配置生效"路径，
- * 恰好测不到默认值，那个隐患活了很久，是注释自己承认的。
- *
- * <p>光把 {@code :默认值} 删掉不够：要有一条测试证明"缺了真的起不来"，
- * 否则下次有人顺手给某个 {@code @Value} 加回默认值，没有任何东西会拦他。
- */
 class PricingConfigFailFastTest {
 
-    /** 八项必须与 application.yml 的 cabinet.pricing.* 逐项对应。 */
     private static final String[] ALL_KEYS = {
             "cabinet.pricing.prepay-hours=4",
             "cabinet.pricing.free-minutes=30",
@@ -38,7 +27,6 @@ class PricingConfigFailFastTest {
     private static ApplicationContextRunner runner(String... properties) {
         return new ApplicationContextRunner()
                 .withUserConfiguration(PricingPolicy.class)
-                // ApplicationContextRunner 默认不带占位符解析器：不注册它，@Value 一律解析不了
                 .withBean(PropertySourcesPlaceholderConfigurer.class)
                 .withPropertyValues(properties);
     }

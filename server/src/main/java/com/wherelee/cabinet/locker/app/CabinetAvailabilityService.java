@@ -14,18 +14,6 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * 一台暂存柜各尺寸还剩多少<b>正常可分配</b>的格口（第 15 刀只读接口的第一层）。
- *
- * <p>为什么要有这个类，而不是在控制器里直接 count：屏上写的数与下单时能不能分到格，
- * 必须是<b>同一个问题的同一个答案</b>。所以这里不写自己的 SQL，只调
- * {@link SlotCandidateQuery#assignable}——四个分配器、预扣集合、定时校准用的都是它。
- * 两处各写一套判据迟早会变成“屏幕说还有 3 个小格、一点下单就说没格”，
- * 或者反过来“屏幕说 0、其实还能卖”，后一种等于把能卖的格子说成不能卖。
- *
- * <p>口径（用户 2026-10-12 明确）：异常格口不参与售卖，所以它们**不计入这里的数字**；
- * 一台柜机的格口全部异常时，这里三个尺寸都是 0，用户在屏幕上看到的就不是“还能去”。
- */
 @Service
 public class CabinetAvailabilityService implements com.wherelee.cabinet.locker.api.CabinetAvailabilityPort {
 
@@ -47,7 +35,6 @@ public class CabinetAvailabilityService implements com.wherelee.cabinet.locker.a
                 .toList();
     }
 
-    /** 另一位用户反馈“我帮他关上了”：按编号定位到格口再走业务判断。 */
     public String confirmClosedByAnother(String cabinetNo, String slotNo, Long helperCustomerId) {
         BizCabinet cabinet = requireCabinet(cabinetNo);
         BizCompartment slot = slotMapper.selectOne(Wrappers.<BizCompartment>lambdaQuery()

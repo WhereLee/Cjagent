@@ -24,15 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/**
- * 用户侧工单：只看自己的、只能确认或反馈没解决。
- *
- * <p>视图是 {@link WorkOrderConsolePort.CustomerView}，不是后台的 {@code View}：
- * 交接 JSON、快照电话、指派对象属于内部流转细节，不能顺手塞进小程序。
- *
- * <p>“问题已解决/还没解决”都只对本人已存在的单生效：
- * 确认写 USER_CONFIRMED（关闭依据是用户本人），反馈没解决则重开并把次数 +1。
- */
 @Tag(name = "客户-工单", description = "我的工单、确认已解决、反馈还没解决")
 @RestController
 @RequestMapping("/api/mini/work-orders")
@@ -79,7 +70,6 @@ public class MiniWorkOrderController {
         return R.ok(workOrders.reopen(id, current.subjectId(), cmd.note()));
     }
 
-    /** solved 必填：同一入口两种相反动作，缺省值会悄悄替用户选一个。 */
     public record ConfirmCommand(boolean solved, @Size(max = 300) String note) {
     }
 

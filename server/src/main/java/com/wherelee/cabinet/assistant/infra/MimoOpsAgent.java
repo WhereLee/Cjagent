@@ -10,14 +10,6 @@ import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/**
- * MiMo 运维诊断 agent 的真实现（第 24 刀）：只读工具 + 结构化诊断报告。
- *
- * <p>与客服/简报 agent 的差异只有角色与工具：同一个共享 ChatClient（{@link MimoChatClients}）、
- * 同一套失败收敛（空输出/异常 → {@code fallback()}，绝不 5xx）、同一个 wiki 装载。
- * <b>工具零写权限是本 agent 的存在前提</b>：诊断结论再离谱，最坏也只是"报告写错"，
- * 不会变成"服务被重启"。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.agent.client", havingValue = "real")
 public class MimoOpsAgent implements OpsDiagnosePort {

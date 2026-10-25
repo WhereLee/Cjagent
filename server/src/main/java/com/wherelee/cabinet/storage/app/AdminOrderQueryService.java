@@ -31,23 +31,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/**
- * 后台订单查询（只读）。
- *
- * <p>补的是运营台缺的第一块：客服接到的第一句话通常是“我的订单号是 xxx，东西取不出来”，
- * 而在此之前所有后台页面都假设“你从异常或工单进来”，只能靠格口反查当前单。
- *
- * <p>这一层<b>不做任何判定</b>：状态、金额、异常都是把已经落库的事实读出来；
- * “能不能结束”“该不该退钱”仍由 StorageOrderService 与工单侧决定。
- * 读的人和判的人各算一遍，就会出现“后台说没欠、下单却被拒”这种口径分裂。
- *
- * <p>列表按页批量取名字（客户/柜机/格口/点位各一次 {@code in}），不循环查库；
- * 详情固定六条等值查询（单/客户/账单/指令/证据/工单），不引入缓存。
- */
 @Service
 public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.AdminOrderConsolePort {
 
-    /** 允许前端自定义排序的字段（PageSupport 白名单）。 */
     private static final Set<String> ORDER_SORTABLE = Set.of("createTime", "finishedAt");
 
     private static final int COMMAND_LIMIT = 50;
@@ -113,7 +99,6 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
                 result.getPages(), toRows(result.getRecords()));
     }
 
-    /** 按单号取详情；跨租户查不到与不存在同一处理（不暴露“别家有这么一张单”）。 */
     public OrderDetail detail(String orderNo) {
         BizStorageOrder order = orderMapper.selectOne(Wrappers.<BizStorageOrder>lambdaQuery()
                 .eq(BizStorageOrder::getOrderNo, orderNo));
@@ -145,7 +130,6 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
                         w.closeReason(), w.title(), w.createTime()))
                 .toList();
 
-        // 看了明文就留痕：记谁看了哪个客户，不记号码本身
         if (customer != null && PhoneVisibility.allowed()) {
             phoneAuditor.record(customer.id());
         }
@@ -155,13 +139,10 @@ public class AdminOrderQueryService implements com.wherelee.cabinet.storage.api.
                 nvl(order.getAiReviewCount()), nvl(order.getTempOpenCount()), nvl(order.getVoucherWrongCount()),
                 order.getVoucherLockedAt() != null, order.getLeftoverReportedAt() != null,
                 nvl(order.getDepositPoints()), nvl(order.getRemoteClosePoints()),
-                // 历史单没有定价快照时账单区为 null：已落库的预收/实收/欠费照常展示，
-                // 但不能因为一张旧单拼不出明细就把整个详情页打挂（用户端账单仍维持原口径）。
                 StringUtils.hasText(order.getPricingSnapshot()) ? storageQueries.billOf(order) : null,
                 commands, evidence, workOrders);
     }
 
-    /** 列表行批量补齐名字：四张关联表各一次 in 查询，禁止按行查库。 */
     private List<OrderRow> toRows(List<BizStorageOrder> orders) {
         if (orders.isEmpty()) {
             return List.of();

@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/** 交接事实：只装事实与建议，不替业务员做决定；派单时父单结论必须传下去。 */
 @DisplayName("工单交接事实：诉求、尝试、用户位置、下一步、父单结论")
 class WorkOrderHandoffServiceTest {
 

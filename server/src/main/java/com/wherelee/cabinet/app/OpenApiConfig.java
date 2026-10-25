@@ -7,12 +7,6 @@ import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * 接口文档：按端分组，避免用户端同学翻后台接口。
- *
- * <p>生产环境要通过 {@code springdoc.api-docs.enabled=false} 与
- * {@code cabinet.openapi.enabled=false} 关掉，不能把接口清单暴露到公网。
- */
 @Configuration
 public class OpenApiConfig {
 

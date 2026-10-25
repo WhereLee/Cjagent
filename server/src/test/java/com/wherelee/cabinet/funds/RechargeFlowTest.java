@@ -31,19 +31,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * 充值链路（第 13 刀：PayChannel 抽象 + Mock 通道 + 对手方对账）。
- *
- * <p>这一刀要补的洞很具体：第 12 刀只有内部 {@code points.recharge()}，dev 里新用户一上来就是 0 点，
- * 任何下单都被"点数不足"挡死；而"充值"这件事一旦有入口，就必须同时回答
- * <b>"钱进了通道但点数没加"和"点数加了但通道没收钱"</b>——否则加钱这条路比扣钱更容易出事。
- *
- * <p>所以断言分三层：接口层（幂等/限流/鉴权真的生效）、账务层（两本账各多一条且互相指得上）、
- * 对账层（正常态两项差异都为 0，人为造差异时必须被抓到）。
- *
- * <p>走 MockMvc 而不是直调 service：{@code @Idempotent}/{@code @RateLimit}/{@code @PreAuthorize}
- * 是切面挂在接口层的，直调 service 就绕过了它们（第 10 刀已经因为"测试包了一层 runAs"假绿过一次）。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -71,7 +58,6 @@ class RechargeFlowTest {
 
     @AfterEach
     void resetChannel() {
-        // 通道是内存态，不跟着 DB 事务回滚：不清就会把"下一次必失败"带到下个用例
         simulatorChannel.reset();
         TenantContext.clear();
     }
@@ -83,12 +69,6 @@ class RechargeFlowTest {
         return jdbc;
     }
 
-    /**
-     * 登录并拿到（token, customerId）。
-     *
-     * <p>customerId 从响应里取而不是按 openId 反查 DB：mock 通道怎么把 code 映射成 openId
-     * 是实现细节，测试拼那个格式就是把自己的命运交给别人的实现（以会脆）。
-     */
     private Session login(String code) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/mini/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -100,7 +80,6 @@ class RechargeFlowTest {
         return new Session(field(body, "accessToken"), Long.valueOf(field(body, "customerId")));
     }
 
-    /** 极简 JSON 取字段：响应是扁平结构，不值得为测试引一个 mapper。 */
     private static String field(String body, String name) {
         String marker = "\"" + name + "\":\"";
         int start = body.indexOf(marker);
@@ -111,7 +90,6 @@ class RechargeFlowTest {
         return body.substring(from, body.indexOf('"', from));
     }
 
-    /** 登录态：凭证 + 客户号。 */
     private record Session(String token, Long customerId) {
     }
 
@@ -125,8 +103,6 @@ class RechargeFlowTest {
         String code = "rc-ok-" + UUID.randomUUID().toString().substring(0, 8);
         Session session = login(code);
         Long customerId = session.customerId();
-        // 基线而不是绝对值：cabinet_test 是共享库，里面已有历史脏数据（它们本就该被对账报出来）。
-        // 断“全库干净”会把别人的遗留当成自己的失败；这里要证的是“我做这一次充值不新增差异”
         ReconcileReport baseline = reconcile.reconcile(TENANT);
 
         mockMvc.perform(post("/api/mini/points/recharge")
@@ -138,13 +114,11 @@ class RechargeFlowTest {
                 .andExpect(jsonPath("$.data.status").value("PAID"))
                 .andExpect(jsonPath("$.data.points").value(3000))
                 .andExpect(jsonPath("$.data.channel").value("MOCK"))
-                // 商户订单号是排查入口，必须回给客户端（不能只说"成功了"）
                 .andExpect(jsonPath("$.data.outTradeNo").isNotEmpty());
 
         String outTradeNo = jdbc().queryForObject(
                 "select out_trade_no from biz_pay_txn where customer_id = ?", String.class, customerId);
         assertNotNull(outTradeNo);
-        // 两本账各一条，且用同一个幂等号互指：这是对账能跑起来的结构前提
         assertEquals(1, jdbc().queryForObject("select count(*) from biz_pay_txn where out_trade_no = ? and status = 'PAID'",
                 Integer.class, outTradeNo));
         assertEquals(1, jdbc().queryForObject(
@@ -178,7 +152,6 @@ class RechargeFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0));
 
-        // 弱网重发同一个业务键：必须被 @Idempotent 拦在下单之前，否则就是两笔收款
         mockMvc.perform(post("/api/mini/points/recharge")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + session.token())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -260,10 +233,6 @@ class RechargeFlowTest {
         long baseNotCredited = clean.countOf(ReconcileService.PAID_NOT_CREDITED);
         long baseWithoutPay = clean.countOf(ReconcileService.CREDITED_WITHOUT_PAY);
 
-        // 方向一：抹掉点数流水（等价于"钱收了但没给点数"）。
-        // 必须走 Mapper 而不是 JdbcTemplate：同一个 @Transactional 测试里 MyBatis 一级缓存
-        // 只在经它自己的写操作时作废；用 jdbc 改完再跑完全相同的聚合 SQL，会直接读到旧结果，
-        // 表现为"差异拓不到"——本刀实际被这个机制骗过一次，所以写在这里当注释。
         TenantContext.runAs(TENANT, () -> txnMapper.delete(
                 com.baomidou.mybatisplus.core.toolkit.Wrappers.<com.wherelee.cabinet.funds.domain.BizPointTxn>lambdaQuery()
                         .eq(com.wherelee.cabinet.funds.domain.BizPointTxn::getCustomerId, customerId)
@@ -273,7 +242,6 @@ class RechargeFlowTest {
         assertEquals(baseNotCredited + 1, missingCredit.countOf(ReconcileService.PAID_NOT_CREDITED),
                 "通道已收款却没有对应入账必须报出来（这是用户侧资损）");
 
-        // 方向二：伪造一条"看起来来自通道"的入账（等价于凭空造点）
         com.wherelee.cabinet.funds.domain.BizPointTxn forged = new com.wherelee.cabinet.funds.domain.BizPointTxn();
         forged.setTenantId(TENANT);
         forged.setCustomerId(customerId);
@@ -293,7 +261,6 @@ class RechargeFlowTest {
     @Test
     @DisplayName("通道对象缺失时明确拒绝充值（fail-closed，不静默加点）")
     void missingChannelFailsClosed() {
-        // PayChannel 端口只有一个实现（Mock）；这里验的是"没通道就不能加钱"这条约束的存在
         PayChannel channel = simulatorChannel;
         assertNotNull(channel);
         assertTrue(channel.name().equals("MOCK"),

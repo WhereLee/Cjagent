@@ -29,7 +29,6 @@ class OrderStatusTest {
     @Test
     @DisplayName("每个状态都至少有一个出口（终态除外）：异常状态必须有走出去的路")
     void abnormalAndExpiredAreNotDeadEnds() {
-        // ABNORMAL/EXPIRED 若变成死端，就会出现"行李永久锁在柜子里"——这是本域最严重的失败模式
         assertTrue(OrderStatus.ABNORMAL.canTransitTo(OrderStatus.CLOSED));
         assertTrue(OrderStatus.ABNORMAL.canTransitTo(OrderStatus.CANCELLED));
         assertTrue(OrderStatus.ABNORMAL.canTransitTo(OrderStatus.ACTIVE));
@@ -69,7 +68,6 @@ class OrderStatusTest {
         assertEquals(OrderStatus.INIT, order.getStatus());
         assertEquals(1, order.getActiveFlag());
 
-        // 非法迁移：直接抛业务异常，且不留半成品状态
         assertThrows(BizException.class, () -> order.transitTo(OrderStatus.SETTLING));
         assertEquals(OrderStatus.INIT, order.getStatus());
         assertEquals(1, order.getActiveFlag());

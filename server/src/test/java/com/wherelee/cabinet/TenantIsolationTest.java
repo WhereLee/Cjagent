@@ -22,12 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 租户隔离回归测试（第二刀的核心产出）。
- *
- * <p>这类漏洞的特点是<b>单租户环境永远正常</b>：只跑一个租户时，加了条件和没加条件结果一样。
- * 所以每条断言都必须<b>同时存在两个租户</b>，否则测了等于没测。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -61,10 +55,6 @@ class TenantIsolationTest {
                 .stream().map(ProbeAudit::getName).sorted().toList();
     }
 
-    /**
-     * 拦截器抛出的异常可能被 MyBatis-Spring 转译包装，所以不直接断言异常类型，
-     * 而是断言异常链里存在 BizException —— 既稳又不会掩盖真实问题。
-     */
     private static void assertRejectedByTenantGuard(Throwable t) {
         Throwable cursor = t;
         while (cursor != null) {
@@ -127,7 +117,6 @@ class TenantIsolationTest {
         int visible = TenantContext.callAs(TENANT_A, () -> mapper.countPhysical(foreign.getId()));
         assertEquals(0, visible, "物理 count 探针也带上了 tenant_id，说明拦截器作用在所有 SQL 上");
 
-        // 没有租户上下文时，这类手写 SQL 会被拒绝，而不是退化成全表
         Throwable t = assertThrows(Throwable.class, () -> mapper.countPhysical(foreign.getId()));
         assertRejectedByTenantGuard(t);
     }
@@ -144,8 +133,6 @@ class TenantIsolationTest {
     @Test
     @DisplayName("白名单表在无租户上下文下仍可查（迁移表与租户主表自身）")
     void whitelistTablesReadableWithoutContext() {
-        // 不断言具体行数：其他测试类的夹具可能己写入租户，具体数量不是本用例要管的事。
-        // 这里要验的是“没有租户上下文也不被守卫拒绝”，能执行就行。
         assertTrue(mapper.countAppliedMigration("2") > 0, "V2__sys_tenant 应已应用");
         assertTrue(mapper.countTenantsWithoutContext() >= 0, "sys_tenant 查询可执行 = 未被加 tenant_id 条件");
     }

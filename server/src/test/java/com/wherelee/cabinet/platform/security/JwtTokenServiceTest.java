@@ -10,12 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 凭证签发与用途约束的单元测试（不起 Spring，纯逻辑）。
- *
- * <p>重点测的不是"能不能解析"，而是<b>越界使用必须被拒</b>：
- * refresh 当 access 用、mini 的 token 当 admin 用、密钥不符、密钥太短。
- */
 class JwtTokenServiceTest {
 
     private static final String SECRET = "unit-test-secret-key-at-least-32-bytes-long!!";

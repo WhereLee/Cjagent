@@ -17,14 +17,6 @@ import java.time.LocalDateTime;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 归档搬运（A-5）：只搬该搬的，且不搬丢。
- *
- * <p>这条用例真正要钉住的是两件容易出事的事：
- * ① <b>没到保留期的行不能被搬走</b>（搬错了就是让在线查询突然少数据）；
- * ② <b>删之前必须已经复制成功</b>（"删了但没留下"是这一类任务唯一的灾难形态）。
- * 顺便验幂等：同一个任务重复跑不会把归档表插出两份。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -77,7 +69,6 @@ class ArchiveFlowTest {
         assertEquals(1, count("select count(*) from biz_delay_task where tenant_id = ? and biz_key = 'NEW-TASK'", TENANT),
                 "未到期的终态任务留在原地");
 
-        // 幂等：再跑一轮不得把归档表插出第二份，也不该报错
         archive.runOnce();
         assertEquals(1, count("select count(*) from biz_device_report_archive where tenant_id = ? and seq = 1", TENANT),
                 "重复执行必须不翻倍（insert ignore 按原 id 幂等）");
@@ -92,7 +83,6 @@ class ArchiveFlowTest {
     }
 
     private void insertTask(String bizKey, String status, LocalDateTime createTime) {
-        // id 没有自增（雪花由实体层赋值），裸插入必须自己给
         jdbc.update("insert into biz_delay_task (id, tenant_id, task_type, biz_key, fire_at, status, attempt,"
                         + " create_time, update_time, deleted) values (?, ?, 'RECONCILE', ?, ?, ?, 1, ?, ?, 0)",
                 8_812_300_000L + Math.abs(bizKey.hashCode() % 9999), TENANT, bizKey, createTime, status,

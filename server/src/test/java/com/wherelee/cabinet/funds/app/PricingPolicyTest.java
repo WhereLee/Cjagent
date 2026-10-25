@@ -11,21 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 计费阶梯与封顶（第 13 刀）。
- *
- * <p>这一刀新增的不是"多收一点钱"，而是<b>计费曲线在边界上的形状</b>：日封顶让超过 12 小时的部分
- * 不再线性增长，总封顶让超过 3 天的部分归零。这类分段函数最容易"中间某段算错但两端都对"，
- * 所以除了点位断言，还跑一条**单调不减 + 不越界**的全区间扫描。
- *
- * <p>另一半重要性在"快照读回"：改配置不得追溯改变进行中订单的价格（S-06），
- * 这条用"同一份快照在两套配置下算出同一个价"来钉死，而不是靠注释里写"我们只用快照"。
- */
 class PricingPolicyTest {
 
     private static PricingPolicy policy(long smallUnit, int freeMinutes, int dailyCapHours, int capDays) {
         PricingPolicy p = new PricingPolicy();
-        // 预收时长（19A）：它不进“阶梯+封顶”那段算法，这里只是把对象填完整
         ReflectionTestUtils.setField(p, "prepayHours", 4);
         ReflectionTestUtils.setField(p, "freeMinutes", freeMinutes);
         ReflectionTestUtils.setField(p, "largeUnit", 40L);
@@ -54,7 +43,6 @@ class PricingPolicyTest {
 
         assertEquals(12 * 15L, p.quote(SizeType.SMALL, 12 * 60).consumePoints(), "12 小时正好到日封顶");
         assertEquals(12 * 15L, p.quote(SizeType.SMALL, 24 * 60).consumePoints(), "第 13~24 小时不加钱");
-        // 25 小时落在第 2 个计费日：第 1 日收满 12 小时，第 2 日只有 1 小时
         assertEquals(13 * 15L, p.quote(SizeType.SMALL, 25 * 60).consumePoints(), "跨日要重新给出一天的额度");
     }
 
@@ -76,7 +64,6 @@ class PricingPolicyTest {
         long hours = 100L;
 
         assertEquals(hours * 15L, linear.quote(SizeType.SMALL, hours * 60).consumePoints());
-        // 日封顶填超过 24 的值没有意义（一天只有 24 小时）：按 24 收敛，等于不封顶，而不是让下单失败
         assertEquals(48 * 15L, policy(15, 0, 99, 0).quote(SizeType.SMALL, 48 * 60).consumePoints());
     }
 
@@ -94,7 +81,6 @@ class PricingPolicyTest {
             assertTrue(now <= ceiling, "越过总封顶：raw=" + raw + " → " + now + " > " + ceiling);
             previous = now;
         }
-        // 纯线性段（日封顶等于 24、天数不限）必须逐小时等值增长，否则说明分段把小时吞了
         for (int raw = 1; raw <= 72; raw++) {
             assertEquals(raw, PricingPolicy.chargeableHours(raw, 24, 0), "线性口径下不该吞掉任何一小时");
         }
@@ -103,11 +89,11 @@ class PricingPolicyTest {
     @Test
     @DisplayName("改配置不追溯：同一份快照在新旧配置下算出同一个价")
     void settlementReadsSnapshotNotCurrentConfig() {
-        PricingPolicy cheap = policy(15, 10, 0, 0);                 // 无封顶（第 12 刀口径）
+        PricingPolicy cheap = policy(15, 10, 0, 0);
         PricingPolicy.Quote quote = cheap.quote(SizeType.SMALL, 50 * 60);
         assertEquals(50L * 15L, quote.consumePoints(), "无封顶时按小时线性");
 
-        PricingPolicy strict = policy(999, 0, 3, 1);                // 换单价、免窗口、封顶全改
+        PricingPolicy strict = policy(999, 0, 3, 1);
         PricingPolicy.Quote settled = strict.fromSnapshot(quote.snapshot(), 50L * 60);
 
         assertEquals(50L * 15L, settled.consumePoints(), "结算只能按快照算：改价不得追溯进行中订单");

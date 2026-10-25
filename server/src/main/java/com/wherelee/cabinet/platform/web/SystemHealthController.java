@@ -9,15 +9,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 系统自检接口：把 actuator 的 health 用统一响应体包一层，给前端和运维脚本一个稳定入口。
- *
- * <p>actuator 原始路径 {@code /actuator/health} 同时保留，二者用途区分：
- * <ul>
- *   <li>容器/探针用 actuator 端点（含 liveness / readiness 分组）</li>
- *   <li>人和前端用本接口（结构统一，带 traceId）</li>
- * </ul>
- */
 @Tag(name = "系统自检")
 @RestController
 @RequestMapping("/api/system")

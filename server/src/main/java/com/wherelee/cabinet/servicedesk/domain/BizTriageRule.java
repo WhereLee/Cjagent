@@ -10,7 +10,6 @@ import com.wherelee.cabinet.servicedesk.api.WorkOrderUrgency;
 import lombok.Getter;
 import lombok.Setter;
 
-/** 分诊规则：把用户现象映射成处置分类、队列、优先级与 SLA。 */
 @Getter
 @Setter
 @TableName("biz_triage_rule")
@@ -27,7 +26,6 @@ public class BizTriageRule extends BaseEntity {
     private Integer responseMinutes;
     private Integer resolveMinutes;
     private String conditionJson;
-    /** 规则版本，不是乐观锁。 */
     private Integer version;
     private Boolean enabled;
 }

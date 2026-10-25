@@ -18,19 +18,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * 智能工单的可观测指标（批次 7）。
- *
- * <p>两类指标分开算，因为它们的真相源不同：
- * <ul>
- *   <li><b>AI 对话</b>：进程内计数器。自助解决率 = 未转报且 AI 正常应答 / 全部对话；
- *       兜底话术（AI 不可用/未开启）不算“AI 解决了”，否则指标会把故障说成成绩。</li>
- *   <li><b>工单结果</b>：按窗口从库里聚合。首次解决率、SLA 达成率、错误转报率、P95 处理时长
- *       都是历史结果，不能靠进程内计数器在重启后归零。</li>
- * </ul>
- *
- * <p>窗口默认 24 小时：这是“最近的运行状态”，不是财务口径。指标只读，不参与任何业务判定。
- */
 @Service
 public class WorkOrderMetrics implements com.wherelee.cabinet.servicedesk.api.WorkOrderMetricsPort {
 
@@ -42,12 +29,10 @@ public class WorkOrderMetrics implements com.wherelee.cabinet.servicedesk.api.Wo
     private final Counter chatFallback;
     private final AtomicReference<Snapshot> snapshot = new AtomicReference<>(Snapshot.empty());
 
-    /** 统计窗口：只看最近这段时间内关闭的工单。 */
     @Value("${cabinet.work-order.metrics.window-hours:24}")
     private long windowHours;
 
     public WorkOrderMetrics(@Qualifier("mysqlDataSource") DataSource mysqlDataSource, MeterRegistry registry) {
-        // 容器里还有 PG 的 JdbcTemplate（agent/向量库），工单指标必须显式绑业务主库
         this.jdbc = new JdbcTemplate(mysqlDataSource);
         this.chatAnswered = Counter.builder("cabinet.ai.chat")
                 .tag("outcome", "answered").description("AI 正常应答且未转报").register(registry);
@@ -83,7 +68,6 @@ public class WorkOrderMetrics implements com.wherelee.cabinet.servicedesk.api.Wo
         refresh();
     }
 
-    /** 每次客服对话记一笔；兜底不是 AI 的功劳，单独记。 */
     @Override
     public void chat(boolean escalated, boolean fallback) {
         if (fallback) {
@@ -95,7 +79,6 @@ public class WorkOrderMetrics implements com.wherelee.cabinet.servicedesk.api.Wo
         }
     }
 
-    /** 窗口内工单结果的聚合。调度刷新而不是每次 scrape 查库：看板拉取频率不该打到工单表。 */
     @Scheduled(fixedDelayString = "${cabinet.work-order.metrics.refresh-ms:60000}")
     public void refresh() {
         try {
@@ -151,7 +134,6 @@ public class WorkOrderMetrics implements com.wherelee.cabinet.servicedesk.api.Wo
                     ratio(aiBad, aiClosed),
                     p95Seconds));
         } catch (RuntimeException e) {
-            // 指标失败不能反过来影响业务线程；保留上一轮快照，日志里留一次原因
             log.warn("工单指标刷新失败，保留上一轮快照", e);
         }
     }
@@ -178,7 +160,6 @@ public class WorkOrderMetrics implements com.wherelee.cabinet.servicedesk.api.Wo
         return denominator == 0 ? 0 : (double) numerator / denominator;
     }
 
-    /** 一次聚合的结果；Gauge 读它，不在 scrape 时查库。 */
     public record Snapshot(long backlogOnline, long backlogField, double firstFixRate,
                            double slaRate, double misreportRate, double p95Seconds) {
         static Snapshot empty() {

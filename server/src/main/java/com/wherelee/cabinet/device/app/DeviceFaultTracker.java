@@ -15,13 +15,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
-/**
- * 设备故障台账与“连续失败即停用”的判定。
- *
- * <p>为什么从指令状态机里拆出来：状态机回答“这条指令现在是什么状态”，
- * 而“失败了几次、要不要摘柜机、台账怎么写”是运行态的计数与运营动作。
- * 两者混在一起时，读状态机必须同时读懂 Redis 计数窗口与台账字段。
- */
 @Component
 public class DeviceFaultTracker {
 
@@ -33,7 +26,6 @@ public class DeviceFaultTracker {
     private final StringRedisTemplate redis;
     private final SlotPort slotStates;
 
-    /** 连续失败到第几次就摘柜机（用户定的阈值，不散落在业务分支里）。 */
     @Value("${cabinet.device.fail-threshold:3}")
     private int failThreshold;
 
@@ -44,7 +36,6 @@ public class DeviceFaultTracker {
         this.slotStates = slotStates;
     }
 
-    /** 阈值到了就把格口标故障、柜机停用：别再往坏柜机里放新单。 */
     public CommandOutcome maybeDisable(CabinetSnapshot cabinet, Long slotId, int fails, Long commandId,
                                        CommandState state, FaultType fault, String message) {
         if (fails < failThreshold) {
@@ -64,8 +55,6 @@ public class DeviceFaultTracker {
     public void recordFault(Long cabinetId, Long slotId, FaultType type, FaultType.Action action,
                             int failCount, String reason) {
         BizFaultEvent event = new BizFaultEvent();
-        // 不手动写 tenantId：由填充层从当前上下文取（第 11 刀的守卫已改为“显式值优先，否则用上下文”，
-        // 这里没有显式值的理由，就不应该传 null 去干扰判断
         event.setCabinetId(cabinetId);
         event.setSlotId(slotId);
         event.setFaultType(type);
@@ -75,7 +64,6 @@ public class DeviceFaultTracker {
         faultMapper.insert(event);
     }
 
-    /** 连续失败计数放 Redis（TTL 内的滑动窗口），不是 DB：这是易失的运行态，不需要历史。 */
     public int failureCount(Long cabinetId) {
         String raw = redis.opsForValue().get(FAIL_KEY_PREFIX + cabinetId);
         return raw == null ? 0 : Integer.parseInt(raw);

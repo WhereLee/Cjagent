@@ -6,12 +6,6 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 指令状态机单测（纯领域，不连库）。
- *
- * <p>注意：<b>终态不得有出边</b>这条规则本身在枚举静态块里自检（写错就直接 {@code ExceptionInInitializerError}），
- * 所以这里不需要再造一个"验证自检会抛"的假测试，只需断言行为符合语义。
- */
 class CommandStateTest {
 
     @Test

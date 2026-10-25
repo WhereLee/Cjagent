@@ -45,13 +45,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 2026-10-10 定稿的三个新行为（定-2 一步存件、定-4 待收敛回收、S-03 退押金抵欠款）。
- *
- * <p>回收器最有意思的一条是"崩在推进之前"：订单状态停在"待开门"，但开门指令其实已经成功。
- * 这时按状态判断会退回格口，而柜子里可能正放着别人的包——所以判据必须是**指令流水**，
- * 不是订单状态（这条踩过一次：用当前状态推物理事实，判断恰好反过来）。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -187,7 +180,6 @@ class PlaceAndReconcileTest {
 
         assertNotNull(view.slotNo(), "必须当场告诉他第几格");
         assertTrue(view.slotNo().startsWith("S"), "小格口编号应以 S 开头，实际：" + view.slotNo());
-        // 门开了但还没关门校验：订单停在 OPENING，计费起点要等关门（或容错期满）才落定
         BizStorageOrder stored = order(view.orderNo());
         assertEquals(OrderStatus.OPENING, stored.getStatus(), "一步存件后应已进入“门已开、待关门”状态");
         assertNotNull(stored.getToleranceUntil(), "开门后必须落定容错到期时刻");
@@ -198,7 +190,6 @@ class PlaceAndReconcileTest {
     @DisplayName("回收器：从没开过门的单当没发生，释放格口并退回冻结")
     void reaperReleasesOrderThatNeverOpened() {
         Long customerId = newCustomer(FREEZE);
-        // 只建单不开门（模拟"崩在发指令之前"）
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         Long slotId = order(orderNo).getSlotId();
@@ -222,7 +213,6 @@ class PlaceAndReconcileTest {
                 new CreateOrderCommand(UUID.randomUUID().toString(), cabinetNo, "SMALL"))).orderNo();
         BizStorageOrder opened = order(orderNo);
         Long slotId = opened.getSlotId();
-        // 造"崩在推进之前"的现场：指令已经成功，但订单状态还停在待开门
         jdbc.update("update biz_storage_order set status = 'RESERVED', tolerance_until = null where order_no = ?", orderNo);
 
         runDue();

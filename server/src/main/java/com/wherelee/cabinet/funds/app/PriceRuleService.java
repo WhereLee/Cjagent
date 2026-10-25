@@ -18,21 +18,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * 计价策略的发布与按点位灰度（第 14D 刀）。
- *
- * <p>三条边界写在类上，因为它们决定了"改价"会不会变成事故：
- * <ol>
- *   <li><b>只影响新单</b>：策略在下单时抄进 {@code pricing_snapshot}，结算永远读快照。
- *       所以"发布"与"回滚"都不需要担心改到进行中的单——这条不是约定，是读路径上根本没有入口；</li>
- *   <li><b>同一范围只有一条已生效</b>：发布时把旧的标 SUPERSEDED，而<b>未来生效的那条不能被标掉</b>
- *       （条件写在 SQL 的 {@code effective_at <= now(3)} 上）。漏掉这一步不会当场报错，
- *       只会让某天零点切换时该范围一条策略都不剩，默默退回配置默认价；</li>
- *   <li><b>没有策略时退回 yml 默认值</b>：不是报错也不是免费。这让"发布策略"变成渐进式上线，
- *       但也意味着<b>没发布过的租户永远在吃默认价</b>，所以预览接口把当前来源一并返回，
- *       免得运营以为自己在管价格而其实改的是空气。</li>
- * </ol>
- */
 @Service
 public class PriceRuleService {
 
@@ -48,13 +33,6 @@ public class PriceRuleService {
         this.pricing = pricing;
     }
 
-    /**
-     * 发布入参（命令对象）。<b>放在应用层而不是 Controller 里</b>：它要转成实体，
-     * 而接口层依赖 domain.entity 是ArchUnit 直接拦的反向依赖。
-     *
-     * <p>字段校验也落在服务里（{@code validate}）而不是注解上：校验规则跟“能不能算钱”强相关，
-     * 两处各写一份迟早不一致。
-     */
     public record Draft(Long siteId, LocalDateTime effectiveAt, String reason,
                         Long depositPoints, Integer freeMinutes, Integer dailyCapHours, Integer capDays,
                         Integer toleranceMinutes, Integer remoteCloseHours,
@@ -75,9 +53,6 @@ public class PriceRuleService {
         }
     }
 
-    /** 策略出参视图。<b>接口层不得直接拿实体</b>（ArchUnit 有这条规则）：
-     * 实体带着审计列与逻辑删除位，一曝光到契约上就再也收不回去（前端会开始依赖它）。
-     */
     public record PricingRuleView(Long id, Long siteId, Integer version, String status,
                        Long depositPoints, Integer freeMinutes, Integer dailyCapHours, Integer capDays,
                        Integer toleranceMinutes, Integer remoteCloseHours,
@@ -96,18 +71,10 @@ public class PriceRuleService {
         }
     }
 
-    /**
-     * 当前生效策略（实体形式，给下单算价用）。可能为空（该租户从没发布过），
-     * 调用方必须显式处理"退回默认价"这条分支，不许把 null 当 0 价——那是白送。
-     */
     public BizPriceRule effective(Long siteId) {
-        // siteId 为空表示查租户默认范围，不是“没有生效策略”：mapper 的
-        // `site_id = #{siteId} or site_id is null` 在 null 时只命中全局行。
-        // 这里曾短路成返回 null，后台“当前生效策略”因此看不到已发布的全局规则。
         return ruleMapper.selectEffective(siteId);
     }
 
-    /** 给后台接口看的同一件事（视图形式，实体不外泄）。 */
     public PricingRuleView effectiveView(Long siteId) {
         return PricingRuleView.of(effective(siteId));
     }
@@ -116,13 +83,6 @@ public class PriceRuleService {
         return ruleMapper.listAll().stream().map(PricingRuleView::of).toList();
     }
 
-    /**
-     * 发布前的预览：与下单/结算走<b>同一个 PricingPolicy</b>，绝不在这里重算一遍公式。
-     *
-     * <p>草稿也要先过 {@code validate}：预览看似只读，但算价会把 null 直接拆箱成 int——
-     * 表单填一半就预览会把 500 系统异常报给用户（本条就是冷跑预览时发现的）。
-     * 拒绝它不只为了状态码好看：带缺参的“价”根本不是一个可比较的结果。
-     */
     public Map<String, Object> preview(Long siteId, BizPriceRule draft) {
         boolean fromDraft = draft != null;
         if (fromDraft) {
@@ -142,20 +102,12 @@ public class PriceRuleService {
                 sample.put(size.name() + "@" + minutes + "min", quote.consumePoints());
             }
         }
-        // 草稿没有版本号（还没发布）；把 null 写成 "rule:null" 会让人以为存在这样一版
         result.put("source", fromDraft ? "draft" : "rule:v" + source.getVersion());
         result.put("depositPoints", source.getDepositPoints());
         result.put("samples", sample);
         return result;
     }
 
-    /**
-     * 发布一版策略。
-     *
-     * <p>版本号由服务端按范围算（{@code nextVersion}），不接受客户端传版本：
-     * 让调用方指定版本就等于允许覆盖别人的那一版。唯一键 {@code (tenant, site, version)}
-     * 是最后一道防线，专门挡"两个运营同时点发布"。
-     */
     @Transactional
     public PricingRuleView publish(BizPriceRule draft, Long siteId, LocalDateTime effectiveAt,
                                String reason, Long adminId) {
@@ -178,7 +130,6 @@ public class PriceRuleService {
         rule.setReason(reason.trim());
         ruleMapper.insert(rule);
 
-        // 立即生效才需要替代旧的；未来生效的留着，到点由 selectEffective 的时间条件自然切换
         if (!when.isAfter(LocalDateTime.now())) {
             int superseded = ruleMapper.supersedeCurrent(siteId, rule.getId());
             log.info("发布计价策略 siteId={} version={} 替代旧版 {} 条 发布人={} 事由={}",
@@ -189,12 +140,6 @@ public class PriceRuleService {
         return PricingRuleView.of(rule);
     }
 
-    /**
-     * 回滚 = <b>把旧版内容再发布一次</b>，而不是把旧行改回 LIVE。
-     *
-     * <p>差别不是洁癖：改回 LIVE 会让"谁在什么时候把价改成了什么"这条链断掉，
-     * 而价格是要对账、要回答用户质疑的东西。新增一版能保留完整历史，也让"回滚"这件事本身可审计。
-     */
     @Transactional
     public PricingRuleView rollback(Long ruleId, String reason, Long adminId) {
         BizPriceRule old = ruleMapper.selectById(ruleId);

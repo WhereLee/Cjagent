@@ -45,23 +45,10 @@ public class CommandRescanHandler implements TaskHandler {
         }
         BizDeviceCommand command = commandMapper.selectByRequestId(task.getBizKey());
         if (command != null && command.getOrderId() != null) {
-            // 订单收敛交给业务侧：它才知道“这个动作失败后件在谁手里”
             orders.convergeDeviceOutcome(command.getOrderId(), command.getAction(), result.outcome());
         }
-        // 又超时且还有重试预算 → 让 worker 续排下一轮。不能指望 rescan 内部“顺手再登记”：
-        // 此刻它自己的任务行还是 RUNNING，登记会走“不动”那一支，而 markDone 在后——
-        // 不返 true 就等于只重试一次就断链（本刀实测）。
         return result.action() == CommandRescanService.RescanAction.REDISPATCHED
                 && result.outcome() != null
                 && result.outcome().state() == com.wherelee.cabinet.device.api.CommandState.TIMEOUT;
     }
 }
-
-/**
- * 指令扫街：把“卡在中间态”的指令重新推上回扫通道。
- *
- * <p>逐条登记只能盖住“超时”这一种；<b>下发写了、收敛还没跑进程就被杀</b>时，
- * 没有任何人会再提这条指令——没有这一层，第 11 刀拆开事务的代价就没人付。
- * 不直接重发而是登记 COMMAND_RESCAN：幂等键是 (类型, requestId)，重复扫到也不会堆任务，
- * 而收敛只有一处实现。
- */

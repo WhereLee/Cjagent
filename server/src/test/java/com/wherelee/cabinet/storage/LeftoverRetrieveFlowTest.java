@@ -32,13 +32,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 第 21 刀遗留物取回闭环：发现即通知物主 → 物主自助开门 → 复检收口自动回可售。
- *
- * <p>这条链上的安全底线各有一道专设断言：通知一张工单只发一条（重复观察不打扰）；
- * 开门三重校验（归属/格口状态/占用）；收口只认"物主本人 + 复检无物"双凭据；
- * 运维清柜前必须拿到"柜内已空"凭据，否则就是把别人的东西卖给下一位。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -79,7 +72,6 @@ class LeftoverRetrieveFlowTest {
     void prepare() {
         jdbc = new JdbcTemplate(dataSource);
         String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        // 主键区间随机避让（共享测试库，同 WorkOrderFlowTest 的教训：桶太少跨类必撞）
         Long siteId = java.util.concurrent.ThreadLocalRandom.current().nextLong(82_6100_0000L, 89_9999_9999L);
         cabinetId = siteId + 1;
         slotId = siteId + 2;
@@ -98,7 +90,6 @@ class LeftoverRetrieveFlowTest {
         jdbc.update("insert into biz_customer (id, tenant_id, open_id, nickname, phone, status, register_time, create_time, update_time, deleted) "
                 + "values (?, ?, ?, '遗留物物主', '13900005678', 1, NOW(3), NOW(3), NOW(3), 0)",
                 OWNER, TENANT, "lr-" + suffix);
-        // 物主那张单已经是终态：遗留物被发现时活动单早已结束，这正是取回闭环要服务的现场
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                 + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, settled_points, "
                 + "arrears_points, finished_at, create_time, update_time, deleted, active_flag) "
@@ -108,7 +99,6 @@ class LeftoverRetrieveFlowTest {
 
     @AfterEach
     void cleanup() {
-        // outbox 清全表：中继跳租户取待投行，其它测试类积压的行会挤占 batchSize
         jdbc.update("delete from biz_outbox");
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
@@ -137,8 +127,6 @@ class LeftoverRetrieveFlowTest {
     private void markLeftover() {
         com.wherelee.cabinet.common.context.TenantContext.runAs(TENANT,
                 () -> states.markContentLeft(slotId, "取物关门后复检到物品"));
-        // 工单与物主通知现在由 outbox 中继投递（批 4）：标异常只写一行待投递事实，
-        // 集成测试里调度是关掉的，所以夹具显式投递一次
         outboxRelay.deliverBatch();
     }
 
@@ -146,7 +134,7 @@ class LeftoverRetrieveFlowTest {
     @DisplayName("发现遗留物即通知物主：一张未关闭工单只发一条，订单被打上待取回标记")
     void ownerNotifiedOncePerOpenWorkOrder() {
         markLeftover();
-        markLeftover(); // 重复观察：工单合并到同一张，通知不得重复打扰物主
+        markLeftover();
 
         List<Map<String, Object>> notices = rows(
                 "select content, customer_id, dedup_key, order_no from biz_notice "
@@ -178,7 +166,6 @@ class LeftoverRetrieveFlowTest {
                 () -> retrievals.openForRetrieval(OWNER, orderNo));
         assertTrue(openReply.contains("柜门已打开"), openReply);
 
-        // 取回不动订单：终态就是终态，计费起点不得被补写
         Map<String, Object> order = rows("select status, started_at from biz_storage_order where id = ?", orderId).get(0);
         assertEquals("CLOSED", order.get("status"));
         assertNull(order.get("started_at"), "取回开门不落计费起点：这不是一笔新业务");
@@ -186,7 +173,7 @@ class LeftoverRetrieveFlowTest {
         assertNotNull(slot.get("door_open_at"), "门态要记下（开着期间本就不可分配）");
         assertEquals("CONTENT_LEFT", slot.get("anomaly"), "取回开门不解除强锁：东西没拿走前格子不能卖");
 
-        simulator.simulateDoor(cabinetId, slotId, true); // 物主取走后把门关上
+        simulator.simulateDoor(cabinetId, slotId, true);
         String takenReply = com.wherelee.cabinet.common.context.TenantContext.callAs(TENANT,
                 () -> retrievals.confirmRetrieved(OWNER, orderNo));
         assertTrue(takenReply.contains("已确认取完"), takenReply);
@@ -223,7 +210,6 @@ class LeftoverRetrieveFlowTest {
                 "别人的单一律“不存在”，不区分归属与缺失");
         assertTrue(foreign.getMessage().contains("不存在"), foreign.getMessage());
 
-        // 进行中的单：终态校验先于格口检查
         Long activeSlot = slotId + 10;
         jdbc.update("insert into biz_compartment (id, tenant_id, cabinet_id, slot_no, size_type, status, "
                         + "door_open_at, anomaly, current_order_id, create_time, update_time, deleted) "
@@ -239,7 +225,6 @@ class LeftoverRetrieveFlowTest {
                         () -> retrievals.openForRetrieval(OWNER, orderNo + "X")));
         assertTrue(notTerminal.getMessage().contains("还没结束"), notTerminal.getMessage());
 
-        // 格口异常已被别人处理（清柜/自动恢复）：没有遗留物可取
         jdbc.update("update biz_compartment set anomaly = null where id = ?", slotId);
         BizException nothing = assertThrows(BizException.class,
                 () -> com.wherelee.cabinet.common.context.TenantContext.runAs(TENANT,

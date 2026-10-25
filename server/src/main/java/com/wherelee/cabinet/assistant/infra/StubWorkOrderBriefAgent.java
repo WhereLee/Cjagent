@@ -6,12 +6,6 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 
-/**
- * 桩实现（默认）：AI 简报未开启时的固定话术。
- *
- * <p>与客服桩同一哲学：CI 与集成测试<b>永不调用付费接口</b>。接真模型只改
- * {@code cabinet.agent.client} 一项 + 环境变量。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.agent.client", havingValue = "stub", matchIfMissing = true)
 public class StubWorkOrderBriefAgent implements WorkOrderBriefPort {

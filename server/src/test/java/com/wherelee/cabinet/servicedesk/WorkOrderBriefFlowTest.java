@@ -23,13 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 第 23 刀 B 端工单简报：AI 只归纳，判定权留在人手里。
- *
- * <p>专设断言两处：<b>相似已结单的召回边界</b>——同格口同类型且 RESOLVED 才算"以前怎么处理"，
- * 状态不对/类型不对/格口不对一律不算（agent 不许拿别的单充数的数据源头就在这）；
- * <b>桩模式装配可用</b>——AI 未开启时业务员拿到的是明确话术，不是异常。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -70,7 +63,6 @@ class WorkOrderBriefFlowTest {
                 + "door_open_at, anomaly, current_order_id, create_time, update_time, deleted) "
                 + "values (?, ?, ?, ?, 'SMALL', 'FREE', NULL, NULL, NULL, NOW(3), NOW(3), 0)",
                 slotId, TENANT, siteId + 1, "W" + suffix.substring(0, 4));
-        // 简报目标单：同格口的设备故障，PENDING 未关闭
         targetOrderId = siteId + 3;
         insertOrder(targetOrderId, "DEVICE_FAULT", "PENDING", null, null, 1);
     }
@@ -85,7 +77,6 @@ class WorkOrderBriefFlowTest {
         TenantContext.clear();
     }
 
-    /** 关闭态（RESOLVED/AUTO_CLOSED）的 active_flag 必须是 NULL：V17 唯一索引只对未关闭的 1 判重。 */
     private void insertOrder(Long id, String type, String status, String resultNote,
                              String closedAt, int activeFlag) {
         String slotNo = "W" + suffix.substring(0, 4);
@@ -115,15 +106,10 @@ class WorkOrderBriefFlowTest {
     @Test
     @DisplayName("相似已结单召回边界：同格口+同类型+RESOLVED 才算，其余一律不算")
     void similarResolvedHitsOnlyExactMatches() {
-        // 命中：同格口同类型已处理
         insertOrder(siteId + 4, "DEVICE_FAULT", "RESOLVED",
                 "电话联系后用户重新插拔卡扣，门恢复；柜内无物", "2026-10-10", 0);
-        // 干扰：同格口同类型但不是人工处理（AUTO_CLOSED 是门关自愈留底，不算"以前怎么处理的"；
-        // 同格同类型未关闭只能有一张——V17 唯一索引，所以非 RESOLVED 历史态只能用它）
         insertOrder(siteId + 5, "DEVICE_FAULT", "AUTO_CLOSED", null, null, 0);
-        // 干扰：同格口但不同类型
         insertOrder(siteId + 6, "ITEM_LEFT", "RESOLVED", "不该被召回的不同类型", "2026-10-11", 0);
-        // 干扰：同类型但不同格口
         Long otherSlot = slotId + 10;
         jdbc.update("insert into biz_compartment (id, tenant_id, cabinet_id, slot_no, size_type, status, "
                         + "door_open_at, anomaly, current_order_id, create_time, update_time, deleted) "

@@ -27,20 +27,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 
-/**
- * 接口契约快照：<b>路径、参数、请求/响应模型一起比对</b>，不是只比路径。
- *
- * <p>为什么要有这一层：重构可以把类搬走、把服务切开，但对外契约不能变。路径集合的机检只能证明
- * “端点没少”，证明不了“字段没改”——DTO 挪包、记录瘦身、枚举换成字符串，都会在路径不变的前提下
- * 悄悄改掉前端契约。这里把 OpenAPI 文档整体冻成快照，任何一个字段增删都会当场红。
- *
- * <p><b>只剔除易变字段</b>：{@code operationId}（方法改名会变，计划里已声明可接受）、
- * {@code description}/{@code summary}（文案不是契约）、{@code servers}（随环境变）与
- * {@code x-*} 扩展字段。其余（paths、parameters、schemas、required、类型、枚举值）一律参与比对。
- *
- * <p>有意改契约时：设环境变量 {@code OPENAPI_CONTRACT_WRITE=1} 跑一次生成快照，
- * 人工复核 diff 后随同一次提交入库。不允许“为了让测试变绿”而无脑重生成。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -49,13 +35,11 @@ class OpenApiContractTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** 有意变更契约时置 1：只生成快照，不比对。 */
     private static final boolean WRITE = "1".equals(System.getenv("OPENAPI_CONTRACT_WRITE"))
             || Boolean.parseBoolean(System.getProperty("openapi.contract.write"));
 
     private static final Path SNAPSHOT = Path.of("src/test/resources/openapi-contract.json");
 
-    /** 这些字段随实现细节变，不算契约。 */
     private static final Set<String> IGNORED = Set.of("operationId", "description", "summary", "servers");
 
     @Autowired
@@ -76,17 +60,11 @@ class OpenApiContractTest {
             Files.writeString(SNAPSHOT, JSON.writerWithDefaultPrettyPrinter().writeValueAsString(actual) + "\n",
                     StandardCharsets.UTF_8);
 
-            // 顺手把**未归一化**的原始文档落成前端类型的输入：`gen-api-types.mjs` 要用到 summary，
-            // 而契约快照为了稳定比对把 summary/description 剔掉了，拿快照当输入会生成一堆空注释。
-            // 这样“改契约 → 重生成快照 → 重生成前端类型”就不必再单独起一次服务拉 api-docs。
-            // 按 group 拉：两个前端各自只该看到自己那一半路径（1-admin / 2-mini，见 OpenApiConfig）。
-            // 写全量文档会让两份类型文件都撑成全集，前端那边就分不出哪边该调什么。
             for (String[] group : new String[][]{
                     {"1-admin", "api-docs-1-admin.json"},
                     {"2-mini", "api-docs-2-mini.json"}}) {
                 var groupResult = mvc.perform(get("/v3/api-docs/" + group[0])).andReturn();
                 if (groupResult.getResponse().getStatus() != 200) {
-                    // group 改名不该让契约比对变红（那是另一件事），但会缺文件，前端脚本会报 MISSING
                     continue;
                 }
                 JsonNode groupDoc = JSON.readTree(
@@ -107,10 +85,6 @@ class OpenApiContractTest {
                 "接口契约发生了变化：确认是有意的（改字段/加参数）再重生成快照，否则把改动改回去");
     }
 
-    /**
-     * 递归归一化：去掉易变字段与 {@code x-*} 扩展；对象键排序，避免序列化顺序造成假差异。
-     * 数组保持原顺序（参数、枚举值、required 的顺序本身也是契约的一部分）。
-     */
     private static JsonNode normalize(JsonNode node) {
         if (node.isObject()) {
             ObjectNode out = JSON.createObjectNode();

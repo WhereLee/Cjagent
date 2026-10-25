@@ -10,13 +10,6 @@ import lombok.Setter;
 
 import java.time.LocalDateTime;
 
-/**
- * 操作审计记录（对应 V1 建的 {@code sys_operation_log}）。
- *
- * <p>不继承 {@link BaseEntity}：审计是<b>只增不改不删</b>的流水，
- * 没有 update_time / deleted 的语义；{@code tenantId} 由切面按当前登录上下文显式写入
- * （平台侧操作允许为空）。该表也在租户白名单里，否则查审计列表会被自动限定成当前租户。
- */
 @Getter
 @Setter
 @TableName("sys_operation_log")
@@ -37,13 +30,10 @@ public class SysOperationLog {
 
     private Long operatorId;
 
-    /** 操作人名称快照：改名或删号后日志仍能读得懂。 */
     private String operatorName;
 
-    /** 已脱敏、已截断的入参摘要。 */
     private String params;
 
-    /** 1 成功 0 失败。 */
     private Integer success;
 
     private String errorMsg;

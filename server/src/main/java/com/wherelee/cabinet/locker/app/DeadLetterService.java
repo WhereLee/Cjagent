@@ -25,24 +25,13 @@ import org.springframework.util.StringUtils;
 
 import java.util.Set;
 
-/**
- * 死信的归档与重放。
- *
- * <p>"标准四件套"里，这个类承担两件（归档、重放），DLQ 消费者承担"把它交过来"，
- * 指标与 ERROR 日志承担"让它被看见"。
- *
- * <p>为什么重放要回到<b>原业务 topic</b>而不是重新投回死信：死信 topic 是隔离区，
- * 往里投等于把消息再埋一次。所以归档时把原 topic + tag 一起记下来了。
- */
 @Service
 public class DeadLetterService implements DeadLetterPort {
 
     private static final Logger log = LoggerFactory.getLogger(DeadLetterService.class);
 
-    /** DLQ 消息里没有原始异常（RocketMQ 不保留），只能记一句事实。 */
     private static final String NO_ROOT_CAUSE = "重试耗尽（MQ 不保留原始异常）";
 
-    /** 排序白名单：只允许对这几个起实际排序作用的列，别的入参直接忽略（沿用项目口径）。 */
     private static final Set<String> SORTABLE = Set.of("receivedAt", "reconsumeTimes", "status");
 
     private final BizDeadLetterMapper mapper;
@@ -73,7 +62,6 @@ public class DeadLetterService implements DeadLetterPort {
                 cut(msgKey, 96), cut(payload, 2048),
                 cut(error == null || error.isBlank() ? NO_ROOT_CAUSE : error, 255), reconsumeTimes);
         archived.increment();
-        // 指标是给监控看的，这条 ERROR 是给人看的：带上 msgKey 才能在控制台按 KEYS 捞到原消息
         log.error("MQ 死信归档 dlq={} key={} times={} error={}", dlqTopic, msgKey, reconsumeTimes, error);
     }
 
@@ -84,7 +72,6 @@ public class DeadLetterService implements DeadLetterPort {
             return false;
         }
         if (row.getTenantId() == null) {
-            // 坏消息：连租户都没有，重放回去消费侧也重建不出上下文，重放只会再进一次死信
             notReplayable.increment();
             log.warn("死信缺少租户信息，不可重放 id={} dlq={}", id, row.getDlqTopic());
             return false;
@@ -96,7 +83,6 @@ public class DeadLetterService implements DeadLetterPort {
                 .build();
         rocketMQTemplate.syncSend(row.getTopic() + ":" + row.getTag(), message);
 
-        // 投递成功后改状态；影响行数 0 说明并发点了两次，别人已经改过
         if (mapper.markReplayed(id) != 1) {
             return false;
         }
@@ -110,7 +96,6 @@ public class DeadLetterService implements DeadLetterPort {
         Page<BizDeadLetter> page = PageSupport.toPage(query, SORTABLE);
         LambdaQueryWrapper<BizDeadLetter> wrapper = Wrappers.<BizDeadLetter>lambdaQuery()
                 .eq(StringUtils.hasText(status), BizDeadLetter::getStatus, status);
-        // 不传排序时按“最近进死信的在前”：运维第一个想看的是最新那条
         if (!StringUtils.hasText(query.getOrderBy())) {
             wrapper.orderByDesc(BizDeadLetter::getReceivedAt);
         }
@@ -125,7 +110,6 @@ public class DeadLetterService implements DeadLetterPort {
                 row.getStatus(), row.getReceivedAt(), row.getReplayedAt());
     }
 
-    /** 列宽都写死在表结构里；超长会被 MySQL 截断或直接报错，截在这里比让它报错好。 */
     private static String cut(String value, int max) {
         if (value == null) {
             return null;

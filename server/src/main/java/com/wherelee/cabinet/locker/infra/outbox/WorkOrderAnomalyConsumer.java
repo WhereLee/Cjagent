@@ -16,23 +16,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-/**
- * 消费 {@code WORK_ORDER_ANOMALY}：格口异常落定后开工单。
- *
- * <p>这是接上 broker 之后<strong>生产者不再认识的那个消费者</strong>——中继只管把事实投出去，
- * 开单逻辑搬到这里。以后要加"异常同时推企业微信"，再写一个 listener 即可，中继一行不改。
- *
- * <p>三件事缺一不可：
- * <ol>
- *   <li><b>从 header 重建租户</b>：消费线程没有请求上下文，不做就是越租写库</li>
- *   <li><b>{@link BizException} 要吞掉并 ACK</b>：它代表"撞了唯一索引却查不到未关闭单"
- *       这种现场不一致，重试 16 次也不会变好，只会把坏消息推进死信队列</li>
- *   <li><b>其余异常一律抛</b>：网络抖动、库瞬时不可用这类才该走 MQ 的重试</li>
- * </ol>
- *
- * <p>普通的重复投递<strong>不会</strong>抛异常：{@code WorkOrderIntakeService} 自己 catch 了
- * {@code DuplicateKeyException} 并回读已有单返回。所以消费侧不需要额外的 Inbox 表。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.outbox.transport", havingValue = "mq", matchIfMissing = true)
 @RocketMQMessageListener(
@@ -51,8 +34,6 @@ public class WorkOrderAnomalyConsumer implements RocketMQListener<MessageExt> {
                                     MeterRegistry meterRegistry) {
         this.workOrders = workOrders;
         this.json = json;
-        // 这个计数器的含义是"消费失败但重试无意义、已选择丢弃"。
-        // 它一旦非零，说明有格口异常没开成工单，必须有人去看。
         this.inconsistent = Counter.builder("cabinet.outbox.consumer.dropped")
                 .tag("type", "WORK_ORDER_ANOMALY")
                 .description("消费失败但重试无意义、已 ACK 丢弃的事件数")
@@ -62,7 +43,6 @@ public class WorkOrderAnomalyConsumer implements RocketMQListener<MessageExt> {
     @Override
     public void onMessage(MessageExt message) {
         long tenantId = Long.parseLong(message.getUserProperty(RocketMqOutboxPublisher.HEADER_TENANT_ID));
-        // 载荷解析失败要往上抛：坏消息应该走重试直到进死信，而不是悄悄丢掉
         WorkOrderAnomalyPayload payload = read(message);
 
         try {

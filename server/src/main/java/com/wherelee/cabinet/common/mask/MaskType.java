@@ -1,14 +1,7 @@
 package com.wherelee.cabinet.common.mask;
 
-/**
- * 脱敏样式与对应保留策略。
- *
- * <p>暂存柜项目里手机号、身份证、位置是<b>常规字段</b>（客户联系、实名、站点坐标），
- * 所以脱敏必须在底座阶段定下来：等接口都发出去了再改返回结构，前后端都要返工。
- */
 public enum MaskType {
 
-    /** 138****0000：保留前 3 后 4。 */
     PHONE {
         @Override
         public String mask(String raw) {
@@ -16,7 +9,6 @@ public enum MaskType {
         }
     },
 
-    /** 110101********1234：保留前 6 后 4（后 4 位含校验位，够客服核对）。 */
     ID_CARD {
         @Override
         public String mask(String raw) {
@@ -24,7 +16,6 @@ public enum MaskType {
         }
     },
 
-    /** a***@example.com：只保留首字符与域名。 */
     EMAIL {
         @Override
         public String mask(String raw) {
@@ -36,7 +27,6 @@ public enum MaskType {
         }
     },
 
-    /** 姓名只保留姓。 */
     NAME {
         @Override
         public String mask(String raw) {
@@ -44,7 +34,6 @@ public enum MaskType {
         }
     },
 
-    /** 地址只保留到区级（后面全部遮掉）。 */
     ADDRESS {
         @Override
         public String mask(String raw) {
@@ -52,7 +41,6 @@ public enum MaskType {
         }
     },
 
-    /** 银行卡等长编号：只留后 4 位。 */
     BANK_CARD {
         @Override
         public String mask(String raw) {
@@ -60,7 +48,6 @@ public enum MaskType {
         }
     },
 
-    /** 全部遮掉（口令、token 这类绝不出网的字段）。 */
     ALL {
         @Override
         public String mask(String raw) {
@@ -70,12 +57,6 @@ public enum MaskType {
 
     protected static final char FILL = '*';
 
-    /**
-     * 按类型遮蔽。
-     *
-     * <p>约定：<b>长度不足时全遮而不是原样返回</b>。否则"手机号只有 5 位"这类脏数据
-     * 会整串漏出去，而这类数据在真实库里并不罕见。
-     */
     public abstract String mask(String raw);
 
     protected static String keepHeadTail(String raw, int head, int tail) {

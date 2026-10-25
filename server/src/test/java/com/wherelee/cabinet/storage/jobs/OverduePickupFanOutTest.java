@@ -26,17 +26,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * 看管任务在"到顶开单"这一步上的两种结局（批 4 的取证缺口）。
- *
- * <p>批 4 把 {@code transactional()=false} 之后，"推进 EXPIRED"是<b>先提交</b>的。
- * 此时如果开单失败还返回"不用再排了"，任务就直接结束——而订单已经是 EXPIRED、
- * 没有任何东西会再来补这张工单，等于静默丢失。
- *
- * <p>已有的 {@code DelayTaskTest.cappedOrderOpensOneWorkOrderEvenIfRerun} 只覆盖了
- * "开单成功后重跑不开第二张"。这里补的是反过来的那一半：<b>失败时必须继续排</b>。
- * 两条合起来才说明"返回值真的在按结果分流"，而不是恒为 false。
- */
 class OverduePickupFanOutTest {
 
     @Test
@@ -81,12 +70,10 @@ class OverduePickupFanOutTest {
                                          WorkOrderIntakePort intake, WorkOrderConsolePort workOrders) {
         OverduePickupHandler handler = new OverduePickupHandler(orderMapper, pricing,
                 new SimpleMeterRegistry(), intake, workOrders);
-        // strandedDays 是 @Value 注入的字段，单测里没有 Spring，手动塞一个
         ReflectionTestUtils.setField(handler, "strandedDays", 7L);
         return handler;
     }
 
-    /** 到顶的单：持有 50 小时（capDays=2 即 48 小时到顶），应结束时刻已在 2 小时前。 */
     private BizStorageOrder cappedOrder() {
         BizStorageOrder order = new BizStorageOrder();
         order.setId(1L);

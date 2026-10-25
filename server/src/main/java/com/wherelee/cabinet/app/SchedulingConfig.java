@@ -16,19 +16,10 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * 开启 Spring 调度。
- *
- * <p>注意这里只负责"让 @Scheduled 生效"，真正的触发策略在 infrastructure/task 的三个实现里。
- */
 @Configuration
 @EnableScheduling
 public class SchedulingConfig {
 
-    /**
-     * 周期任务的登记器，跟着轮询开关走（{@code cabinet.scheduler.poll-enabled=false} 则不起）。
-     * 集成测试把它关掉，避免后台线程与用例断言并发——那会得到“偶尔红”的测试，那不是稳定性而是不可测。
-     */
     @Component
     @ConditionalOnProperty(name = "cabinet.scheduler.poll-enabled", havingValue = "true", matchIfMissing = true)
     public static class PeriodicTaskBootstrap {
@@ -52,13 +43,6 @@ public class SchedulingConfig {
             this.tenantMapper = tenantMapper;
         }
 
-        /**
-         * 周期任务的登记器：每个租户各一条校准/对账/指令扫街。
-         *
-         * <p>为什么还要"再登记"：{@code uk_task_type_key} 保证同一租户同一时刻只有一条待办，
-         * 所以这一轮只是把下一次的时间推到未来（已 PENDING 的用 least 不推后），不会堆积。
-         * 这也是<b>幂等登记</b>的意义：进程重启、多实例同时跑，登记结果都一样。
-         */
         @Scheduled(fixedDelayString = "${cabinet.scheduler.bootstrap-interval-ms:300000}",
                 initialDelayString = "${cabinet.scheduler.bootstrap-initial-delay-ms:60000}")
         public void register() {
@@ -71,7 +55,6 @@ public class SchedulingConfig {
                         now.plusMinutes(syncIntervalMinutes));
                 tasks.schedule(TaskType.LEDGER_RECONCILE, String.valueOf(tenant.getId()), tenant.getId(),
                         now.plusMinutes(reconcileIntervalMinutes));
-                // 指令扫街：盖“下发写了、收敛没跑、进程死了”这一类逐条提醒盖不住的现场
                 tasks.schedule(TaskType.COMMAND_SWEEP, String.valueOf(tenant.getId()), tenant.getId(),
                         now.plusMinutes(sweepIntervalMinutes));
             }

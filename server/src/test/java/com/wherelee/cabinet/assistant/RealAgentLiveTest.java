@@ -23,17 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 真模型联调（第 22 刀遗留项）：MiMo 工具循环端到端。
- *
- * <p><b>只在本地有 {@code MIMO_API_KEY} 时运行</b>（{@code @EnabledIfEnvironmentVariable}）：
- * CI 与没配 key 的机器自动跳过——真模型结论不可重现、要花钱、还可能限流，
- * 这与复审通道"桩默认、真模型条件启用"是同一条纪律。
- *
- * <p>断言刻意宽松：真模型的措辞、是否走重开、是否建单都不可预先断定，
- * 能断言的是<b>链路活着</b>——返回非空话术、异常收敛、动作留痕。回复内容随测试
- * 报告输出，联调时人工看一眼语气与口径对不对。
- */
 @Tag("integration")
 @EnabledIfEnvironmentVariable(named = "MIMO_API_KEY", matches = ".+")
 @ActiveProfiles({"dev", "integration"})
@@ -90,7 +79,6 @@ class RealAgentLiveTest {
                 + "arrears_points, create_time, update_time, deleted, active_flag) "
                 + "values (?, ?, ?, ?, ?, ?, 'SMALL', ?, 'ACTIVE', 'V81234567', 0, 0, 0, 0, 0, NOW(3), NOW(3), 0, 1)",
                 orderId, TENANT, orderNo, siteId, cabinetId, slotId, CUSTOMER);
-        // B 端简报联调的目标工单：同格口的设备故障，PENDING 未关闭（无历史相似单，看模型怎么说“暂无”）
         jdbc.update("insert into biz_work_order (id, tenant_id, type, urgent, status, queue_side, slot_id, slot_no, "
                 + "title, active_flag, version, create_time, update_time, deleted) "
                 + "values (?, ?, 'DEVICE_FAULT', 0, 'PENDING', 'ONLINE', ?, ?, '取件时柜门打不开，用户报障', 1, 0, NOW(3), NOW(3), 0)",
@@ -140,7 +128,6 @@ class RealAgentLiveTest {
         System.out.println("[真模型] 计费回复\n" + reply.reply());
         assertFalse(reply.reply() == null || reply.reply().isBlank(), "wiki 口径问题必须能答");
         assertFalse(reply.escalated(), "纯问答不该建单");
-        // 纯问答不新增工单：比对待答前后（prepare 里已有简报目标单，不能断言总数为 0）
         Integer after = jdbc.queryForObject(
                 "select count(*) from biz_work_order where tenant_id = ?", Integer.class, TENANT);
         assertEquals(briefBeforeAnswer, after, "问答不该留下新工单");
@@ -159,7 +146,6 @@ class RealAgentLiveTest {
         System.out.println("[真模型] 工单简报（" + costMs + "ms）相似单=" + brief.similarCases().size()
                 + "\n摘要：" + brief.summary() + "\n草稿：" + brief.draftNote());
         assertFalse(brief.summary() == null || brief.summary().isBlank(), "真模型必须给出摘要");
-        // 只读铁律：简报前后工单状态不得被 AI 改动（判定权在人）
         String status = jdbc.queryForObject(
                 "select status from biz_work_order where id = ?", String.class, workOrderId);
         assertEquals("PENDING", status, "简报不得改工单状态");

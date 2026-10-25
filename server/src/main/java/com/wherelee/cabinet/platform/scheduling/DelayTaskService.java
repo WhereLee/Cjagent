@@ -30,22 +30,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/**
- * 延迟任务的登记、抢占与执行。<b>三种触发方式都汇聚到这里，正确性只由这张表保证。</b>
- *
- * <p>为什么这样分层：MQ 定时消息、Redis ZSet、DB 轮询各有短板（MQ 粒度粗、ZSet 会漂移、轮询有延迟），
- * 但只要"能不能执行"是一次条件更新，三者都可以同时存在、互为备份，<b>而不会让同一个任务跑两遍</b>。
- * 这是第 9~10 刀反复出现的结论的调度版：<b>跨存储没有事务，所以真相源只能有一个。</b>
- *
- * <p>三个事务边界是刻意的：
- * <ol>
- *   <li>抢占批：一个短事务里 {@code FOR UPDATE SKIP LOCKED} 选候选 + 条件更新抢租约后提交；</li>
- *   <li>执行 + {@code markDone}：<b>同一个事务</b>——业务成功而状态没落成 DONE，等于让下一个持有者重跑；
- *       状态落成了而业务回滚，等于任务被吞掉；</li>
- *   <li>失败记录：<b>另起一个事务</b>（{@code REQUIRES_NEW} 语义）。如果和业务共用事务，
- *       回滚会把 attempt 与退避时间一起抹掉，指数退避形同不存在，坏数据会以轮询频率打爆日志。</li>
- * </ol>
- */
 @Service
 public class DelayTaskService {
 
@@ -54,18 +38,11 @@ public class DelayTaskService {
     private final BizDelayTaskMapper taskMapper;
     private final TransactionTemplate txTemplate;
     private final MeterRegistry meterRegistry;
-    /** 提醒可以是 no-op（只靠轮询）：不能因为没接 Redis/MQ 就起不来。 */
     private final org.springframework.beans.factory.ObjectProvider<DelayReminder> reminderProvider;
     private final Map<TaskType, TaskHandler> handlers = new EnumMap<>(TaskType.class);
 
-    /** 进程内唯一，重启会变——租约判断靠"是否本人持有"而不是"是不是同一进程"。 */
     private final String instanceId = "worker-" + UUID.randomUUID().toString().substring(0, 8);
 
-    /**
-     * 本轮从哪个租户开始取：只按 tenant_id 升序取前 N 个时，
-     * 超出批量的租户会永远排在队尾——这正是“前 20 个租户把后面饿死”的形态。
-     * 每轮把起点推后“本轮实际能覆盖的租户数”，所有租户轮流排到队首。
-     */
     private final AtomicLong tenantCursor = new AtomicLong();
 
     @Value("${cabinet.scheduler.batch-size:20}")
@@ -106,7 +83,6 @@ public class DelayTaskService {
         for (TaskHandler handler : handlerBeans) {
             TaskHandler previous = handlers.put(handler.type(), handler);
             if (previous != null) {
-                // 两个 handler 抢同一个类型会被静默覆盖，表现为"其中一个类型永远不会被处理"
                 throw new IllegalStateException("TaskHandler 类型重复: " + handler.type());
             }
         }
@@ -124,10 +100,6 @@ public class DelayTaskService {
         }
     }
 
-    /**
-     * 登记任务。<b>fire_at 只能提前不能推后</b>（见 Mapper 的 ON DUPLICATE 规则）：
-     * 否则同一订单反复登记会把超时时刻无限推迟，等于永远不会触发。
-     */
     public void schedule(TaskType type, String bizKey, Long tenantId, LocalDateTime fireAt) {
         taskMapper.register(IdWorker.getId(), tenantId, type.name(), bizKey, fireAt);
         DelayReminder reminder = reminderProvider.getIfAvailable();
@@ -135,39 +107,21 @@ public class DelayTaskService {
             try {
                 reminder.remind(type, bizKey, fireAt);
             } catch (RuntimeException e) {
-                // 提醒失败不影响正确性（轮询会扫到），只影响延迟——因此绝不能让下单因为 Redis 挂掉而失败
                 log.warn("任务提醒写入失败，回退到轮询触发 mode={} type={} bizKey={}",
                         reminder.mode(), type, bizKey, e);
             }
         }
     }
 
-    /**
-     * 取消一条还没开始的任务（工单关闭、SLA 暂停）。
-     *
-     * <p>只收 PENDING/FAILED；RUNNING 的留给它自己跑完（handler 必须对终态幂等）。
-     * 取消后的行是 DONE，下一次 {@link #schedule} 会把它当作新一轮重新排上。
-     */
     public void cancel(TaskType type, String bizKey, Long tenantId) {
         taskMapper.cancel(tenantId, type.name(), bizKey);
     }
 
-    /**
-     * 按租户公平地取一批到期任务（A-4）。
-     *
-     * <p>额度这样分：本轮有到期任务的租户均分批量上限，但<b>每个租户至少留 1 个名额</b>——
-     * 否则租户一多，整批额度会被除法抹成 0，谁也领不到任务（那比饿死更糟：全局停摆）。
-     * 各租户内部仍按 `fire_at` 先后取，不破坏原有时序语义。
-     *
-     * <p>它与上一行的事务边界是同一个：这里仍在 `txTemplate` 里，所以 `for update skip locked`
-     * 的“跳过已被别人锁定的行”依旧生效，多实例并发不会重复领同一行。
-     */
     private List<Long> claimFairly(int limit) {
         List<Long> tenants = new ArrayList<>(taskMapper.findDueTenants());
         if (tenants.isEmpty()) {
             return List.of();
         }
-        // 起点轮转：否则 tenant_id 靠后的租户在“租户数 > 批量”时永远轮不到
         int served = Math.min(limit, tenants.size());
         int start = (int) Math.floorMod(tenantCursor.getAndAdd(served), tenants.size());
         Collections.rotate(tenants, -start);
@@ -180,8 +134,6 @@ public class DelayTaskService {
             ids.addAll(taskMapper.findDueIdsForUpdateSkip(tenantId,
                     Math.min(perTenant, limit - ids.size())));
         }
-        // 均分除不尽的余量再补一轮：例如 3 个租户、批量 20，均分只用掉 18 个名额。
-        // 已经被锁住的行会被 skip locked 跳过，不会重复取到。
         for (Long tenantId : tenants) {
             if (ids.size() >= limit) {
                 break;
@@ -191,11 +143,6 @@ public class DelayTaskService {
         return ids;
     }
 
-    /**
-     * 抢一批到期的任务并执行。
-     *
-     * @return 实际执行的任务数（0 表示没有到期任务或被别人抢光了）
-     */
     public int runDue() {
         List<BizDelayTask> claimed = txTemplate.execute(status -> {
             List<Long> due = claimFairly(batchSize);
@@ -203,8 +150,6 @@ public class DelayTaskService {
             LocalDateTime leaseUntil = LocalDateTime.now().plusSeconds(leaseSeconds);
             for (Long id : due) {
                 if (taskMapper.claim(id, instanceId, leaseUntil) == 1) {
-                    // 抢完再读，所以 attempt 已经包涵本轮；取行必须走跳租户的专用查询
-                    // （调度线程没有租户上下文，用 selectById 会被守卫拒执，任务一个也跑不了）
                     BizDelayTask task = taskMapper.selectForWorker(id);
                     if (task != null) {
                         mine.add(task);
@@ -237,8 +182,6 @@ public class DelayTaskService {
                 txTemplate.executeWithoutResult(status -> TenantContext.runAs(task.getTenantId(),
                         () -> execute(handler, task)));
             } else {
-                // 等外部 I/O 的 handler 不能被外层事务包住：那会把“等回执不持事务”重新合上。
-                // 代价：业务与 markDone 不再原子，所以这类 handler 必须完全可重入。
                 TenantContext.runAs(task.getTenantId(), () -> execute(handler, task));
             }
             record(task, "done");
@@ -257,11 +200,9 @@ public class DelayTaskService {
         }
     }
 
-    /** 续排间隔：不继承上一次 fire_at，避免“越跑越早”的漂移（执行慢了就把下一轮拉得更近）。 */
     @Value("${cabinet.door-watch.tick-minutes:5}")
     private long doorWatchTickMinutes;
 
-    /** 上面那个分钟的秒数形式（与阶梯参数同一源头，不单独再配一个）。 */
     private long doorWatchTickSeconds() {
         return doorWatchTickMinutes * 60L;
     }
@@ -272,22 +213,15 @@ public class DelayTaskService {
             case FREE_SET_SYNC -> syncIntervalMinutes * 60L;
             case LEDGER_RECONCILE -> reconcileIntervalMinutes * 60L;
             case COMMAND_SWEEP -> sweepIntervalMinutes * 60L;
-            // 回扫的下一轮就是下一次重试的间隔：与首次登记用同一个参数，
-            // 否则“首次 30 秒、重试 5 分钟”这种不人能解释的节奏就会出现在同一条指令上
             case COMMAND_RESCAN -> commandRescanSeconds;
-            // 门未关看管：续排间隔必须显式给。以前它落到 default -> 0，意思是
-            // “做完就再排一次”，而提醒阶梯（3/5/10 分钟）恰恰靠这个间隔推进；
-            // 没间隔就成了“同一分钟刷屏”而阶梯永远走不到第二档。
             case DOOR_NOT_CLOSED -> doorWatchTickSeconds();
             default -> 0L;
         };
     }
 
-    /** 执行主体：跑 handler、落 DONE、按需续排。事务与非事务两条路径共用这一段。 */
     private void execute(TaskHandler handler, BizDelayTask task) {
         boolean again = handler.handle(task);
         if (!handler.transactional()) {
-            // 非事务 handler 的 markDone 自己成一个短事务
             txTemplate.executeWithoutResult(status -> markSettled(task));
             if (again) {
                 rearm(task);
@@ -296,14 +230,12 @@ public class DelayTaskService {
         }
         markSettled(task);
         if (again && task.getTaskType().recurring()) {
-            // 续排与 markDone 同事务：否则“排上了但状态没落”会让下一轮重复执行同一个任务
             rearm(task);
         }
     }
 
     private void markSettled(BizDelayTask task) {
         if (taskMapper.markDone(task.getId(), instanceId) == 0) {
-            // 业务写完了，但状态落不下去（租约被接管）——必须回滚业务，否则会双执行
             throw new IllegalStateException("租约已丢失，回滚本次执行 id=" + task.getId());
         }
     }
@@ -313,7 +245,6 @@ public class DelayTaskService {
                 task.getBizKey(), LocalDateTime.now().plusSeconds(rearmSeconds(task.getTaskType())));
     }
 
-    /** 失败后的退避/判死，单独事务：不能被业务回滚带走。 */
     private void failSoft(BizDelayTask task, String error) {
         try {
             int attempt = task.getAttempt() == null ? 1 : task.getAttempt();
@@ -330,12 +261,10 @@ public class DelayTaskService {
                         task.getId(), task.getTaskType(), task.getBizKey(), attempt);
             }
         } catch (Exception recordFailure) {
-            // 记录失败本身不能再抛出：租约到期后会被重新抢占，比吞掉异常好
             log.error("写回任务失败状态时出错 id={}", task.getId(), recordFailure);
         }
     }
 
-    /** 指数退避：瞬时故障越试越疏，避免坏数据以轮询频率打爆日志与下游。 */
     private long backoff(BizDelayTask task, int attempt) {
         int exp = Math.min(attempt, 6);
         return backoffBaseSeconds * (1L << exp);
@@ -359,7 +288,6 @@ public class DelayTaskService {
         return instanceId;
     }
 
-    /** 供触发器与测试：已注册的 handler 类型集合。 */
     public Map<TaskType, TaskHandler> registeredHandlers() {
         return handlers.values().stream().collect(Collectors.toMap(TaskHandler::type, Function.identity()));
     }

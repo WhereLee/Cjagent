@@ -18,15 +18,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 后台账号查询接口。
- *
- * <p>它是底座里<b>第一个受权限保护的接口</b>，存在的意义不是"提供功能"，而是把三件事
- * 一次跑通并被前端消费：分页入参约定、{@code hasAuthority} 权限判定、{@code @JsonMask} 出参脱敏。
- *
- * <p>查询接口<b>不加 {@code @OperationLog}</b>：只读请求进审计会让表迅速被翻页请求灌满，
- * 审计噪音一高，真正该看的写操作记录就没人看了。写操作才留痕。
- */
 @Tag(name = "后台-账号")
 @RestController
 @RequestMapping("/api/admin/users")

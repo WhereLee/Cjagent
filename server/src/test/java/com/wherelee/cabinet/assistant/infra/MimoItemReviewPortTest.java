@@ -16,13 +16,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 识图复审的解析与真实连通性。
- *
- * <p>分两半是刻意的：<b>解析部分必须每次门禁都跑</b>（它决定"模型胡说八道时会不会被当成凭据"），
- * 而真实调用只在本地给了 key 才跑——CI 里跑外部模型意味着结论不可重现、会撞限流，
- * 还会把一次网络抖动变成构建红。
- */
 class MimoItemReviewPortTest {
 
     @Test
@@ -36,12 +29,6 @@ class MimoItemReviewPortTest {
                 "{\"presence\":\"UNKNOWN\",\"confidence\":0.4,\"reason\":\"角度差太多\"}").presence());
     }
 
-    /**
-     * 实测踩到的那条：思考模型把 token 预算占满时，正文是<b>空字符串</b>。
-     *
-     * <p>如果代码把"没内容"读成"没东西"，就等于模型一超时就把用户的柜子判定为空、
-     * 随后被分给下一个人。所以这里必须是 UNKNOWN，而不是 ABSENT。
-     */
     @Test
     @DisplayName("空正文（思考 token 占满预算）必须是 UNKNOWN，不能当成【没东西】")
     void emptyContentIsUnknownNotAbsent() {
@@ -54,18 +41,13 @@ class MimoItemReviewPortTest {
     @Test
     @DisplayName("脏格式：代码块包裹、前后闲话、字段缺失、不可识别枚举一律 UNKNOWN")
     void malformedOutputDegradesToUnknown() {
-        // 模型很爱加 ```json 围栏
         assertEquals(Presence.PRESENT, MimoItemReviewPort.parse(
                 "```json\n{\"presence\":\"PRESENT\",\"confidence\":0.8}\n```").presence());
-        // 前面带一句废话
         assertEquals(Presence.ABSENT, MimoItemReviewPort.parse(
                 "好的，判断如下：{\"presence\":\"ABSENT\",\"confidence\":0.95}").presence());
-        // 完全不是 JSON
         assertEquals(Presence.UNKNOWN, MimoItemReviewPort.parse("格口里似乎有一个物体").presence());
-        // 枚举值不可识别（模型会自己发明 "DIRTY"、"PARTIAL" 之类）
         assertEquals(Presence.UNKNOWN, MimoItemReviewPort.parse(
                 "{\"presence\":\"PARTIAL\",\"confidence\":0.7}").presence());
-        // 没给置信度：解析层按字面返回 PRESENT（它只管形状），不可信由阈值层降——见下面那条用例
         assertEquals(Presence.PRESENT, MimoItemReviewPort.parse("{\"presence\":\"PRESENT\"}").presence());
     }
 
@@ -84,7 +66,6 @@ class MimoItemReviewPortTest {
                 MimoItemReviewPort.parse("{\"presence\":\"PRESENT\",\"confidence\":0.93,\"reason\":\"多出箱子\"}"));
         assertEquals(Presence.PRESENT, strong.presence());
 
-        // 没给置信度同样不可信：“模型说了但没说多确定”不能当凭据
         assertEquals(Presence.UNKNOWN, port.withThreshold(
                 MimoItemReviewPort.parse("{\"presence\":\"PRESENT\"}")).presence(),
                 "没置信度的 PRESENT 必须降级，否则模型少给一个字段就等于白拿一张放行凭据");
@@ -100,12 +81,6 @@ class MimoItemReviewPortTest {
         assertTrue(verdict.note().contains("基准"), "原因要写给运维看：" + verdict.note());
     }
 
-    /**
-     * 真实连通性：只有本机设了 MIMO_API_KEY 才跑。
-     *
-     * <p>它验的是"我们的请求形状这个网关认不认"（认证头、多模态 content 数组、
-     * max_completion_tokens 的语义），这些光靠桩测不出来。图用本地两张同格口照片。
-     */
     @Test
     @EnabledIfEnvironmentVariable(named = "MIMO_API_KEY", matches = ".+")
     @DisplayName("真实调用：空柜基准 vs 有行李，应判 PRESENT")

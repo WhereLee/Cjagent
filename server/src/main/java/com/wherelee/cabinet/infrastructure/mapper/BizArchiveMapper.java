@@ -9,26 +9,11 @@ import org.apache.ibatis.annotations.Select;
 
 import java.util.List;
 
-/**
- * 冷热分层搬运（A-5）。
- *
- * <p>全部方法都 {@code @InterceptorIgnore(tenantLine)}：归档按时间跨租户批量搬，
- * 而执行它的线程本来就没有租户上下文（带租户条件的 SQL 在这里会被守卫直接拒掉，
- * 一行都搬不动）。这与调度器取到期任务用的是同一套做法。
- *
- * <p>删除语句都带“归档表里已存在”的条件。<b>先插后删是数据安全的全部依赖</b>，
- * 所以删除必须能证明那一行已经在归档表里，而不是相信“上一步大概插入成功了”。
- *
- * <p>带 {@code <foreach>} 的语句必须整体包在 {@code <script>} 里，否则 MyBatis
- * 会把标签当普通文本拼进 SQL（表现为语法错，而不是"少了几行"）。
- */
 @Mapper
 @InterceptorIgnore(tenantLine = "true")
 public interface BizArchiveMapper {
 
     String FOREACH = "<foreach item='id' collection='ids' open='(' separator=',' close=')'>#{id}</foreach>";
-
-    // ---------------------------------------------------------------- 上报流水
 
     @Select("""
             select id from biz_device_report
@@ -51,8 +36,6 @@ public interface BizArchiveMapper {
             + " and exists (select 1 from biz_device_report_archive a where a.id = biz_device_report.id)"
             + "</script>")
     int deleteArchivedReports(@Param("ids") List<Long> ids, @Param("days") int days);
-
-    // ---------------------------------------------------------------- 延迟任务
 
     @Select("""
             select id from biz_delay_task

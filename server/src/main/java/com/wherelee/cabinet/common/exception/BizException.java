@@ -2,9 +2,6 @@ package com.wherelee.cabinet.common.exception;
 
 import com.wherelee.cabinet.common.api.ResultCode;
 
-/**
- * 业务异常：可预期的失败，不打印堆栈（由 GlobalExceptionHandler 按级别处理）。
- */
 public class BizException extends RuntimeException {
 
     private final ResultCode resultCode;

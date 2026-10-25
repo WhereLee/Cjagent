@@ -37,11 +37,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 工单 SLA（批次 4）：双时限、到点待办、暂停/恢复，以及优先级排序。
- *
- * <p>关掉后台轮询：用例自己调 {@code runDue()}，否则测的是调度器的运气。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -155,7 +150,6 @@ class WorkOrderSlaTest {
         assertEquals("DONE", task(id, TaskType.WORK_ORDER_RESPONSE_SLA).get("status"),
                 "暂停中不得到点催办");
 
-        // 模拟已经暂停了 30 分钟：把起点拨回去，恢复时应当顺延 30 分钟
         jdbc.update("update biz_work_order set sla_paused_at = date_sub(now(3), interval 30 minute) where id = ?", id);
         TenantContext.runAs(TENANT, () -> workOrders.resumeSla(id, OPERATOR));
 

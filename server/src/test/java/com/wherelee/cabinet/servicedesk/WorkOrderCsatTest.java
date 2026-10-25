@@ -33,11 +33,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/**
- * 工单满意度：只有本人、只有“用户确认解决”的单、一单一次。
- *
- * <p>评价只是事实记录：不改变状态、不影响 SLA；重复提交由唯一索引兜底。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = "cabinet.scheduler.poll-enabled=false")

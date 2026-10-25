@@ -29,14 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 后台订单查询：只读、按租户、带齐事实。
- *
- * <p>这组用例盯三件事：
- * ① 客服拿订单号或手机号能查到，查不到是空页而不是报错；
- * ② 别的租户拿同一单号查不到（租户隔离不是靠前端）；
- * ③ 详情里的钱、设备动作、关联工单不是摆设——它们是“取不出来”这个问题的判据。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -90,7 +82,6 @@ class AdminOrderQueryTest {
                         + "values (?, ?, ?, '订单客户', ?, 1, NOW(3), NOW(3), NOW(3), 0)",
                 customerId, TENANT, "ad-" + suffix, PHONE);
 
-        // 进行中那张：今天创建、已开始计费、预收 400 点，带定价快照（账单可重算）
         String snapshot = "{\"unitPointsPerHour\":200,\"freeMinutes\":30,\"dailyCapHours\":10,\"capDays\":2}";
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                         + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, "
@@ -100,7 +91,6 @@ class AdminOrderQueryTest {
                         + "DATE_SUB(NOW(3), INTERVAL 1 HOUR), ?, NOW(3), NOW(3), 0, 1)",
                 activeOrderId, TENANT, activeOrderNo, siteId, cabinetId, slotId, customerId,
                 suffix.substring(0, 4), snapshot);
-        // 三天前已结束那张：用来验证状态过滤与时间范围
         jdbc.update("insert into biz_storage_order (id, tenant_id, order_no, site_id, cabinet_id, slot_id, size_type, "
                         + "customer_id, status, voucher_code, temp_open_count, deposit_points, frozen_points, "
                         + "settled_points, arrears_points, prepay_points, started_at, finished_at, "
@@ -111,12 +101,10 @@ class AdminOrderQueryTest {
                 closedOrderId, TENANT, closedOrderNo, siteId, cabinetId, slotId, customerId,
                 suffix.substring(4, 8));
 
-        // 设备动作：客服判断“门到底开没开”靠这一行
         jdbc.update("insert into biz_device_command (id, tenant_id, order_id, cabinet_id, slot_id, request_id, "
                         + "action, status, retry_count, sent_at, acked_at, create_time, update_time, deleted) "
                         + "values (?, ?, ?, ?, ?, ?, 'OPEN', 'SUCCEEDED', 1, NOW(3), NOW(3), NOW(3), NOW(3), 0)",
                 base + 6, TENANT, activeOrderId, cabinetId, slotId, "ad-cmd-" + suffix);
-        // 关联工单：让客服先看有没有人已经在处理
         jdbc.update("insert into biz_work_order (id, tenant_id, kind, source, status, queue_side, active_flag, "
                         + "priority, category, storage_id, order_no, title, create_time, update_time, deleted) "
                         + "values (?, ?, 'INCIDENT', 'SYSTEM', 'PENDING', 'ONLINE', 1, 'P3', 'DOOR_FAULT', ?, ?, "
@@ -188,8 +176,6 @@ class AdminOrderQueryTest {
         AdminOrderConsolePort.OrderDetail detail = TenantContext.callAs(TENANT,
                 () -> orders.detail(activeOrderNo));
 
-        // 客服要能回拨 → 有 customer:phone:view 的账号拿到明文（V40 授给了两个作业角色）；
-        // 这里是无认证上下文的服务层直调，所以走默认拒绝脱敏
         assertEquals(com.wherelee.cabinet.common.mask.MaskType.PHONE.mask(PHONE),
                 detail.customerPhone());
         assertEquals("ACTIVE", detail.row().status());

@@ -20,12 +20,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-/**
- * 简报工具集的安全语义（第 23 刀）：归纳 agent 的三条硬边界用代码穷举——
- * <b>全只读</b>（没有 resolve/claim/notePhoneCall 可调）、
- * <b>电话不进模型</b>（View 里有也不输出）、
- * <b>证据照片引用不出系统</b>（本地路径对模型无意义）。
- */
 class BriefToolsTest {
 
     private static final Long WO = 501L;
@@ -106,7 +100,6 @@ class BriefToolsTest {
 
         assertTrue(tools().eventTimeline().contains("CREATED"), "流水要带上事件类型");
 
-        // 只读是硬边界：任何写方法被调都算破坏（自动关单/认领/记录电话在代码层面就不可能）
         verify(workOrders, never()).resolve(anyLong(), anyLong(), anyString(), anyBoolean());
         verify(workOrders, never()).claim(anyLong(), anyLong());
         verify(workOrders, never()).notePhoneCall(anyLong(), anyLong(), anyString());

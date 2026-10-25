@@ -30,20 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/**
- * 工单队列与流转（19B）。
- *
- * <p><b>两条队列两个权限点</b>：线上业务员看不到也办不了线下队列的反向操作，反之亦然。
- * 这不是权限洁癖——“谁该做这一步”是工单流转的语义本身，全靠一个管理员账号点完，
- * 留痕里就分不出责任。
- *
- * <p>例外只有单据详情（timeline/evidence）：认领与处理都要求先能看单，
- * 所以持有任一队列查看权的人都放行——否则线下运维认领之后寸步难行。
- *
- * <p>返回的全是应用层视图（{@link WorkOrderConsolePort.WorkOrderView}），不回传实体：
- * 实体带着 active_flag、version 这些流转内部字段，暴露出去迟早有人拿它们当业务状态用
- * （ArchUnit 也会当场拦下）。
- */
 @Tag(name = "后台-工单", description = "线上/线下工单队列、认领、处理反馈与流转留痕")
 @RestController
 @RequestMapping("/api/admin/work-orders")
@@ -73,10 +59,6 @@ public class AdminWorkOrderController {
         return R.ok();
     }
 
-    /**
-     * 待打电话清单（19D）：系统没有外呼能力，所以这里列出的是“人必须去打的电话”，
-     * 打完必须回填结果。它不是装饰：没有这张清单，“10 分钟打电话提醒”就只是一句口说法。
-     */
     @Operation(summary = "待联系客户的电话任务", description = "阶梯升到“必须处理”时生成，未回填前一直在列")
     @PreAuthorize("hasAuthority('workorder:online:list')")
     @GetMapping("/pending-calls")
@@ -95,7 +77,6 @@ public class AdminWorkOrderController {
         return R.ok();
     }
 
-    /** 回填内容：一句人话的结论，空得拒。 */
     public record CallDoneCommand(@NotBlank @Size(max = 300) String resultNote) {
     }
 
@@ -125,15 +106,9 @@ public class AdminWorkOrderController {
         return R.ok();
     }
 
-    /**
-     * 处理反馈。<b>事由必填</b>：一张没有结论说明的工单，等于整个流转白做。
-     *
-     * @param needOffline true 时系统另发一张线下工单（父单落 RESOLVED，子单进 FIELD 队列）
-     */
     @Operation(summary = "处理并反馈", description = "结论必填；needOffline=true 时派发线下工单")
     @OperationLog(module = "workorder", operation = "处理工单")
     @Idempotent(key = "#cmd.requestId", requireKey = true, message = "该处理请求已在提交")
-    // 派线下是独立权限点：能关线上单不等于能派人跑现场。needOffline=false 时不需要它。
     @PreAuthorize("hasAuthority('workorder:resolve') and (!#cmd.needOffline() or hasAuthority('workorder:dispatch-field'))")
     @PostMapping("/{id}/resolve")
     public R<Long> resolve(@AuthenticationPrincipal Caller current, @PathVariable Long id,
@@ -142,7 +117,6 @@ public class AdminWorkOrderController {
                 cmd.closeReason()));
     }
 
-    /** 暂停/恢复：只停 SLA 两个时限的前进，不改工单状态（等配件、等用户到场）。 */
     @Operation(summary = "暂停SLA", description = "等配件/等用户到场时暂停两个时限；暂停时长不计入 SLA")
     @OperationLog(module = "workorder", operation = "暂停SLA")
     @PreAuthorize("hasAuthority('workorder:resolve')")
@@ -154,7 +128,6 @@ public class AdminWorkOrderController {
         return R.ok();
     }
 
-    /** 暂停原因；为空表示普通暂停（等配件等），与旧行为一致。 */
     public record PauseRequest(com.wherelee.cabinet.servicedesk.api.SlaPauseReason reason) {
     }
 
@@ -181,12 +154,6 @@ public class AdminWorkOrderController {
         return R.ok(workOrders.family(id));
     }
 
-    /**
-     * 这个格口的证据时间线（19C）：四个采集点各一条，含三值结论与 AI 标签。
-     *
-     * <p>它存在理由是：“你先 AI 识图打简单标签，再由我判断要不要派人”——没有这一面，
-     * 业务员就只能凭一句描述决定跑不跑一趟。
-     */
     @Operation(summary = "格口证据时间线", description = "开门/关门/看管检测/代关后四个采集点的观测记录；线上/线下队列查看人均可读")
     @PreAuthorize("hasAnyAuthority('workorder:online:list','workorder:field:list')")
     @GetMapping("/{id}/evidence")
@@ -194,14 +161,6 @@ public class AdminWorkOrderController {
         return R.ok(workOrders.evidenceFor(id));
     }
 
-    /**
-     * AI 工单简报（第 23 刀）：业务员的 copilot。一次生成三件——事件摘要、处理结论草稿、
-     * 相似已结单参考。<b>只给当前业务员看，不写回工单数据</b>（Jira/Zendesk 同款形态）：
-     * 草稿由人修改后走 resolve 提交，RESOLVED 仍只能由人判定。
-     *
-     * <p>与 timeline/evidence 同一权限口径（能看单的人才能要简报）；
-     * 无 Idempotent——可反复生成是业界形态，成本靠频控管（工具循环一轮生成三件，比对话贵）。
-     */
     @Operation(summary = "AI 工单简报", description = "一次生成三件：事件摘要、处理结论文本草稿、相似已结单参考；仅供当前业务员参考，不写回工单")
     @OperationLog(module = "workorder", operation = "AI工单简报")
     @RateLimit(limit = 6, windowSeconds = 60, message = "简报生成太频繁，请稍后再试")
@@ -223,14 +182,9 @@ public class AdminWorkOrderController {
         return R.ok();
     }
 
-    /** 结果必填：只记"打过电话"不留结果，这条流水没有价值。 */
     public record PhoneNoteCommand(@NotBlank @Size(max = 300) String resultNote) {
     }
 
-    /**
-     * requestId 由前端生成：处理反馈会派生子单，重放不能派出第二张。
-     * closeReason 可选：不传按 MANUAL；用户确认只能由小程序写，事实恢复要现场事实已解除。
-     */
     public record ResolveCommand(@NotBlank @Size(max = 200) String requestId,
                                  @NotBlank @Size(max = 400) String resultNote,
                                  boolean needOffline,

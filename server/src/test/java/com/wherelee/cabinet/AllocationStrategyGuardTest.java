@@ -16,20 +16,6 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-/**
- * 策略 × 行为契约的机器守卫。
- *
- * <p>为什么要有它：批 2 之前 {@code prealloc} 是四种策略里<b>唯一没有行为契约测试</b>的那一个，
- * 而它恰好也是唯一坏掉的那一个（存件 100% 返回 500）。"坏掉的那种策略恰好是唯一没测的那种"
- * 不是巧合——没有守卫，新增一种策略就会重复这件事。
- *
- * <p>两侧的真相都在代码里，不读注释也不读 yml 文案：
- * <ul>
- *   <li>有哪些策略：{@code SlotAllocator} 实现类上的 {@code @ConditionalOnProperty(havingValue = "x")}；</li>
- *   <li>哪个策略有测试：{@code *AllocationTest} 子类的 {@code @SpringBootTest(properties = "cabinet.alloc.strategy=x")}。</li>
- * </ul>
- * 两集合必须相等——少一个测试（新策略漏测）或者多一个测试（策略删了测试没删）都会红。
- */
 class AllocationStrategyGuardTest {
 
     private static final Path ALLOCATOR_DIR = Path.of("src/main/java/com/wherelee/cabinet/locker/app");
@@ -54,7 +40,6 @@ class AllocationStrategyGuardTest {
                         + "删策略时也要删对应测试。实现=" + declared + " 测试=" + covered);
     }
 
-    /** {@code suffix} 是普通结尾（如 {@code Allocator.java}），不是通配符——{@code endsWith} 不认星号。 */
     private Set<String> scan(Path dir, String suffix, Pattern pattern) throws IOException {
         Set<String> found = new LinkedHashSet<>();
         try (Stream<Path> files = Files.walk(dir)) {

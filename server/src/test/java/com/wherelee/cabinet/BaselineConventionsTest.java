@@ -29,12 +29,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * 底座约定回归测试：飞刀迁移、审计字段自动填充、逻辑删除、JSON 全局约定、CORS、访问日志。
- *
- * <p>用 {@code @Transactional} + 回滚：探针数据不落库，重复跑不会互相污染。
- * <p>用 profile {@code integration}：库固定 cabinet_test，见 application-integration.yml。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -57,7 +51,6 @@ class BaselineConventionsTest {
 
     @AfterEach
     void clearTenant() {
-        // 线程复用：不清就会把租户带给下一个测试（这也是 TenantContext 的实际风险）
         TenantContext.clear();
     }
 
@@ -83,7 +76,6 @@ class BaselineConventionsTest {
         assertNotNull(entity.getUpdateTime(), "updateTime 未自动填充");
         assertEquals(0, entity.getDeleted().intValue(), "deleted 默认值应为 0");
         assertEquals(TEST_TENANT, entity.getTenantId(), "tenantId 应从 TenantContext 自动填充");
-        // 雪花 ID 必须真的超出 JS 安全整数，否则第一条约定（Long 转字符串）就没有意义
         assertTrue(entity.getId() > 9_000_000_000_000_000L,
                 "主键不像 19 位雪花 ID，Long→String 的必要性需重新确认: " + entity.getId());
     }
@@ -119,8 +111,6 @@ class BaselineConventionsTest {
         ProbeAudit reloaded = probeMapper.selectById(entity.getId());
         assertNotNull(reloaded);
         assertEquals("probe-after", reloaded.getName());
-        // 不能直接等值比较：Java 的 LocalDateTime 带纳秒，MySQL DATETIME(3) 是**四舍五入**
-        // （不是截断），读写一轮会有 ±1ms 误差。这里只断言"createTime 没被更新改掉"。
         long driftMs = Math.abs(java.time.Duration.between(created, reloaded.getCreateTime()).toMillis());
         assertTrue(driftMs <= 2, "createTime 不该被更新动作改动，实际漂移 " + driftMs + "ms");
         assertTrue(reloaded.getUpdateTime().isAfter(reloaded.getCreateTime()),
@@ -149,13 +139,10 @@ class BaselineConventionsTest {
         ProbeAudit entity = new ProbeAudit();
         entity.setName("probe-no-tenant");
 
-        // 实测机制：tenant_id 因标了 fill=INSERT 而总是出现在 INSERT 列里，租户插件会因此
-        // 跳过注入与校验 → 守卫必须在 AuditMetaObjectHandler 里做，否则静默写入
-        // tenant_id = null 的黑洞数据（不属于任何租户、所有租户都查不到）。
         Throwable thrown = assertThrows(Throwable.class, () -> probeMapper.insert(entity));
         Throwable cursor = thrown;
         while (cursor != null && !(cursor instanceof com.wherelee.cabinet.common.exception.BizException)) {
-            cursor = cursor.getCause();   // MyBatis-Spring 可能会转译包装
+            cursor = cursor.getCause();
         }
         assertNotNull(cursor, "预期被写入侧租户守卫拒绝（BizException），实际是 "
                 + thrown.getClass().getName() + ": " + thrown.getMessage());
@@ -200,8 +187,6 @@ class BaselineConventionsTest {
     @Test
     @DisplayName("访问日志与 traceId：真实链路靠 X-Trace-Id 头串起来")
     void traceIdExposedOnRealCall() throws Exception {
-        // 不断言 X-Request-Cost：响应在控制器写回时已 committed，后置写头会被容器丢弃，
-        // MockMvc 不提交响应会给出假绿。耗时契约在服务器日志，已由 AccessLogFilterTest 断言。
         mockMvc.perform(get("/api/system/health")
                         .header(HttpHeaders.ORIGIN, "http://localhost:5173"))
                 .andExpect(status().isOk())

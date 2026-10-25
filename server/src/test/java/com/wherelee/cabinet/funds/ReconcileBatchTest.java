@@ -43,18 +43,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 对账批次（第 13 刀）。
- *
- * <p>这个类要证的不是"能跑"，而是四件容易做错的事：
- * ① <b>差异判据精确</b>——活动单的 HELD 押金是正常态，不能报成悬挂（报了就等于把真问题埋进假阳性里）；
- * ② <b>只报告不改钱</b>——跑完账本必须还是错的（现场留着），修钱只能人工 ADJUST；
- * ③ <b>分批不漏不重</b>——batchSize 开到 2 也要扫完全部账户；
- * ④ <b>租户边界</b>——别的租户的不平不能污染本租户的结论（这里所有 SQL 都自己写 tenant 条件，
- *    正因为 join 上的拦截器行为不可依赖，所以必须有用例钉住）。
- *
- * <p>关掉后台轮询与调度登记：本类只调 {@code reconcile()}，不希望有别的线程在改数据。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -153,7 +141,6 @@ class ReconcileBatchTest {
         return id;
     }
 
-    /** 充值 + 下单，返回订单行；走业务路径而不是手搓 insert，这样押金/格口/快照都是真的。 */
     private BizStorageOrder newOrder(Long customerId) {
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "对账用例 funding"));
@@ -163,18 +150,6 @@ class ReconcileBatchTest {
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }
 
-    /**
-     * 造一张“历史每单押金”的单。定-1 之后新单不再写 {@code biz_deposit}，但表、押金栏与
-     * 安全网代码都为存量单保留着（删枚举旧流水读不出来、删栏位对账不变量算不平）——
-     * 没有这个夹具，那部分代码就永远没有测试覆盖，而它管的是真金白银。
-     *
-     * <p>钱走<b>冻结</b>两笔（FREEZE_OUT + FREEZE_IN）而不是押金栏：{@code refundHangingDeposit}
-     * 退的就是冻结栏，{@code biz_deposit} 只是凭证（heldTxnId 指向 FREEZE_IN 那一笔）。
-     * 用 {@code points.freeze} 造而不是手插流水，账本才会自洽——{@code verifyLedger} 的断言要靠它。
-     *
-     * <p>{@code DelayTaskTest} 里有一份同形状的夹具。两边各自持有而不抽公共类：
-     * 两个类的租户、账户与清理逻辑都是各自的，抽出来要引入的依赖比省下的重复更贵。
-     */
     private BizStorageOrder newLegacyDepositOrder(Long customerId, long depositPoints) {
         BizStorageOrder order = newOrder(customerId);
         var frozen = TenantContext.callAs(TENANT, () -> points.freeze(customerId, depositPoints,
@@ -187,7 +162,6 @@ class ReconcileBatchTest {
         deposit.setHeldTxnId(frozen.txnId());
         deposit.setHeldAt(LocalDateTime.now());
         TenantContext.runAs(TENANT, () -> depositMapper.insert(deposit));
-        // 冻结栏压在订单上：安全网判的就是“订单终态了而 frozen_points 还大于 0”
         jdbc.update("update biz_storage_order set frozen_points = ? where id = ?",
                 depositPoints, order.getId());
         order.setFrozenPoints(depositPoints);
@@ -208,7 +182,6 @@ class ReconcileBatchTest {
 
         assertTrue(report.clean(), "不该有任何差异，实际=" + report.failedChecks());
         assertTrue(report.accountsScanned() >= 1, "至少要扫到本用例建的账户");
-        // 全 0 也要把每一项列出来：靠“没有这一项”表示通过，等于让新增检查项静默失效
         assertEquals(7, report.diffs().size(), "七个检查项都要有结论，包括 0 的");
     }
 
@@ -247,14 +220,12 @@ class ReconcileBatchTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newLegacyDepositOrder(customerId, 200L);
 
-        // 押金确实在挂着，但单还活着 —— 这是设计内状态
         BizDeposit deposit = TenantContext.callAs(TENANT, () -> depositMapper.selectOne(
                 Wrappers.<BizDeposit>lambdaQuery().eq(BizDeposit::getOrderId, order.getId())));
         assertEquals("HELD", deposit.getStatus().name());
         assertEquals(0L, run().countOf(ReconcileService.HANGING_DEPOSIT),
                 "在线单不该被报成悬挂押金，否则日均 3 万单时每轮都对出几万条假阳性");
 
-        // 单终态了押金还没退 —— 这才是不变量 4 要抓的
         jdbc.update("update biz_storage_order set status = 'CLOSED', active_flag = null where id = ?", order.getId());
         assertEquals(1L, run().countOf(ReconcileService.HANGING_DEPOSIT), "终态单 + HELD 押金必须报出来");
     }
@@ -269,8 +240,6 @@ class ReconcileBatchTest {
         jdbc.update("update biz_compartment set status = 'FREE', current_order_id = null where id = ?",
                 order.getSlotId());
         assertEquals(1L, run().countOf(ReconcileService.ORDER_WITHOUT_SLOT), "活动单的格口回 FREE 是脏状态");
-        // 注：这个现场下 uk_order_active_slot 会阻止别人再分配该格口（第 8 刀的结构防线）。
-        // 所以本用例不再建第二张单：被破坏的现场本来就该“卡住”而不是“接着用”，不能把它当可忽略的干扰。
     }
 
     @Test
@@ -279,7 +248,6 @@ class ReconcileBatchTest {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
 
-        // 正常路径下单终态时格口已被 release 回 FREE；这里只把单关掉而不释放格口
         jdbc.update("update biz_storage_order set status = 'CLOSED', active_flag = null where id = ?", order.getId());
         jdbc.update("update biz_compartment set status = 'OCCUPIED' where id = ?", order.getSlotId());
         assertEquals(1L, run().countOf(ReconcileService.SLOT_WITHOUT_ORDER),
@@ -308,7 +276,6 @@ class ReconcileBatchTest {
 
         long scanned = run().accountsScanned();
 
-        // 本类建的账户 + 可能存在的历史账户都在同一租户里；关键不是具体数字而是"扫完了"
         assertTrue(scanned >= 5, "batchSize=2 时游标必须翻完，实际扫描=" + scanned);
         Long total = jdbc.queryForObject(
                 "select count(*) from biz_point_account where tenant_id = ? and deleted = 0", Long.class, TENANT);
@@ -322,7 +289,6 @@ class ReconcileBatchTest {
         newOrder(mine);
         Long theirs = newCustomer();
         customerIds.add(theirs);
-        // 在另一个租户里造一张明确的坏账（充值后直接改余额，不需要 ADJUST 那一步）
         TenantContext.runAs(OTHER_TENANT, () -> points.recharge(theirs, 100L,
                 "CHG-OTHER-" + UUID.randomUUID(), "越租对照"));
         jdbc.update("update biz_point_account set points = points + 500 where customer_id = ?", theirs);
@@ -338,7 +304,6 @@ class ReconcileBatchTest {
     @Test
     @DisplayName("对账依赖的索引必须还在（列序查 information_schema，不查优化器心情）")
     void requiredIndexesExist() {
-        // 小表上 EXPLAIN 的 key 选择不稳定（第 8 刀实测），所以断言"索引结构能支撑这条查询"而不是"用了它"
         assertIndex("biz_point_txn", "idx_txn_customer", List.of("customer_id", "create_time"));
         assertIndex("biz_deposit", "uk_deposit_order", List.of("order_id"));
         assertIndex("biz_deposit", "idx_deposit_status_time", List.of("status", "held_at"));

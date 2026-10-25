@@ -15,15 +15,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 匿名取件端点（定-25：取件码 + 手机尾号）。
- *
- * <p>挂在 {@code /api/public/**} 下是刻意的：这一条安全链本来就是 permitAll（见 SecurityConfig），
- * 不需要为它新开白名单，也就不会顺手把别的口放开。
- *
- * <p>没有 {@code @PreAuthorize} 是这个端点的本质：它服务的是"人站在柜机前、手机不在手上"的场景。
- * 防线因此全压在凭据与限流上：双因子 + 按 IP 的窗口 + 记在订单上的错次锁定。
- */
 @Tag(name = "公开-凭码取件", description = "柜机屏幕或无登录态时的第二条取件路径")
 @RestController
 @RequestMapping("/api/public/storage")
@@ -35,7 +26,6 @@ public class PublicPickupController {
         this.pickupService = pickupService;
     }
 
-    /** 两个凭据都必填，缺一律按参数错误处理（不进入凭据校验，也不计错次）。 */
     public record PickupRequest(
             @NotBlank(message = "请填写取件码")
             @Size(max = 16, message = "取件码长度不正确")

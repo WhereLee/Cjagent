@@ -64,21 +64,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 延迟任务与调度（第 13 刀验收）。
- *
- * <p>关掉后台轮询（{@code poll-enabled=false}），用例自己调 {@code runDue()}：
- * 否则"偶尔红"的测试不是稳定性问题而是不可测。
- *
- * <p>这一刀真正要证明的只有一件事：<b>不管有几个 worker、提醒重了几次，
- * 同一个任务的业务副作用只能发生一次</b>。所以并发用例看的是"每个 bizKey 恰好执行一次"，
- * 而不是"跑完了没报错"。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
-        // 回收阈值归零：否则下单登记的任务在未来，用例测的是“等待”而不是“执行”
         "cabinet.scheduler.reconcile-minutes=0",
         "cabinet.scheduler.batch-size=50",
         "cabinet.scheduler.backoff-base-seconds=1"
@@ -95,7 +84,6 @@ class DelayTaskTest {
     private StorageOrderService orderService;
     @Autowired
     private CompartmentStateService states;
-    /** 直接注 handler：它标了 transactional()=false，而“重跑不再开单”这件事只能直接看两个开关。 */
     @Autowired
     private OverduePickupHandler overdueHandler;
     @Autowired
@@ -125,10 +113,6 @@ class DelayTaskTest {
     @BeforeEach
     void prepare() {
         jdbc = new JdbcTemplate(dataSource);
-        // 干净起点：runDue() 设计上不分租户抢任务（worker 就是全局的），而 batch-size 只有 50。
-        // 19D 后“门未关”的看管任务会活到下一个 tick（以前要么 0 秒刷屏要么立刻了结），
-        // 别的用例类留下的到期任务能把整批吃完，本类的任务就会“根本没轮到跑”——
-        // 症状是断言拿到 PENDING，看上去像判据错，其实是串类污染。（消费偏窄的调度问题已记入第 16 刀）
         jdbc.update("delete from biz_delay_task");
         cabinetNo = "CAB-S-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
         TenantContext.runAs(TENANT, () -> {
@@ -181,7 +165,6 @@ class DelayTaskTest {
     }
 
     private String placeholders() {
-        // 每个 id 一个 ?：把 id 直拼进 SQL 又同时传参，驱动会报“Parameter index out of range”
         return customerIds.stream().map(id -> "?").reduce((a, b) -> a + "," + b).orElse("?");
     }
 
@@ -193,14 +176,11 @@ class DelayTaskTest {
         return id;
     }
 
-    /** 建一张真实订单（走业务路径，含押金冻结与自动登记的超时任务）。 */
     private BizStorageOrder newOrder(Long customerId) {
         return newOrder(customerId, "SMALL");
     }
 
-    /** 指定尺寸建单（一人一单 + 尺寸不再向上升级后，一批单必须分摊到三种格口） */
     private BizStorageOrder newOrder(Long customerId, String sizeType) {
-        // 充值也必须带租户上下文：守卫把“无上下文”当成“拒绝执行”，而不是“查不到”（第 10 刀同源结论）
         TenantContext.runAs(TENANT, () -> points.recharge(customerId, 5000L,
                 "CHG-" + UUID.randomUUID(), "调度用例 funding"));
         String orderNo = TenantContext.callAs(TENANT, () -> orderService.create(customerId,
@@ -209,18 +189,6 @@ class DelayTaskTest {
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }
 
-    /**
-     * 造一张“历史每单押金”的单：定-1 之后新单不再写 {@code biz_deposit}，但表、押金栏与
-     * {@code DepositRefundHandler} 都为存量单保留着。没有这个夹具，“重跑不重复退钱”
-     * 这条真金白银的幂等判据就永远没有测试覆盖。
-     *
-     * <p>钱走<b>冻结</b>两笔（FREEZE_OUT + FREEZE_IN）而不是押金栏：{@code refundHangingDeposit}
-     * 退的就是冻结栏，{@code biz_deposit} 只是凭证（heldTxnId 指向 FREEZE_IN 那一笔）。
-     * 用 {@code points.freeze} 造而不是手插流水，账本才会自洽——本用例末尾的
-     * {@code verifyLedger} 断言要靠它。
-     *
-     * <p>{@code ReconcileBatchTest} 里有一份同形状的夹具（那边判悬挂、这边判退款幂等）。
-     */
     private BizStorageOrder newLegacyDepositOrder(Long customerId, long depositPoints) {
         BizStorageOrder order = newOrder(customerId);
         var frozen = TenantContext.callAs(TENANT, () -> points.freeze(customerId, depositPoints,
@@ -233,7 +201,6 @@ class DelayTaskTest {
         deposit.setHeldTxnId(frozen.txnId());
         deposit.setHeldAt(LocalDateTime.now());
         TenantContext.runAs(TENANT, () -> depositMapper.insert(deposit));
-        // 冻结栏压在订单上：安全网判的就是“订单终态了而 frozen_points 还大于 0”
         jdbc.update("update biz_storage_order set frozen_points = ? where id = ?",
                 depositPoints, order.getId());
         order.setFrozenPoints(depositPoints);
@@ -241,11 +208,9 @@ class DelayTaskTest {
     }
 
     private void scheduleNow(TaskType type, String bizKey) {
-        // fire_at 放到过去：等价于"闹钟已经响了"，测的是执行而不是等待
         TenantContext.runAs(TENANT, () -> tasks.schedule(type, bizKey, TENANT, LocalDateTime.now().minusSeconds(5)));
     }
 
-    /** 把单推到 ACTIVE（真开柜 + 关门校验），没这个就不能测“计费中遇逾期”这条真实链路。 */
     private BizStorageOrder activate(Long customerId, BizStorageOrder order) {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 com.wherelee.cabinet.device.api.CommandAction.OPEN));
@@ -293,11 +258,8 @@ class DelayTaskTest {
     void concurrentWorkersNeverDoubleExecute() throws Exception {
         int orders = 12;
         for (int i = 0; i < orders; i++) {
-            // 每人一格（定-5），且不能指望“小格满了自动给中格”（定-8）：
-            // 所以这里用 12 个不同客户 + 三种尺寸分摊，刚好用完柜机 4+4+4 个格口
             newOrder(newCustomer(), SIZE_ROTATION[i % SIZE_ROTATION.length]);
         }
-        // 只留超时释放这一类，避免混入别的类型干扰计数
         jdbc.update("delete from biz_delay_task where task_type <> 'SLOT_RELEASE'");
         jdbc.update("update biz_delay_task set fire_at = date_sub(now(3), interval 10 second) where task_type='SLOT_RELEASE'");
 
@@ -311,10 +273,7 @@ class DelayTaskTest {
             pool.submit(() -> {
                 try {
                     start.await();
-                    // 每个 worker 都在自己的租户上下文里跑（与真实实例一致）
                     TenantContext.runAs(TENANT, () -> {
-                        // 跑到“没完”而不是“跑固定轮数”：一次瞬时冲突会让任务进入 FAILED + 退避，
-                        // 固定 3 轮在 2 核 CI 上就会把“还没轮到重试”算成失败（本地快、CI 慢就是这类飘红）
                         long deadline = System.currentTimeMillis() + 60_000L;
                         while (System.currentTimeMillis() < deadline && undoneSlotRelease() > 0) {
                             totalExecuted.addAndGet(tasks.runDue());
@@ -335,16 +294,10 @@ class DelayTaskTest {
         }
         start.countDown();
         assertTrue(done.await(120, TimeUnit.SECONDS), "并发 worker 未收敛");
-        // 必须等线程真终止：只 shutdownNow 就接着跑下一个用例，残留线程会在新用例开始后
-        // 抢走它的任务租约（60s），症状是下一个用例“什么都不发生”——本刀就这么把
-        // doorNotClosedMarksAbnormal 弄跳红了。测并发的用例不能给后面留活线程。
         pool.shutdown();
         assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS), "worker 线程未退出，会给后续用例留租约竞争");
         pool.shutdownNow();
 
-        // 真正要证的不是“跑了几次”，而是“副作用发生了几次”：跑的次数会被合法重试污染。
-        // C 定案后这张单从头到尾没有冻结也没有解冻，所以“没众生”的硬证据变成了：
-        // 整个回收过程**不应产生任何冻结/解冻流水**（多一条就是被做了两遍以上）
         Integer notDone = jdbc.queryForObject(
                 "select count(*) from biz_delay_task where task_type='SLOT_RELEASE' and status <> 'DONE'", Integer.class);
         assertEquals(0, notDone, "并发下所有到期任务都应最终被完成（不丢不做两遍）");
@@ -360,7 +313,6 @@ class DelayTaskTest {
                 "select count(distinct order_no) from biz_storage_order where cabinet_id=? and status='CANCELLED'",
                 Integer.class, cabinetId);
         assertEquals(orders, cancelled, "每张单都被取消，且没有一张被取消两次");
-        // 一人一单后这 12 张单属 12 个不同客户，所以逐个核：冻结全退、账仍平
         for (Long customer : customerIds) {
             assertEquals(0L, TenantContext.callAs(TENANT, () -> points.accountOf(customer)).getFrozenPoints(),
                     "每张单的冻结必须全部退回，不重不漏");
@@ -369,7 +321,6 @@ class DelayTaskTest {
         }
     }
 
-    /** 本轮还没做完的超时释放任务数（驱动 worker 跑到收敛）。 */
     private int undoneSlotRelease() {
         Integer n = jdbc.queryForObject(
                 "select count(*) from biz_delay_task where task_type='SLOT_RELEASE' and status <> 'DONE'",
@@ -386,13 +337,10 @@ class DelayTaskTest {
         jdbc.update("delete from biz_delay_task where task_type <> 'SLOT_RELEASE'");
         jdbc.update("update biz_delay_task set fire_at = date_sub(now(3), interval 10 second)");
 
-        // 无竞争的单独取证：先证明“这条 SQL 真的能拿满 limit”。
-        // 删掉“至少一方拿到候选”后，这一条是必验项：否则两个事务都拿到空集时，
-        // “不重叠”与“不排队”会在一件根本没返行的事上成立（假绿）
         List<Long> alone = new java.util.ArrayList<>();
         TenantContext.runAs(TENANT, () -> txTemplate.executeWithoutResult(only -> {
             alone.addAll(taskMapper.findDueIdsForUpdateSkip(TENANT, 4));
-            only.setRollbackOnly();   // 只取证：本用例不该推任何任务状态
+            only.setRollbackOnly();
         }));
         assertEquals(4, alone.size(), "无竞争时应拿满 limit（拿不满是索引或到期判据本身坏了）");
 
@@ -407,16 +355,12 @@ class DelayTaskTest {
         Runnable probe = () -> {
             try {
                 txTemplate.executeWithoutResult(status -> {
-                    // 每人只要 4 条（共 10 条到期）：limit 大于行数时 SKIP LOCKED 会合法地让
-                    // 后一个拿到空集，那是对的行为，不能当成失败去断言
                     List<Long> ids = taskMapper.findDueIdsForUpdateSkip(TENANT, 4);
                     String who = slot.getAndIncrement() == 0 ? "first" : "second";
                     ("first".equals(who) ? first : second).addAll(ids);
-                    // 锁取证必须在同一个事务里读：回滚后锁就没了（第 10 刀欠的“可重复取证”补在这里）
                     lockFootprint.put(who, grantedRecordLocks());
                     bothInTx.countDown();
                     try {
-                        // 两个事务都要先拿到候选集再一起放行，否则观测不到“是否重叠”
                         release.await(20, TimeUnit.SECONDS);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
@@ -429,7 +373,6 @@ class DelayTaskTest {
         };
         pool.submit(probe);
         pool.submit(probe);
-        // 两个事务都进入候选集读取后再放行；若 SKIP LOCKED 不生效，第二个会阻塞在行锁上直到本行 commit
         assertTrue(bothInTx.await(20, TimeUnit.SECONDS), "两个事务没能同时进入候选集读取，说明后一个在等行锁");
         release.countDown();
         pool.shutdownNow();
@@ -438,16 +381,8 @@ class DelayTaskTest {
         Set<Long> overlap = new java.util.HashSet<>(first);
         overlap.retainAll(second);
         assertTrue(overlap.isEmpty(), "两个事务的候选集重叠：" + overlap);
-        // 不断言“各自拿到 4 条”，也**不断言“至少一方拿到候选”**：这 10 条任务的 fire_at 完全相同，
-        // InnoDB 走二级索引扫描时锁的是 next-key 区间而不是行，两个扫描者都可能把整个区间当成
-        // “被别人锁住”而合法地拿到空集（本地快、2 核 runner 慢，交错不同就会飘）。
-        // “谁拿到几条”不是 SKIP LOCKED 的承诺；本用例并发部分只证两件事：
-        // ① 不重叠（上面）；② 不排队——两个事务能在彼此持锁期间同时返回（bothInTx latch）。
-        // 而“这条 SQL 确实能拿满候选”放到下面无竞争的单独取证里去断言（结论确定，不依赖交错）
         assertTrue(first.size() + second.size() <= 10, "候选总量不会超过到期任务数（不重复计数）");
 
-        // 取证结论：持有的记录锁条数 ≥ 返回行数——next-key/gap 锁把不相干的行（与行之间的间隙）
-        // 也圈进来了。这正是“第二个扫描者只拿到 1 条”的解释：它不是丢数据，是碰上了别人的锁区间。
         lockFootprint.forEach((who, held) -> {
             int returned = "first".equals(who) ? first.size() : second.size();
             if (held >= 0) {
@@ -457,10 +392,6 @@ class DelayTaskTest {
         });
     }
 
-    /**
-     * 本连接在 biz_delay_task 上已持有的记录锁条数（performance_schema 不可用时返回 -1，
-     * 取证降级但不能拖垮主断言）。
-     */
     private int grantedRecordLocks() {
         try {
             Integer count = jdbc.queryForObject("""
@@ -485,7 +416,6 @@ class DelayTaskTest {
         scheduleNow(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
         BizDelayTask planted = task(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
 
-        // 手工造成"上一个持有者死了"：RUNNING + 租约已过期
         jdbc.update("update biz_delay_task set status='RUNNING', lease_owner='dead-worker', "
                 + "lease_expire_at = date_sub(now(3), interval 60 second) where id = ?", planted.getId());
 
@@ -493,7 +423,6 @@ class DelayTaskTest {
         assertTrue(executed > 0, "过期租约必须能被接管");
 
         BizStorageOrder after = TenantContext.callAs(TENANT, () -> orderMapper.selectById(order.getId()));
-        // 订单还在 OPENING 之前（未开柜），所以门未关任务不该改状态；只要求租约推进完成
         BizDelayTask taken = task(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
         assertEquals(TaskStatus.DONE, taken.getStatus(), "接管后任务要正常收尾");
         assertNotNull(after);
@@ -504,22 +433,17 @@ class DelayTaskTest {
     void doorOpenPastToleranceStartsBilling() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
-        // 走到 OPENING：开柜成功（模拟器正常回执）
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 com.wherelee.cabinet.device.api.CommandAction.OPEN));
         assertEquals(OrderStatus.OPENING, TenantContext.callAs(TENANT,
                 () -> orderMapper.selectById(order.getId())).getStatus());
 
-        // 把容错到期时刻也推到过去：真实运行中巡检不会提前跑，而“现在就是到期后的第一眼”
-        // 才是这条用例要描述的时刻。不推就会拿一个未来的起点去断言，测不到真东西。
         jdbc.update("update biz_storage_order set tolerance_until = date_sub(now(3), interval 1 second) "
                 + "where id = ?", order.getId());
         scheduleNow(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
         TenantContext.callAs(TENANT, tasks::runDue);
 
         BizStorageOrder after = TenantContext.callAs(TENANT, () -> orderMapper.selectById(order.getId()));
-        // 旧口径是“转 ABNORMAL 等人工”。现在：全城多点位派一次人工的成本远高于一个格口被占的损耗，
-        // 所以不关门靠钱来处置：起计、推进到计费态、进台账，而不是给人派活
         assertEquals(OrderStatus.ACTIVE, after.getStatus(),
                 "门开超容错应转成计费中，而不是转人工");
         assertNotNull(after.getStartedAt(), "计费起点必须已落定（不落定就是无限免费）");
@@ -536,7 +460,6 @@ class DelayTaskTest {
         assertNotNull(event, "异常必须同时进台账（只写日志等于没人看）");
         assertEquals(FaultType.DOOR_NOT_CLOSED, event.getFaultType());
 
-        // 到顶之前这条看管不能停：“DONE”就是再没人盯，而用户可能永远不回来关门
         BizDelayTask watched = task(TaskType.DOOR_NOT_CLOSED, order.getOrderNo());
         assertEquals(TaskStatus.PENDING, watched.getStatus(), "计费还在走，看管就必须续排");
     }
@@ -556,9 +479,6 @@ class DelayTaskTest {
                 TenantContext.callAs(TENANT, () -> slotMapper.selectById(order.getSlotId())).getAnomaly(),
                 "先确认异常真的标上了（不然后面的“解除了”只是从未发生）");
 
-        // 拿一个“门关了但柜内测不到”的读数去解除：现实里大多数柜机只有门磁没有物检，
-        // 如果把“测不到”也算成解除阻碍，整柜会越用越多地永久卡在异常里。
-        // runAs 不能省：服务内部要读格口，没有租户上下文会被守卫直接拒执（本会话第 6 次踩这条）
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(order.getSlotId(),
                 new Sensing(true, Presence.UNKNOWN, LocalDateTime.now())));
 
@@ -578,7 +498,6 @@ class DelayTaskTest {
 
         BizStorageOrder after = TenantContext.callAs(TENANT, () -> orderMapper.selectById(order.getId()));
         assertEquals(OrderStatus.EXPIRED, after.getStatus(), "逾期要转 EXPIRED");
-        // 逾期不等于“东西不要了”：仍必须能取件结算
         assertTrue(after.getStatus().canTransitTo(OrderStatus.SETTLING), "EXPIRED 必须还有取件出口");
 
         BizDelayTask watching = task(TaskType.OVERDUE_PICKUP, order.getOrderNo());
@@ -595,9 +514,6 @@ class DelayTaskTest {
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
         backdateDeadline(order.getId(), 5L * 24 * 60);
-        // 封顶看的是“从计费起点算的总时长”，所以造数必须把起点一起回拨：
-        // 持有 50 小时（cap-days=2 → 48 小时到顶）、应结束时刻已在 2 小时前。
-        // 以前只回拨到期时刻而起点还在“刚刚”，恰好把“拿逾期分钟判封顶”这个错掩盖掉了。
         jdbc.update("update biz_storage_order set started_at = date_sub(now(3), interval 50 hour) where id = ?",
                 order.getId());
         scheduleNow(TaskType.OVERDUE_PICKUP, order.getOrderNo());
@@ -605,7 +521,6 @@ class DelayTaskTest {
         TenantContext.callAs(TENANT, tasks::runDue);
 
         BizDelayTask done = task(TaskType.OVERDUE_PICKUP, order.getOrderNo());
-        // 失败时把现场一并打出来：不靠人再去猜“是没跑还是跑了没到顶”
         Map<String, Object> row = jdbc.queryForMap(
                 "select status, fire_at, attempt from biz_delay_task where task_type='OVERDUE_PICKUP' and biz_key = ?",
                 order.getOrderNo());
@@ -624,7 +539,6 @@ class DelayTaskTest {
     void legacyUncappedOrderStillExitsViaWatchWindow() {
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
-        // 换成不含阶梯参数的旧快照（capDays 读不到 = 永远到不了顶），只能靠看管窗口收口
         jdbc.update("update biz_storage_order set pricing_snapshot = "
                 + "'{\"unitPointsPerHour\":15,\"freeMinutes\":10,\"depositPoints\":200}' where id = ?", order.getId());
         backdateDeadline(order.getId(), 8L * 24 * 60);
@@ -639,16 +553,12 @@ class DelayTaskTest {
     @Test
     @DisplayName("到顶开单后重跑不再开第二张：transactional()=false 的代价靠可重入兜住")
     void cappedOrderOpensOneWorkOrderEvenIfRerun() {
-        // 这个 handler 会同步调工单系统，所以不能被外层事务包住（否则下游一抛异常就把
-        // “推进 EXPIRED”一起回滚）。代价是“业务提交了但 markDone 失败”会真重跑，
-        // 本条就是那份代价的取证：重跑不许开出第二张单，也不许把订单状态推翻。
         assertFalse(overdueHandler.transactional(),
                 "会同步调工单系统的 handler 不能被外层事务包住");
 
         Long customerId = newCustomer();
         BizStorageOrder order = activate(customerId, newOrder(customerId));
         backdateDeadline(order.getId(), 5L * 24 * 60);
-        // 与 cappedOverdueStopsWatching 同一套造数：封顶看的是从计费起点算的总时长
         jdbc.update("update biz_storage_order set started_at = date_sub(now(3), interval 50 hour) where id = ?",
                 order.getId());
 
@@ -658,7 +568,6 @@ class DelayTaskTest {
         int opened = countLongRunningWorkOrders(order.getSlotId());
         assertEquals(1, opened, "到顶必须交给人：开一张线上 LONG_RUNNING 单");
 
-        // 再跑一轮：模拟“业务提交了、markDone 失败”之后的重跑
         scheduleNow(TaskType.OVERDUE_PICKUP, order.getOrderNo());
         TenantContext.callAs(TENANT, tasks::runDue);
 
@@ -669,7 +578,6 @@ class DelayTaskTest {
                 "重跑也不能把单推回别的状态：EXPIRED 不是终态，还有取件出口");
     }
 
-    /** 按格口统计：biz_work_order 是跨用例共享的表，按租户数会捡到别人的单。 */
     private int countLongRunningWorkOrders(Long slotId) {
         Integer n = jdbc.queryForObject(
                 "select count(*) from biz_work_order where tenant_id = ? and slot_id = ? and type = 'LONG_RUNNING'",
@@ -682,10 +590,7 @@ class DelayTaskTest {
     void retryUsesBackoffThenDies() {
         Long customerId = newCustomer();
         BizStorageOrder order = newOrder(customerId);
-        // 只留押金这一类：否则同批的超时释放会先把单取消，押金任务第一次就成功，
-        // “未终态→退避重试”这条路径根本跑不到（测了个寂寞）
         jdbc.update("delete from biz_delay_task where task_type <> 'DEPOSIT_REFUND'");
-        // 押金退还任务在订单未终态时必须"稍后再试"——handler 主动抛出让它退避
         scheduleNow(TaskType.DEPOSIT_REFUND, order.getOrderNo());
 
         TenantContext.callAs(TENANT, tasks::runDue);
@@ -694,7 +599,6 @@ class DelayTaskTest {
         assertEquals(1, afterFirst.getAttempt());
         assertTrue(afterFirst.getFireAt().isAfter(LocalDateTime.now()), "退避应把下次时间推到未来");
 
-        // 反复"到期→执行"，直到超过上限
         for (int i = 0; i < TaskType.DEPOSIT_REFUND.maxAttempts(); i++) {
             jdbc.update("update biz_delay_task set fire_at = date_sub(now(3), interval 10 second) where id = ?",
                     afterFirst.getId());
@@ -716,7 +620,6 @@ class DelayTaskTest {
         assertNotNull(deposit);
         assertEquals(DepositStatus.HELD, deposit.getStatus());
 
-        // 手工制造悬挂现场：订单已关闭、押金仍 HELD、冻结栏还压着钱（正常路径不会这样）
         jdbc.update("update biz_storage_order set status='CLOSED', active_flag=null where id = ?", order.getId());
         scheduleNow(TaskType.DEPOSIT_REFUND, order.getOrderNo());
         TenantContext.callAs(TENANT, tasks::runDue);
@@ -725,7 +628,6 @@ class DelayTaskTest {
         assertEquals(DepositStatus.REFUNDED, first.getStatus());
         long pointsAfterFirst = TenantContext.callAs(TENANT, () -> points.accountOf(customerId)).getPoints();
 
-        // 再跑一轮：必须什么都不做（重复退钱是真金白银损失）
         jdbc.update("update biz_delay_task set status='PENDING', fire_at = date_sub(now(3), interval 10 second) "
                 + "where task_type='DEPOSIT_REFUND' and biz_key=?", order.getOrderNo());
         TenantContext.callAs(TENANT, tasks::runDue);

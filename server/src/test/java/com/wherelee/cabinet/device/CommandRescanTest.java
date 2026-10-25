@@ -55,24 +55,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 设备指令超时回扫与扫街（第 13 刀，结第 11 刀欠的账）。
- *
- * <p>第 11 刀为了不把连接池挂在 2.5 秒的等待上，把"下发"与"收敛"拆成了两个短事务。
- * 当时的注释明写了代价：<b>中间崩溃会留下"设备开了门但订单没变"的现场</b>。
- * 这个类就是证明那笔代价真的被付掉了，而不是留在注释里。
- *
- * <p>四条路各有各的"不能"：
- * ① 迟到的回执只能<b>用流水重放</b>，绝不能再下发一次（那是对同一个物理动作发两遍命令）；
- * ② 重试必须<b>用同一条 requestId</b>（换 ID 等于放弃幂等，也等于设备真会再开一次门）；
- * ③ 预算用完必须<b>停下来交人工</b>，不能永远重试；
- * ④ 卡住的指令必须<b>有一层不依赖逐条提醒的扫街</b>，否则"写完了但进程死了"永远没人收。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
         "cabinet.scheduler.poll-enabled=false",
-        // 占位超时设大：本类要的是"指令链"的现场，不希望超时释放先把单取消了
         "cabinet.scheduler.hold-grace-minutes=999",
         "cabinet.device.receipt-timeout-ms=300",
         "cabinet.device.rescan-max-retry=2",
@@ -189,7 +175,6 @@ class CommandRescanTest {
                 Wrappers.<BizStorageOrder>lambdaQuery().eq(BizStorageOrder::getOrderNo, orderNo)));
     }
 
-    /** 让已登记的任务立刻到期（测执行，不等真实时钟）。 */
     private void expireTasks(TaskType type) {
         jdbc.update("update biz_delay_task set fire_at = date_sub(now(3), interval 30 second), "
                 + "status = case when status = 'DONE' then 'PENDING' else status end where task_type = ?",
@@ -218,7 +203,6 @@ class CommandRescanTest {
         BizDeviceCommand command = command(requestId);
         assertNotNull(command, "指令必须留痕，即使没回执");
         assertEquals(CommandState.TIMEOUT, command.getStatus());
-        // 按动作判：OPEN 没成 → 件在用户手里 → 单退回可重试，而不是转人工
         assertEquals(OrderStatus.RESERVED, TenantContext.callAs(TENANT,
                 () -> orderMapper.selectById(order.getId())).getStatus());
 
@@ -236,7 +220,6 @@ class CommandRescanTest {
         BizStorageOrder order = newOrder(customerId);
         String requestId = order.getOrderNo() + ":OPEN:1";
 
-        // 造现场：回执已经进了上报流水，但指令收敛那一步没跑（拆事务之间的崩溃窗口）
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.OPEN_NO_RECEIPT);
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN));
@@ -256,7 +239,6 @@ class CommandRescanTest {
         assertEquals(CommandState.SUCCEEDED, command(requestId).getStatus(), "迟到的回执要能把状态修正");
         assertEquals(0, command(requestId).getRetryCount().intValue(),
                 "重放路径不该消耗重试预算，更不该产生第二次物理动作");
-        // 只有一条上报流水：重放不写流水（写就变成第二次上报）
         Integer reports = jdbc.queryForObject("select count(*) from biz_device_report where dedup_key = ?",
                 Integer.class, "cmd:" + requestId);
         assertEquals(1, reports);
@@ -272,7 +254,6 @@ class CommandRescanTest {
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN));
 
-        // 一轮一轮跑到预算用尽（max-retry=2），中间不换手：每轮都是同一 requestId
         for (int round = 0; round < 4; round++) {
             expireTasks(TaskType.COMMAND_RESCAN);
             runDue();
@@ -286,7 +267,6 @@ class CommandRescanTest {
                 Wrappers.<BizFaultEvent>lambdaQuery().eq(BizFaultEvent::getCabinetId, cabinetId)
                         .eq(BizFaultEvent::getFaultType, FaultType.NO_REPORT)));
         assertFalse(events.isEmpty(), "判死必须留故障事件（人工出口的来源）");
-        // 每一轮的重发都用同一个 requestId：设备端幂等表命中，物理上不会开两次门
         Integer distinctKeys = jdbc.queryForObject(
                 "select count(distinct dedup_key) from biz_device_report where dedup_key like concat('cmd:', ?, '%')",
                 Integer.class, requestId);
@@ -308,38 +288,24 @@ class CommandRescanTest {
         String requestId = order.getOrderNo() + ":OPEN:1";
         TenantContext.runAs(TENANT, () -> orderService.openDoor(customerId, order.getOrderNo(),
                 CommandAction.OPEN));
-        // 先把全局残留清掉，再把我们这条标成 SENT：扫街是“全库按 sent_at 排序 + limit 50”，
-        // 共享测试库里别人（含上一轮 mvn 剩下的）的旧 SENT/TIMEOUT 会把它挤到 limit 之外。
-        // 本会话第四次踩同一类坑：在全局机制上断言“我的那条”，就必须先清全局残留
-        // （全库账户必须平、整个 key 为空、两个事务各拿 4 条、这里）
         jdbc.update("delete from biz_device_command where status in ('SENT', 'ACKED', 'TIMEOUT')");
-        // 上一轮跑挂/上下文被拆时留下的“在飞”扫街任务也必须清掉：同一个 (类型, bizKey) 处于 RUNNING
-        // 且租约未到期时，登记是故意什么都不做的（不能被刷成新一轮，否则两个 worker 会同时扫）——
-        // 不清就是在测“残留状态”，症状是“扫街没登记任何回扫”而业务其实是对的
         jdbc.update("delete from biz_delay_task where task_type = 'COMMAND_SWEEP'");
         jdbc.update("delete from biz_delay_task where task_type = 'COMMAND_RESCAN'");
-        // 模拟"下发写了、收敛没跑、进程死了"：指令留在 SENT，且没有任何回扫任务
         jdbc.update("update biz_device_command set status = 'SENT', sent_at = date_sub(now(3), interval 10 minute)"
                 + " where request_id = ?", requestId);
 
         TenantContext.runAs(TENANT, () -> tasks.schedule(TaskType.COMMAND_SWEEP, String.valueOf(TENANT),
                 TENANT, LocalDateTime.now().minusSeconds(5)));
         expireTasks(TaskType.COMMAND_SWEEP);
-        // 一轮 runDue 只按 fire_at 取 batch-size 条：共享库里别人的到期任务排在前面时，
-        // 我们这条扫街本轮根本不会被认领——这就是它偶尔红的真因（不是业务错，是观测窗口不够）。
-        // 所以跑到“登记出现”为止，并给上限防止死循环
         BizDelayTask registered = null;
         for (int round = 0; round < 20 && registered == null; round++) {
             runDue();
             registered = rescanTask(requestId);
         }
         assertNotNull(registered, "扫街必须把卡住的指令重新推上回扫通道");
-        // 不断言一定是 PENDING：登记后它可能在后续轮次被立即执行完（那就是本用例期望的行为）。
-        // 真正不能接受的是被判死：那意味着进了回扫通道却没人被执行
         assertTrue(registered.getStatus() != TaskStatus.DEAD,
                 "回扫任务不该直接判死，实测 " + registered.getStatus());
 
-        // 回扫真跑一轮：设备正常，指令要收敛成 SUCCEEDED（而不是永远 SENT）
         expireTasks(TaskType.COMMAND_RESCAN);
         runDue();
         assertEquals(CommandState.SUCCEEDED, command(requestId).getStatus(),

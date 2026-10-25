@@ -4,13 +4,6 @@ import org.slf4j.MDC;
 
 import java.time.OffsetDateTime;
 
-/**
- * 统一响应体。所有对外接口（含异常）都以本结构返回，前端只需处理 code / message。
- *
- * <p>traceId 由 {@code TraceIdFilter} 写入 MDC，这里自动带出，便于用户报障时直接定位日志。
- *
- * @param <T> 业务数据类型
- */
 public class R<T> {
 
     public static final String TRACE_ID_KEY = "traceId";

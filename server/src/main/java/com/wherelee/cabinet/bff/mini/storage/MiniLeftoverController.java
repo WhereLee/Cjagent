@@ -18,15 +18,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 客户-遗留物取回（第 21 刀）。
- *
- * <p>闭环的物主侧：发现遗留物时系统已给他发了站内消息，他从"我的寄存单"进来，
- * 两步拿回自己的东西——开门、确认取完。话术直接返回给客户端展示（与代关闭环同一形态）：
- * 每一步的下一步要做什么，接口自己说清楚，不靠前端猜。
- *
- * <p>取回全程 0 元、不改订单状态：这两步都是"拿回自己的东西"，不是一笔新业务。
- */
 @Tag(name = "客户-遗留物取回", description = "上一位落了东西在柜里：物主凭登录态自助取回")
 @RestController
 @RequestMapping("/api/mini/storage/orders/{orderNo}/leftover")

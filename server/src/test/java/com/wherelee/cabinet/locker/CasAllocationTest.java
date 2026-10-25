@@ -11,12 +11,6 @@ import org.springframework.test.context.ActiveProfiles;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 乐观 CAS 策略下的分配行为。
- *
- * <p>与悲观锁跑<b>完全相同</b>的断言（继承基类），只有配置不同——
- * 这样两组的差异才只能来自并发控制方式本身，而不是测试写法不同。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = "cabinet.alloc.strategy=cas")
@@ -42,7 +36,6 @@ class CasAllocationTest extends AbstractAllocationBehaviourTest {
 
         double avgTried = views.stream().mapToInt(
                 com.wherelee.cabinet.storage.api.StorageOrderView::triedSlots).average().orElse(0);
-        // 悲观锁恒为 1；CAS 在 20 抢 6 的场景下必然出现“第一个候选已被抢走”
         Assertions.assertAll(
                 () -> assertTrue(avgTried > 1.0, "CAS 平均尝试次数应大于 1，实际 " + avgTried),
                 () -> assertTrue(views.stream().allMatch(v -> v.triedSlots() <= CasSlotAllocator.MAX_ATTEMPTS),

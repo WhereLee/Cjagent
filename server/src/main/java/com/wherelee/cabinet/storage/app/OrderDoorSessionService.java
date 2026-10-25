@@ -21,13 +21,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-/**
- * 开柜会话：三种开门动作（首次投件 / 中途取物 / 关门校验）的编排，以及预备开握手。
- *
- * <p>为什么从订单用例里拆出来：开门是一条“先问设备、再推状态、最后给话术”的长链，
- * 其中还夹着预备开重试→换格→退单的判决。它有自己的失败语义与配置（重试次数、间隔），
- * 与下单/取件/结算不是同一类判断。拆开后订单服务只负责“什么场景下该开哪扇门”。
- */
 @Service
 public class OrderDoorSessionService {
 
@@ -44,7 +37,6 @@ public class OrderDoorSessionService {
     private final WorkOrderPort workOrderPort;
     private final SlotAllocator allocator;
 
-    /** 定-21 / 定-23：预备开在同一次点击内的自动重试次数与间隔。 */
     @Value("${cabinet.device.open-retries:2}")
     private long openRetries;
 
@@ -71,8 +63,6 @@ public class OrderDoorSessionService {
 
     public StorageOrderView openDoor(Long customerId, String orderNo, CommandAction action) {
         BizStorageOrder order = lookup.findOwned(customerId, orderNo);
-        // 取件码连错锁定后，**开柜能力**被锁（不管首次投件还是中途取物）；
-        // 但“关门校验”与“结束订单”不拦——结束不需要开门，把他困在柜子前不是本锁的目的。
         if (action != CommandAction.CLOSE_VERIFY) {
             vouchers.requireNotLocked(order);
         }
@@ -97,18 +87,12 @@ public class OrderDoorSessionService {
         }
 
         if (opening) {
-            // 定-23：先预备开（逻辑开，门不动）握手。只有柜机肯定应答了才往下走真开：
-            // 把“不确定”消灭在还没发生物理动作之前，这一步失败时退钱是安全的。
             prepareHandshake(customerId, order, cabinet);
-            // 握手过程中可能已换过格口：必须重读，不能拿着旧对象往下写（会撞 @Version）
             order = lookup.findOwned(customerId, orderNo);
         }
 
         if (opening) {
             order.transitTo(OrderStatus.OPENING);
-            // 推 OPENING 是"我要开门了"的占位。落空说明并发对手（10 分钟待收敛回收、
-            // 门未关巡检）已经改过这行，而上面 :88 的 RESERVED 守卫是用陈旧快照过的——
-            // 此时再下发指令就是往一个状态未知的单上开门。
             if (orderMapper.updateById(order) == 0) {
                 throw new BizException(ResultCode.SYSTEM_ERROR, "订单已被并发修改，请重试 orderNo=" + orderNo);
             }
@@ -120,16 +104,9 @@ public class OrderDoorSessionService {
         try {
             outcome = deviceCommands.dispatch(cabinet.id(), order.getSlotId(), action, order.getId(), requestId);
         } catch (RuntimeException e) {
-            // 上面已经把 RESERVED 推成 OPENING 并单独提交了（等回执不能开事务）。
-            // 下发本身报错（柜机离线、通道异常）时若不退回，单就会卡在 OPENING：
-            // 用户既重试不了，也没人来推它——这就是“每个异常路径都要回答下一步能做什么”。
             if (opening) {
                 order.transitTo(OrderStatus.RESERVED);
                 if (orderMapper.updateById(order) == 0) {
-                    // 退回没成功。不能在这里抛：那会用一个新异常盖住真正的下发失败原因，
-                    // 而用户该看到的是"柜机离线"而不是"并发冲突"。重读确认现状：
-                    // 对手已经把它推出 OPENING 就不用管，否则它会真的卡在那里，
-                    // 必须留一条 ERROR——10 分钟待收敛回收会兜底，但兜底不等于没人知道。
                     BizStorageOrder now = orderMapper.selectById(order.getId());
                     if (now != null && now.getStatus() == OrderStatus.OPENING) {
                         log.error("下发失败后退回 RESERVED 也没成功，订单卡在 OPENING 等待收敛回收 orderNo={}",
@@ -146,10 +123,6 @@ public class OrderDoorSessionService {
         }
 
         String openSlotNo = lookup.slotNoOf(order.getSlotId());
-        // 首次投件开成功时把取件码交给用户（第 25 刀）：place 链用户看到的是这个视图，
-        // 所以交付点必须在开柜动作之后，而不是在被 place 丢掉的 create 视图里。
-        // OPEN_TEMP / CLOSE_VERIFY 也必须把设备真实结果带出来：AI 客服要据此判断“开了没有”，
-        // 不能再拿 null 当“成功了”，也不能把“已下发无回执”说成“门已打开”。
         String note;
         if (opening && outcome.businessSuccess()) {
             note = vouchers.noteForNewOrder(order.getVoucherCode(), openSlotNo);
@@ -171,19 +144,6 @@ public class OrderDoorSessionService {
                 0, allocator.strategy(), note);
     }
 
-    /**
-     * 预备开握手（定-23）：重试→换格→退单只可能发生在“柜机自己明确回报开不了”之后。
-     *
-     * <p>三种结果的处理完全不同（用户 2026-10-11 定）：
-     * <ul>
-     *   <li>PASSED：柜机确认能动作 → 往下走真开；</li>
-     *   <li>SILENT（无回执/乱序旧回执）：“我们不知道”，<b>不动钱不动单</b>，直接往下走真开；</li>
-     *   <li>FAILED（回执里柜机自己说开不了）：才能重试，耗尽后换格，换不到才退单退预收。</li>
-     * </ul>
-     *
-     * <p>为什么真开不回话不能退单：柜机可能已经把门弹开了，只是回话丢了。这时退钱退单
-     * 会把格子卖下一个人，而用户的包就在里面。
-     */
     private void prepareHandshake(Long customerId, BizStorageOrder order, CabinetSnapshot cabinet) {
         int tries = 1 + (int) openRetries;
         for (int i = 0; i < tries; i++) {
@@ -195,13 +155,11 @@ public class OrderDoorSessionService {
             }
         }
 
-        // 重试用尽（柜机每次都明确回答“开不了”）：先试换同规模空格（定-21）
         BizStorageOrder current = lookup.findOwned(customerId, order.getOrderNo());
         if (swapToFreeSlot(current) && prepareOnce(current, cabinet) == PrepareResult.PASSED) {
             return;
         }
 
-        // 换不到（或换完仍明确开不了）：此时门肯定没开过，退单退预收是安全的
         try {
             release.cancel(customerId, current.getOrderNo());
         } catch (RuntimeException releaseFailed) {
@@ -212,15 +170,8 @@ public class OrderDoorSessionService {
                 "这个柜口现在打不开，也没有可用的同规模空格：已为你退单，预收全额退回。");
     }
 
-    /** 预备开的三种结果：能开 / 开不了 / 没回话。“没回话”与“开不了”的处理完全不同。 */
     private enum PrepareResult { PASSED, FAILED, SILENT }
 
-    /**
-     * 一次预备开。
-     *
-     * <p>“确认坏了”只有一个判据：<b>{@code faultType == OPEN_FAILED}</b>（柜机自己回报开柜失败）。
-     * 不能拿 {@code businessSuccess == false} 当判据：无回执、串位、离线、连续失败都不是死刑判决。
-     */
     private PrepareResult prepareOnce(BizStorageOrder order, CabinetSnapshot cabinet) {
         long seq = countAttempts(order.getOrderNo(), CommandAction.PREPARE);
         var outcome = deviceCommands.dispatch(cabinet.id(), order.getSlotId(),
@@ -235,12 +186,6 @@ public class OrderDoorSessionService {
         return PrepareResult.SILENT;
     }
 
-    /**
-     * 换同规模空格口，并把判定故障的旧格口摘出可分配池。
-     *
-     * <p>候选用的是 <b>同一条可分配判据</b>（空闲 ∧ 门已关 ∧ 无异常）：自己另写一套筛选就会出现
-     * “换到一个有别人东西的格子”这种最坏结果。
-     */
     private boolean swapToFreeSlot(BizStorageOrder order) {
         var swapped = slotSwap.swapIn(order.getCabinetId(), order.getSizeType(),
                 order.getId(), order.getSlotId()).orElse(null);
@@ -250,10 +195,6 @@ public class OrderDoorSessionService {
         Long oldSlotId = order.getSlotId();
         order.setSlotId(swapped.id());
         if (!writeSwappedSlot(order)) {
-            // 换格没写进订单行：{@link SlotSwapPort} 只有 swapIn 没有逆操作，
-            // 新格口已经绑给这张单了，所以这里既不能报"已改用格口 X"（现场不是），
-            // 也不能假装换成功。返回 false 让上层走退单——门肯定没开过，退预收是安全的；
-            // 悬空的新格口由 FREE_SET_SYNC 与 10 分钟待收敛回收兜底，但必须留一条 ERROR。
             log.error("换格写库失败，新格口可能悬空需核对 orderNo={} old={} new={}",
                     order.getOrderNo(), oldSlotId, swapped.id());
             return false;
@@ -266,16 +207,6 @@ public class OrderDoorSessionService {
         return true;
     }
 
-    /**
-     * 把换格结果写进订单行，落空则重读再试一次。
-     *
-     * <p>为什么重读而不是直接抛：{@code openDoor:103-104} 已经写明这条链上
-     * 「握手过程中可能已换过格口：必须重读，不能拿着旧对象往下写（会撞 @Version）」——
-     * 落空的原因就是手里这份快照陈旧，重读拿到新 version 再写一次即可，不需要惊动用户。
-     *
-     * <p>重试仍落空说明对手在持续写同一行（待收敛回收与门未关巡检都会写它），
-     * 交给调用方按"没换成"处理，不能无限重试。
-     */
     private boolean writeSwappedSlot(BizStorageOrder order) {
         if (orderMapper.updateById(order) == 1) {
             return true;
@@ -285,18 +216,12 @@ public class OrderDoorSessionService {
             return false;
         }
         if (order.getSlotId().equals(fresh.getSlotId())) {
-            // 对手写的正是同一个新格口（例如上一轮换格的重跑）：结果已经在了，算成功
             return true;
         }
-        // 用重读到的行写：保留对手对其它字段（状态、容错期）的改动，只补上格口
         fresh.setSlotId(order.getSlotId());
         return orderMapper.updateById(fresh) == 1;
     }
 
-    /**
-     * 重试前的间歇。<b>不在任何事务里</b>（openDoor 本身已为了等回执而跳出事务）：
-     * 拿 sleep 占着连接就是第 9 刀压测的瓶颈。
-     */
     private void sleepBeforeRetry() {
         try {
             Thread.sleep(openRetryIntervalMs);
@@ -307,7 +232,6 @@ public class OrderDoorSessionService {
     }
 
     private long countAttempts(String orderNo, CommandAction action) {
-        // “第几次尝试”是设备侧的账：由 CommandPort 按 requestId 前缀计数，订单侧不再查指令表。
         return deviceCommands.countAttempts(orderNo + ":" + action.name() + ":");
     }
 }

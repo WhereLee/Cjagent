@@ -20,13 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 用 Logback 的 ListAppender 直接断言日志事件。
- *
- * <p>为什么不用响应头断言：X-Request-Cost 方案已废弃（响应在控制器返回时就 committed，
- * filter 后置写头会被容器丢弃，而 MockMvc 不提交响应所以断言会给出假绿）。
- * 访问日志的契约本来就在服务端，那就在服务端断言。
- */
 class AccessLogFilterTest {
 
     private final CabinetProperties properties = new CabinetProperties();
@@ -72,7 +65,7 @@ class AccessLogFilterTest {
     @Test
     @DisplayName("超过阈值升级为 WARN 并标注慢请求")
     void warnsWhenSlow() throws Exception {
-        properties.getAccessLog().setSlowThresholdMs(0); // 任何请求都算慢
+        properties.getAccessLog().setSlowThresholdMs(0);
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/admin/x");
 
         filter.doFilter(request, response(), new MockFilterChain());
@@ -105,7 +98,6 @@ class AccessLogFilterTest {
         try {
             filter.doFilter(new MockHttpServletRequest("GET", "/api/system/boom"), response(), failing);
         } catch (IllegalStateException expected) {
-            // 异常继续上抛给 GlobalExceptionHandler
         }
 
         assertFalse(events().isEmpty(), "异常请求也要留下访问日志");

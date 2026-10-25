@@ -22,15 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-/**
- * AI 作业的取证（批 7）。
- *
- * <p>四条覆盖的是"作业化"这个改动的全部承诺：防双击只花一次模型调用、跑完能读到产出、
- * 产出只给提交人看、进程死了别人能接管。
- *
- * <p>跑在桩模式（{@code cabinet.agent.client=stub}）：诊断端口立即返回一段固定报告，
- * 所以这里测的是作业的调度与状态机，不是模型质量——那部分由 {@code RealAgentLiveTest} 负责。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -49,8 +40,6 @@ class AiJobFlowTest {
     @Autowired
     private DataSource dataSource;
 
-    /** 与项目惯例一致：注入 DataSource 自己 new（WorkOrderFlowTest 也这么写）。
-     * 批 8 删掉向量库数据源之后容器里只剩一个 JdbcTemplate，这个写法仍然更稳。 */
     private JdbcTemplate jdbc;
 
     @BeforeEach
@@ -60,7 +49,6 @@ class AiJobFlowTest {
 
     @AfterEach
     void cleanup() {
-        // 执行器是跨租户扫描的，所以清全表：留着会被下一个用例跑到（outbox 那边踩过同一个坑）
         jdbc.update("delete from biz_ai_job");
     }
 
@@ -108,7 +96,6 @@ class AiJobFlowTest {
     void expiredLeaseIsTakenOver() {
         Long jobId = submitDiagnose();
 
-        // 造“执行中被 kill”：状态是 RUNNING、持有者是一个不会再回来的实例、租约已过期
         jdbc.update("update biz_ai_job set status = 'RUNNING', lease_owner = 'dead-instance', "
                 + "lease_expire_at = date_sub(now(3), interval 1 minute) where id = ?", jobId);
 

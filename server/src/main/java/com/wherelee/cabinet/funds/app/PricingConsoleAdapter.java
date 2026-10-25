@@ -8,12 +8,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
-/**
- * BFF 侧计价入口的实现：把 api 的 DTO 转成资金域实体，再交给 {@link PriceRuleService}。
- *
- * <p>转换放在这一层而不是让 {@link BizPriceRule} 出现在 api 里：对外契约只认字段，
- * 实体上的审计列、逻辑删除位与版本号不能顺着“发布一版策略”漏到前端。
- */
 @Service
 public class PricingConsoleAdapter implements PricingConsolePort {
 

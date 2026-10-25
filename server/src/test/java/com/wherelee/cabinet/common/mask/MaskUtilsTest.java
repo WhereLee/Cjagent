@@ -11,9 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 脱敏行为。这类代码的风险是"看起来生效其实没生效"，所以每条都要断言到原文不可见。
- */
 class MaskUtilsTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -71,7 +68,6 @@ class MaskUtilsTest {
     @Test
     @DisplayName("防过度脱敏：tenantCode 不是微信 code，必须原样保留")
     void doesNotOverMaskBusinessFields() {
-        // 曾经 "包含 code" 把 tenantCode 也遮了，登录审计就看不出针对哪个租户
         String summary = MaskUtils.toMaskedSummary(mapper,
                 Map.of("tenantCode", "t-one", "code", "wx-code-123"));
         assertTrue(summary.contains("t-one"), "tenantCode 被误遮，日志失去价值: " + summary);
@@ -81,7 +77,6 @@ class MaskUtilsTest {
     @Test
     @DisplayName("长度不足时全遮，不原样吐出")
     void shortValuesAreFullyMasked() {
-        // 位数不够时保留前 3 后 4 会泄露全部位，所以只能是全遮
         assertEquals("*****", MaskType.PHONE.mask("12345"));
         assertEquals("****", MaskType.BANK_CARD.mask("1234"));
         assertEquals("", MaskType.NAME.mask(""));

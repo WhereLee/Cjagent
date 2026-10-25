@@ -30,14 +30,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/**
- * AOP 三注解（审计 / 幂等 / 限流）的行为验证。
- *
- * <p>本类<b>故意不加 {@code @Transactional}</b>：审计写入是 REQUIRES_NEW 独立提交的，
- * 若测试自己开一个事务，MySQL 默认 REPEATABLE READ 的快照可能看不到那条已提交的记录，
- * 断言就会不稳定。测试数据留在 cabinet_test（一次性库）里，用 traceId / 随机 orderNo 定位，
- * 不依赖"取最新一条"这种会互相串味的写法。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest
@@ -53,7 +45,6 @@ class AopAnnotationsTest {
 
     @BeforeEach
     void clearRateLimitBuckets() {
-        // 限流桶是 GLOBAL 且 TTL 60s，不清的话同一分钟内重复跑本类会一上来就 429
         Set<String> keys = redis.keys("cab:rl:probe-global:*");
         if (keys != null && !keys.isEmpty()) {
             redis.delete(keys);
@@ -90,7 +81,6 @@ class AopAnnotationsTest {
         assertTrue(params.contains("138****8000"), "手机号应部分遮蔽: " + params);
         assertTrue(!params.contains("13800138000"), "明文手机号绝不能进审计表: " + params);
         assertTrue(!params.contains("SuperSecret"), "口令绝不能进审计表: " + params);
-        // 不写死星号个数（随口令长度变）：只要求 password 的值是全星号
         assertTrue(java.util.regex.Pattern.compile("\"password\":\"\\*+\"").matcher(params).find(),
                 "口令应被整体遮蔽: " + params);
     }
@@ -102,7 +92,6 @@ class AopAnnotationsTest {
         MvcResult result = mockMvc.perform(post("/api/public/probe/audit-failing")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(orderNo, "13900139000", "Whatever123")))
-                // BizException 属 1xxxx 业务码 → HTTP 200 + code 10000，异常没被切面吃掉
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(10000))
                 .andExpect(jsonPath("$.message").value("故意失败: " + orderNo))
@@ -146,7 +135,6 @@ class AopAnnotationsTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(40900));
 
-        // 换一个业务键必须放行，否则说明键根本不是业务键（例如按方法名做了全局锁）
         mockMvc.perform(post("/api/public/probe/idempotent")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body(orderNo + "-other", null, null)))
@@ -162,7 +150,6 @@ class AopAnnotationsTest {
             mockMvc.perform(post("/api/public/probe/idempotent-failing")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(body(orderNo, null, null)))
-                    // 两次都必须真正进到业务方法（10000），而不是第二次变 409
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.code").value(10000));
         }
@@ -197,7 +184,6 @@ class AopAnnotationsTest {
         mockMvc.perform(post("/api/public/probe/idempotent-fallback")
                         .contentType(MediaType.APPLICATION_JSON).content(body(orderNo, null, null)))
                 .andExpect(status().isConflict());
-        // 入参不同 → 兜底哈希不同 → 不算重复
         mockMvc.perform(post("/api/public/probe/idempotent-fallback")
                         .contentType(MediaType.APPLICATION_JSON).content(body(orderNo + "x", null, null)))
                 .andExpect(status().isOk());
@@ -206,8 +192,6 @@ class AopAnnotationsTest {
     @Test
     @DisplayName("AnnotatedProbeController 只存在于测试源码（生产构件里不该有探针）")
     void probeIsTestOnly() {
-        // 这个断言看起来多余，它守的是一件事：探针类被误搬到 main 后，
-        // 生产就会暴露 /api/public/probe/** 这类无鉴权入口。
         assertNotNull(AnnotatedProbeController.class.getAnnotation(org.springframework.web.bind.annotation.RestController.class));
     }
 }

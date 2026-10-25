@@ -46,13 +46,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 19B 工单流转：开单幂等、级别映射、认领、派线下、自动转化留底。
- *
- * <p>这里最容易被写歪的两件事，都被单独设了用例：
- * ① 同一异常被反复观察只能有一张未关闭工单（否则队列长度失去意义）；
- * ② 自动转化<b>不能</b>记成人工结论，也不能删（用户明确要求留底）。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -88,8 +81,6 @@ class WorkOrderFlowTest {
     void prepare() {
         jdbc = new JdbcTemplate(dataSource);
         String suffix = UUID.randomUUID().toString().substring(0, 8).toUpperCase();
-        // 主键不能从 8 位随机码再取模 9 万算：桶太少，跨类跨轮必撞（实测撞过一次 DuplicateKey，
-        // 表现为完完全全不相干的用例红）。“测试数据不相互碰撞”得靠区间而不是靠运气
         Long siteId = java.util.concurrent.ThreadLocalRandom.current().nextLong(81_6100_0000L, 89_9999_9999L);
         cabinetId = siteId + 1;
         slotId = siteId + 2;
@@ -104,7 +95,6 @@ class WorkOrderFlowTest {
                 + "door_open_at, anomaly, current_order_id, create_time, update_time, deleted) "
                 + "values (?, ?, ?, ?, 'SMALL', 'OCCUPIED', NOW(3), NULL, ?, NOW(3), NOW(3), 0)",
                 slotId, TENANT, cabinetId, slotNo, siteId + 3);
-        // 一个带电话的客户 + 一张绑在这个格口上的活动单：工单要快照“当时能联系到谁”
         jdbc.update("insert into biz_customer (id, tenant_id, open_id, nickname, phone, status, register_time, create_time, update_time, deleted) "
                 + "values (?, ?, ?, '工单客户', ?, 1, NOW(3), NOW(3), NOW(3), 0)",
                 81619999L, TENANT, "wo-" + suffix, "13800001234");
@@ -121,9 +111,6 @@ class WorkOrderFlowTest {
     @AfterEach
     void cleanup() {
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
-        // outbox 清全表（不带 tenant_id）：中继的 findDueIds 是**跳租户**的，
-        // 而取件/取消路径在别的测试类里也会写 outbox 却不清——那些行会挤占 batchSize，
-        // 让本用例自己那条排不进去。测试串行跑，全表清不会误伤谁。
         jdbc.update("delete from biz_outbox");
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order_event where tenant_id = ?", TENANT);
@@ -146,8 +133,6 @@ class WorkOrderFlowTest {
 
     private void markDoorOpen() {
         TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 11));
-        // 工单与消息现在由 outbox 中继投递（批 4）：标异常只写一行待投递事实。
-        // 集成测试里调度是关掉的，所以夹具显式投递一次，让用例看到“扇出已完成”的现场。
         outboxRelay.deliverBatch();
     }
 
@@ -245,7 +230,6 @@ class WorkOrderFlowTest {
         assertTrue(timeline.stream().anyMatch(e -> "REPEATED".equals(e.eventType())),
                 "重复观察到也要留痕：它是“这格一直没关”的次数证据");
 
-        // 快照里必须有业务员判断性质需要的东西（位置、编号、时间、电话、检测值）
         String snapshot = jdbc.queryForObject(
                 "select cast(snapshot_json as char) from biz_work_order where id = ?", String.class, id);
         assertNotNull(snapshot);
@@ -259,7 +243,6 @@ class WorkOrderFlowTest {
     void urgentLevelFollowsDetection() {
         jdbc.update("update biz_compartment set presence = 'PRESENT' where id = ?", slotId);
         markDoorOpen();
-        // TINYINT(1) 被驱动读成 Boolean，不是数字：拿 Integer 取会 TransientDataAccess/ClassCast
         assertEquals(Boolean.TRUE, jdbc.queryForObject(
                 "select urgent from biz_work_order where tenant_id = ? and slot_id = ? and type = 'DOOR_NOT_CLOSED'",
                 Boolean.class, TENANT, slotId), "有物的门未关就是紧急异常（用户口径）");
@@ -293,7 +276,6 @@ class WorkOrderFlowTest {
         assertTrue(timeline.stream().anyMatch(e -> "AUTO_CLOSED".equals(e.eventType()) && e.operatorId() == null),
                 "留痕里系统事件的 operator 必须为空");
 
-        // 关掉之后，同一个格口再出同样的异常必须能开出新单
         markDoorOpen();
         assertEquals(2, jdbc.queryForObject(
                 "select count(*) from biz_work_order where tenant_id = ? and slot_id = ?", Integer.class, TENANT, slotId),
@@ -303,18 +285,15 @@ class WorkOrderFlowTest {
     @Test
     @DisplayName("认领只有一人成功；处理结论必填；派线下是另开子单而不是改父单")
     void claimThenResolveDispatchesChildOrder() {
-        // 先让这单是紧急的（柜内有物 + 门未关），才能验证“子单继承级别”而不是“子单恒紧急”
         jdbc.update("update biz_compartment set presence = 'PRESENT' where id = ?", slotId);
         markDoorOpen();
         Long id = jdbc.queryForObject(
                 "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
 
         TenantContext.runAs(TENANT, () -> workOrders.claim(id, 777L));
-        // 第二个人来认领：必须失败，不能静默把 assignee 换掉（那样两人都以为是自己办的）
         BizException rejected = assertThrows(BizException.class,
                 () -> TenantContext.runAs(TENANT, () -> workOrders.claim(id, 888L)));
         assertTrue(rejected.getMessage().contains("认领"), rejected.getMessage());
-        // 同一个人重放认领不该报错（前端重试、双击）
         TenantContext.runAs(TENANT, () -> workOrders.claim(id, 777L));
 
         assertThrows(BizException.class,
@@ -342,7 +321,6 @@ class WorkOrderFlowTest {
         assertTrue(childTimeline.stream().anyMatch(e -> "DISPATCHED".equals(e.eventType())),
                 "派发动作记在子单上：父单说“为什么派人”，子单说“谁派来的”");
 
-        // 队列视图里线上只剩已关闭、线下多了一张待办（返回已改统一分页）
         PageResult<WorkOrderConsolePort.WorkOrderView> field = TenantContext.callAs(TENANT,
                 () -> workOrders.queue(WorkOrderService.SIDE_FIELD, true, new PageQuery()));
         assertEquals(1, field.total());
@@ -365,7 +343,6 @@ class WorkOrderFlowTest {
         assertEquals("工单测试点位", v.siteAddress(), "点位地址来自快照（回查会被改名带跑）");
         assertNotNull(v.detection());
         assertTrue(v.detection().contains("门=开着"), "检测值要能还原现场：" + v.detection());
-        // 服务层直调没有认证上下文，手机号按默认拒绝脱敏（有权限点拿到明文的对照见 PhoneVisibilityTest）
         assertEquals(com.wherelee.cabinet.common.mask.MaskType.PHONE.mask("13800001234"),
                 v.customerPhone());
     }
@@ -432,9 +409,6 @@ class WorkOrderFlowTest {
         assertEquals(14, guarded,
                 "十四个端点都要独立权限点（两列队列/时间线/证据/父子关系/AI 简报/认领/处理/派单/电话清单与回填/电话记录/刷新分诊/暂停与恢复SLA）；"
                         + "不能靠一个管理员点完，否则留痕里分不出责任");
-        // 线下运维有 claim/resolve 却看不了单内容是自相矛盾：timeline/evidence/ai-brief 必须
-        // 让两个队列的查看权都能过（field_ops 只有 field:list，缺了它认领后寸步难行；
-        // AI 简报是给看单的人用的，同一口径，第 23 刀）
         for (String name : List.of("timeline", "evidence", "brief")) {
             var pre = java.util.Arrays.stream(methods)
                     .filter(m -> m.getName().equals(name)).findFirst().orElseThrow()
@@ -443,13 +417,11 @@ class WorkOrderFlowTest {
                             && pre.value().contains("workorder:field:list"),
                     name + " 必须同时放行线上与线下队列查看权：" + pre.value());
         }
-        // 派线下是既有独立权限点（V17 已建），不能只校验 resolve 就放行
         var resolve = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("resolve")).findFirst().orElseThrow()
                 .getAnnotation(org.springframework.security.access.prepost.PreAuthorize.class);
         assertTrue(resolve.value().contains("workorder:dispatch-field"),
                 "needOffline=true 必须额外要求派线下权限：" + resolve.value());
-        // 接口层不得回传实体：拿泛型字符串直读，比反射拆 ParameterizedType 清楚得多
         String onlineReturn = java.util.Arrays.stream(methods)
                 .filter(m -> m.getName().equals("online")).findFirst().orElseThrow()
                 .getGenericReturnType().getTypeName();
@@ -477,8 +449,6 @@ class WorkOrderFlowTest {
     @Test
     @DisplayName("扇出失败不回滚事实：工单投不出去，异常态与流水照样在")
     void fanOutFailureDoesNotRollBackTheFact() {
-        // 改造前这里根本走不到：同步调工单时下游一抛异常，标异常与写流水全部回滚，
-        // 用户的操作（上报遗留物/取件）也跟着失败。现在业务事实先提交，派生动作落后一步。
         TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 11));
 
         assertEquals("DOOR_OPEN", jdbc.queryForObject(
@@ -487,7 +457,6 @@ class WorkOrderFlowTest {
         assertEquals(1, rows("select id from biz_fault_event where slot_id = ?", slotId).size(),
                 "故障流水必须已经提交");
 
-        // 把载荷弄坏，模拟“工单侧投递失败”
         jdbc.update("update biz_outbox set payload = '{broken' where tenant_id = ? and status = 'PENDING'", TENANT);
         assertEquals(0, outboxRelay.deliverBatch(), "载荷坏掉时投不出去");
 
@@ -498,7 +467,6 @@ class WorkOrderFlowTest {
         assertEquals(1L, ((Number) failed.get("attempt")).longValue());
         assertNotNull(failed.get("last_error"), "失败原因要留下来，否则没人知道为什么没投出去");
 
-        // 判死：把 attempt 顶到上限的前一次，下一轮失败就该 DEAD 等人工
         jdbc.update("update biz_outbox set attempt = 4, next_attempt_at = now(3) where tenant_id = ?", TENANT);
         outboxRelay.deliverBatch();
         assertEquals("DEAD", jdbc.queryForObject(
@@ -529,7 +497,6 @@ class WorkOrderFlowTest {
                 "select id from biz_notice where work_order_id = ? and channel = 'SYSTEM_MESSAGE'", wo).size(),
                 "同时给客户一条站内消息（没有推送，他自己看到也算提醒到）");
 
-        // 阶梯每轮都会重进升级分支：第二次必须什公都不产生
         assertFalse(TenantContext.callAs(TENANT,
                 () -> workOrders.escalate(slotId, WorkOrderType.DOOR_NOT_CLOSED, "重复升级")),
                 "已升级过的单不应再命中一次升级");
@@ -543,8 +510,6 @@ class WorkOrderFlowTest {
     void readAndCallDoneGuards() {
         markDoorOpen();
         TenantContext.runAs(TENANT, () -> workOrders.escalate(slotId, WorkOrderType.DOOR_NOT_CLOSED, "到点"));
-        // 裸 SQL 必须带租户：同一个 JVM 里别的用例类也在写 biz_notice，
-        // 不带条件的 limit 1 会捞到他们的消息，症状是“标已读报了别人的账号”这种假错
         Long messageId = jdbc.queryForObject(
                 "select id from biz_notice where tenant_id = ? and channel = 'SYSTEM_MESSAGE' order by id desc limit 1",
                 Long.class, TENANT);
@@ -552,7 +517,6 @@ class WorkOrderFlowTest {
                 "select id from biz_notice where tenant_id = ? and channel = 'PHONE_CALL' order by id desc limit 1",
                 Long.class, TENANT);
 
-        // 别人来读：条件里带 customer_id，改不到别人的消息
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
                 () -> notices.markRead(messageId, 999999L)), "不得替别人标已读");
         TenantContext.runAs(TENANT, () -> notices.markRead(messageId, 81619999L));
@@ -564,7 +528,6 @@ class WorkOrderFlowTest {
         TenantContext.runAs(TENANT, () -> notices.markCallDone(callId, "已联系，客户十分钟内回来关门"));
         assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
                 () -> notices.markCallDone(callId, "又被回填一次")), "第二个人不得盖掉第一个人的结论");
-        // 回填后不再出现在待打电话清单里
         assertTrue(TenantContext.callAs(TENANT, () -> notices.pendingCalls().stream().noneMatch(v -> v.id().equals(callId))),
                 "已回填的任务必须从清单消失，否则队列永远处理不完");
     }
@@ -575,7 +538,6 @@ class WorkOrderFlowTest {
         markDoorOpen();
         Long doorWo = jdbc.queryForObject(
                 "select id from biz_work_order where tenant_id = ? and slot_id = ?", Long.class, TENANT, slotId);
-        // 把一张“超 48 小时”类型的单建出来（直接用阶梯同样的入口链），再用它的 id 测自动派单
         TenantContext.runAs(TENANT, () -> intake.longRunningFor(slotId, "超 48 小时未结束"));
         Long parent = jdbc.queryForObject(
                 "select id from biz_work_order where tenant_id = ? and type = 'LONG_RUNNING' and queue_side = 'ONLINE'",
@@ -590,7 +552,6 @@ class WorkOrderFlowTest {
         assertEquals(WorkOrderStatus.PENDING.name(),
                 rows("select status from biz_work_order where id = ?", parent).get(0).get("status"),
                 "父单不能被机器标成已处理：那等于把“有人做过判断”伪造出来");
-        // 幂等：每小时都会重进这里，不得堆出第二张线下单
         Long again = TenantContext.callAs(TENANT, () -> workOrders.openFieldTwin(parent, "重试"));
         assertEquals(child, again, "同一父单只能有一张未关闭的线下子单");
         assertEquals(1, jdbc.queryForObject(
@@ -609,9 +570,6 @@ class WorkOrderFlowTest {
         Long child = TenantContext.callAs(TENANT, () -> workOrders.openFieldTwin(parent, "用例：父子共存"));
         assertEquals("FIELD", rows("select queue_side from biz_work_order where id = ?", child).get(0).get("queue_side"));
 
-        // V18 允许父子单同格口同类型共存。findOpen 若不区分 queue_side，selectOne 会命中两条直接抛异常，
-        // 症状是门未关阶梯每轮巡检都在“提醒”这一步断掉。
-        // markDoorOpen 本身已走过一轮阶梯提醒，这里验的是“父子共存后还能继续催”，不是绝对次数
         int remindersBefore = TenantContext.callAs(TENANT,
                 () -> workOrders.remindedTimes(slotId, WorkOrderType.DOOR_NOT_CLOSED));
         assertTrue(TenantContext.callAs(TENANT, () -> workOrders.remind(
@@ -660,7 +618,6 @@ class WorkOrderFlowTest {
     @Test
     @DisplayName("代关：只受理“门未关”的格口，其余异常不给外人“关一下就好”")
     void helperCloseRefusesStrongerLocks() {
-        // 遗留物是强锁：外人关一下不得把它降级成正常格口
         TenantContext.runAs(TENANT, () -> states.markContentLeft(slotId, "结束后检出物品"));
         BizException refused = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
                 () -> states.confirmClosedByAnother(slotId, 81619999L)));
@@ -669,7 +626,6 @@ class WorkOrderFlowTest {
                 "select anomaly from biz_compartment where id = ?", String.class, slotId),
                 "强锁必须还在：否则一推门就把有件的格子放回可售池");
 
-        // 门未关的格口才会出现在“只差关门”的清单里
         TenantContext.runAs(TENANT, () -> states.markDoorOpenPastTolerance(slotId, 4));
         assertEquals(1, TenantContext.callAs(TENANT, () -> states.closableSlots(cabinetId)).size(),
                 "可代关清单只能包含「门未关」这一类");

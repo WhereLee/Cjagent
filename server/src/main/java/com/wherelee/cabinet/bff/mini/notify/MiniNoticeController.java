@@ -16,12 +16,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/**
- * 客户的站内消息（19D）。
- *
- * <p>我们没有推送通道，所以"提醒"对客户而言只有这一种落点：他自己打开小程序时能看到
- * "你的格口门没关 / 有物品滞留"。<b>可见即提醒</b>，不假装有消息推送。
- */
 @Tag(name = "客户-消息", description = "与己相关的异常提醒（站内消息）")
 @RestController
 @RequestMapping("/api/mini/notices")

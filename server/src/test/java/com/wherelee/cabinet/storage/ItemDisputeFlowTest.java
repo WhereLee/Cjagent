@@ -48,24 +48,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 结束之后的遗留物：发现者上报、锁格、弱锁不覆盖强锁。
- *
- * <p>这个类以前叫"争议阶梯验收"，里面有六条用例靠<b>拒绝结束</b>来制造现场。19A 把结束
- * 改成一律不拦人之后，那六条的前提不成立了；2026-10-12 用户拍定"误报免除作废"，
- * 那六条连同 `denyItem` / `waiveDisputeFee` / AI 复审换结束许可那条链一起删除（不是禁用）。
- *
- * <p>留在这里的三条测的是**今天生产上唯一可达**的路径：
- * <ul>
- *   <li>结束不拦人 → 照收钱并关闭 → 物检检到东西 → 这一格标遗留物异常并进工单；</li>
- *   <li>漏检（传感器看不见）时，下一位使用者上报：他这一单免费退回，格子锁起来不再卖，
- *       原主的单上打标（他不在场时唯一的告知路径）；</li>
- *   <li>弱锁不覆盖强锁：一次"没测到"不能把"确实看见有东西"降级成可售。</li>
- * </ul>
- *
- * <p>为什么上报者必须全身而退：要他为不是自己造成的现场付钱，得到的只会是下次直接走人不报，
- * 那件东西就会一直躺在格子里被卖给第三个人。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -143,7 +125,6 @@ class ItemDisputeFlowTest {
         Object[] customers = customerIds.toArray();
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_work_order where tenant_id = ?", TENANT);
-        // 第 21 刀起 markContentLeft 会给物主发站内消息，按租户清掉避免共享库堆积
         jdbc.update("delete from biz_notice where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id = ?", cabinetId);
         jdbc.update("delete from biz_item_evidence where cabinet_id = ?", cabinetId);
@@ -198,11 +179,6 @@ class ItemDisputeFlowTest {
         return order(order.getOrderNo());
     }
 
-    /**
-     * 新口径下的“结束后现场真有东西”：19A 不拦人，所以结束会照收钱并关闭，
-     * 而物检检到东西就把这一格标成遗留物异常。这也是旧写法里拿 `abandon`
-     * （声明放弃，入口已删）造出现场的替换。
-     */
     private BizStorageOrder closeWithItemLeft(Long customerId) {
         BizStorageOrder order = activate(customerId, newOrder(customerId));
         simulator.simulateItemInside(cabinetId, order.getSlotId(), true);
@@ -210,8 +186,6 @@ class ItemDisputeFlowTest {
         BizStorageOrder closed = order(order.getOrderNo());
         assertEquals(OrderStatus.CLOSED, closed.getStatus(),
                 "柜里有东西也不能把用户钉在柜机前：照收钱、照关闭（定-13）");
-        // 定-17（2026-10-12 修正时机）：遗留与否不在点结束时判——那时柜里必然还是他自己的东西，
-        // 判了就是每次正常取物都误报一次遗弃。等他取完东西、把门关上之后那次检测才判
         simulator.simulateDoor(cabinetId, closed.getSlotId(), true);
         BizCompartment openedSlot = slot(closed.getSlotId());
         TenantContext.runAs(TENANT, () -> states.afterDoorClosed(openedSlot, customerId));
@@ -225,13 +199,9 @@ class ItemDisputeFlowTest {
     void leftoverReportLocksSlotAndRefundsReporter() {
         Long owner = newCustomer();
         BizStorageOrder first = activate(owner, newOrder(owner));
-        // 系统“看不见”这件东西（小件/透明物的现实盲区）：门关、物检答无物 → 正常结束、格口回可售。
-        // 这才是发现者路径要救的现场：不是“已知有东西”，而是“我们以为它是空的”
         simulator.simulateItemInside(cabinetId, first.getSlotId(), true);
         simulator.setFaultFor(cabinetId, SimulatedCabinetChannel.Fault.ITEM_UNDETECTED);
         TenantContext.runAs(TENANT, () -> orderService.pickup(owner, first.getOrderNo()));
-        // 结束即开门（定-17 后半句）之后，门开着时这一格不可卖是物理事实：
-        // 本用例要走到“下一位抢到同一格”，必须先让他把门关上（漏检下柜内仍被判为空）
         BizCompartment justOpened = slot(first.getSlotId());
         TenantContext.runAs(TENANT, () -> states.afterDoorClosed(justOpened, owner));
 
@@ -239,7 +209,6 @@ class ItemDisputeFlowTest {
         assertEquals(OrderStatus.CLOSED, closedFirst.getStatus());
         assertNull(slot(closedFirst.getSlotId()).getAnomaly(), "漏检下系统认为它是空的，没留任何标记");
 
-        // 把同尺寸其余格口停用，逼下一位只能拿到那一格（不让用例结论取决于分配顺序的巧合）
         jdbc.update("update biz_compartment set status = 'MAINTENANCE' "
                         + "where cabinet_id = ? and size_type = 'SMALL' and id <> ?",
                 cabinetId, closedFirst.getSlotId());
@@ -269,7 +238,6 @@ class ItemDisputeFlowTest {
         Long owner = newCustomer();
         Long slotId = closeWithItemLeft(owner).getSlotId();
 
-        // 门磁又被确认关上（下一个人来之前它物理上是关的）：异常必须仍在
         TenantContext.runAs(TENANT, () -> states.tryAutoRecover(slotId,
                 new Sensing(true, Presence.ABSENT, LocalDateTime.now())));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(), "I9：遗留物只能由人放行");
@@ -286,7 +254,6 @@ class ItemDisputeFlowTest {
         Long customerId = newCustomer();
         Long slotId = closeWithItemLeft(customerId).getSlotId();
 
-        // 门磁不确认时不降级：“遗留物”已经比“没凭据”更强
         TenantContext.runAs(TENANT, () -> states.markContentUnverified(slotId, "模拟一次无凭据的结束"));
         assertEquals(CompartmentAnomaly.CONTENT_LEFT, slot(slotId).getAnomaly(),
                 "遗留物是已经看见有东西，测不到只是没凭据；弱锁盖强锁会让被上报的格子被当空柜清走");

@@ -18,19 +18,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.fail;
 
-/**
- * 写端点 × 幂等处置的机器守卫。
- *
- * <p>为什么要有它：37 个写端点里只有 22 个标了 {@code @Idempotent}，剩下 15 个靠什么保证
- * "点两次不会做两次"——这件事没有人系统看过。清单把现状冻下来：
- * <b>UNGUARDED 不是错误，是账</b>，它把缺口摆在明面上，而不是等人双击一次才发现。
- *
- * <p>新增写端点时这条守卫会红，逼你回答一句"它靠什么防重"，然后把答案写进清单。
- * 补幂等本身是另一件事（第三册 G-03 的后续），不在本批。
- *
- * <p>有意更新清单：{@code ENDPOINT_IDEMPOTENCY_WRITE=1} 跑一次生成，人工复核后随同一次提交入库——
- * 与 {@code OpenApiContractTest} 同一手法（它也会在生成后主动 fail，提醒"这不是测试通过"）。
- */
 class EndpointIdempotencyGuardTest {
 
     private static final Path SOURCE_ROOT = Path.of("src/main/java");
@@ -75,7 +62,6 @@ class EndpointIdempotencyGuardTest {
                 "写端点有变化。新增写端点时必须回答‘它靠什么防重’，再把答案写进 " + BASELINE);
     }
 
-    /** 每个写端点一行。{@code @Idempotent} 写在映射注解之前，所以从映射行往上回看一小段。 */
     private List<String> scan() throws IOException {
         List<String> found = new ArrayList<>();
         try (Stream<Path> files = Files.walk(SOURCE_ROOT)) {
@@ -99,11 +85,6 @@ class EndpointIdempotencyGuardTest {
         return found;
     }
 
-    /**
-     * {@code @Idempotent} 写在映射注解之前，而中间可能还夹着 {@code @Operation}、
-     * {@code @OperationLog}、{@code @PreAuthorize}、{@code @Validated}——窗口给 15 行。
-     * 窗口太小会把“标了幂等”误判成 UNGUARDED，那是假账，比漏记更糟。
-     */
     private boolean guardedAbove(List<String> lines, int mappingLine) {
         int from = Math.max(0, mappingLine - 15);
         for (int i = from; i <= mappingLine; i++) {

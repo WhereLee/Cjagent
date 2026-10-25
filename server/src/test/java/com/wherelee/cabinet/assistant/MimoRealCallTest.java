@@ -17,17 +17,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-/**
- * 真模型冒烟：把四个 agent 各打一次，原始响应打到控制台当证据。
- *
- * <p><b>CI 不会跑这个类</b>：没有 {@code MIMO_API_KEY} 时 {@code @EnabledIfEnvironmentVariable}
- * 直接跳过，所以不会产生任何费用；也正因为这样它才可以留在仓库里。
- *
- * <p>为什么用测试而不是起 HTTP：后台没有可登录的种子账号（{@code sys_user} 零插入），
- * 而端口的入参就是这几个 agent 真正吃的东西——绕过鉴权层反而把"模型有没有通"这件事测得更纯。
- *
- * <p>跑法：{@code mvn test -Dtest=MimoRealCallTest}（key 已在 server/.env，会被 config.import 读到）。
- */
 @SpringBootTest(properties = {
         "cabinet.agent.client=real",
         "cabinet.dispute.review.client=mimo"
@@ -48,11 +37,6 @@ class MimoRealCallTest {
     @Autowired
     private DataSource dataSource;
 
-    /**
-     * 直调端口绕过了 TenantContextFilter，而所有工具都按租户查库。
-     * 不带上下文的结果是“工具全部报错、模型只能拿着一堆错误去编”——第一次跑就是这样。
-     * 所以每条用例自己带上租户：宁可显式传，也不靠一个隐式默认值把问题遮住。
-     */
     private Long tenantId() {
         return new JdbcTemplate(dataSource).queryForObject("select id from sys_tenant limit 1", Long.class);
     }

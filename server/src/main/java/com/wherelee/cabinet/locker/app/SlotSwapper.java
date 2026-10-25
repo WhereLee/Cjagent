@@ -12,7 +12,6 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 
-/** {@link SlotSwapPort} 的进程内实现：候选、预占、摘旧格三步都在 locker 内完成。 */
 @Component
 public class SlotSwapper implements SlotSwapPort {
 
@@ -37,7 +36,6 @@ public class SlotSwapper implements SlotSwapPort {
             if (slotMapper.reserveSlot(slot.getId(), orderId) == 0) {
                 continue;
             }
-            // 先抢新格再摘旧格：两人同时换也不会换到同一个；抢不到就试下一个
             slots.markFaulty(oldSlotId);
             return slotQueries.slot(slot.getId());
         }

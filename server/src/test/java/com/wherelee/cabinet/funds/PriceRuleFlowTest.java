@@ -44,16 +44,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-/**
- * 计价策略发布与按点位灰度（第 14D 刀验收）。
- *
- * <p>这一刀真正要证的只有一句话：<b>改价不能追溯改变已经下出去的单</b>。
- * 所以每条用例都在看两处——新单冻结了多少、快照里留了哪一版；
- * 而不是"发布接口能调通"（那没有价值）。
- *
- * <p>默认价（yml）：SMALL 15 点/小时、押金 200、免费 10 分钟。用例里发布的策略刻意用不同的数字，
- * 好让"用的是哪一套"一眼可辨。
- */
 @Tag("integration")
 @ActiveProfiles({"dev", "integration"})
 @SpringBootTest(properties = {
@@ -109,12 +99,9 @@ class PriceRuleFlowTest {
         Object[] customers = customerIds.toArray();
         jdbc.update("delete from biz_delay_task where tenant_id = ?", TENANT);
         jdbc.update("delete from biz_fault_event where cabinet_id in (select id from biz_cabinet where tenant_id = ?)", TENANT);
-        // 不建客户的用例（比如只看预览价）会让 in (?) 没有参数可绑，报
-        // “No value specified for parameter 1”：这类删除必须先判空再拼占位符
         if (!customerIds.isEmpty()) {
             jdbc.update("delete from biz_point_txn where customer_id in (" + placeholders() + ")", customers);
             jdbc.update("delete from biz_point_account where customer_id in (" + placeholders() + ")", customers);
-            // 很关键：不删客户就等于每次跑完在共享测试库里沉积一批孤儿账号（前一版本就是这样）
             jdbc.update("delete from biz_customer where id in (" + placeholders() + ")", customers);
         }
         jdbc.update("delete from biz_deposit where order_id in (select id from biz_storage_order where cabinet_id in (select id from biz_cabinet where tenant_id = ?))", TENANT);
@@ -135,7 +122,6 @@ class PriceRuleFlowTest {
         return UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }
 
-    /** MySQL JSON 列会重排空白，比对内容前先剔掉 */
     private static String noSpace(String json) {
         return json == null ? "" : json.replaceAll("\\s", "");
     }
@@ -184,7 +170,6 @@ class PriceRuleFlowTest {
         return id;
     }
 
-    /** 草稿：小格口 20 点/小时、押金 300，其余与默认一致。*/
     private BizPriceRule draft(long smallUnit, long deposit) {
         BizPriceRule rule = new BizPriceRule();
         rule.setDepositPoints(deposit);
@@ -210,8 +195,6 @@ class PriceRuleFlowTest {
     @Test
     @DisplayName("预览：缺参数直接拒（不拆箱 null 算价），完整草稿的价与结算口径一致")
     void previewRejectsHalfFilledDraftAndMatchesSettlement() {
-        // 实测发现的老 bug：表单填一半就预览会把 500 报给用户（null 拆箱）。
-        // 这里只缺单价一项，所以报错必须精确指到“小格口单价”，而不是泛泛一句“参数不正确”
         BizPriceRule half = draft(20L, 300L);
         half.setUnitSmall(null);
         BizException rejected = assertThrows(BizException.class, () -> TenantContext.runAs(TENANT,
@@ -224,10 +207,7 @@ class PriceRuleFlowTest {
         assertEquals("draft", full.get("source"), "草稿预览不能伪装成已存在的版本");
         @SuppressWarnings("unchecked")
         java.util.Map<String, Object> samples = (java.util.Map<String, Object>) full.get("samples");
-        // SMALL @ 90min：减 10 分钟免费窗口后剩 80 分钟→ 2 个计费小时 × 20 = 40
         assertEquals(40L, samples.get("SMALL@90min"), "预览价必须与结算同一算法");
-        // LARGE @ 4800min（80 小时）：封顶 3 天 × 每日 12 小时 = 36 小时；draft 里 large = small+25 = 45
-        // → 36 × 45 = 1620。预览也要把阶梯封顶算进去，否则页面会承诺一个收不到的数
         assertEquals(1620L, samples.get("LARGE@4800min"));
     }
 
@@ -235,11 +215,7 @@ class PriceRuleFlowTest {
     @DisplayName("没发布过策略时吃配置默认价；发布后新单按策略价，快照里留下版本号")
     void defaultPriceThenPublishedPrice() {
         BizStorageOrder before = createOrder(cabinetA);
-        // C 定案：下单不预冻任何费用，所以“价格生效”不能再看冻结额，
-        // 要看快照里记的单价——那才是结算真正读的东西
         assertEquals(0L, before.getFrozenPoints(), "C：下单不再预冻任何费用");
-        // 列是 MySQL JSON 类型，存取会被重排成 `"key": 15`（冒号后多一个空格），
-        // 所以比对先把空白剔掉——断言要盯的是内容，不是格式化细节
         assertTrue(noSpace(before.getPricingSnapshot()).contains("unitPointsPerHour\":15"),
                 before.getPricingSnapshot());
 
@@ -247,12 +223,10 @@ class PriceRuleFlowTest {
                 LocalDateTime.now(), "双十一前统一调价", ADMIN));
 
         BizStorageOrder after = createOrder(cabinetA);
-        // 策略价：发布后的新单快照里写的就是小格 20 点/小时（而不是配置默认的 15）
         assertEquals(0L, after.getFrozenPoints(), "C：不再预冻，价格只看快照");
         assertTrue(noSpace(after.getPricingSnapshot()).contains("unitPointsPerHour\":20"),
                 "新单快照必须按刚发布的策略价记账：" + after.getPricingSnapshot());
         assertTrue(noSpace(after.getPricingSnapshot()).contains("priceRuleVersion"), "快照要能回答这单按哪一版算的");
-        // 回看上一张：它的快照与冻结额都没被新策略动过
         BizStorageOrder unchanged = TenantContext.callAs(TENANT, () -> orderMapper.selectById(before.getId()));
         assertTrue(noSpace(unchanged.getPricingSnapshot()).contains("unitPointsPerHour\":15"),
                 "发布不得追溯改变已下出去的单：它的快照单价必须还是 15");
@@ -290,8 +264,6 @@ class PriceRuleFlowTest {
         assertTrue(noSpace(stillOld.getPricingSnapshot()).contains("unitPointsPerHour\":20"),
                 "未到生效时刻必须仍用旧价（这是预约发布的全部意义）");
 
-        // 把预约版的生效时刻改为“就是现在”：它比旧版晚，所以到点后该选中它。
-        // （不能把它挪到旧版之前——“已到生效时刻者中取最晚”的规则下，旧版赢才是正确行为）
         jdbc.update("update biz_price_rule set effective_at = now(3) "
                 + "where tenant_id = ? and unit_small = 60", TENANT);
         BizStorageOrder afterSwitch = createOrder(cabinetA);
@@ -321,7 +293,6 @@ class PriceRuleFlowTest {
         assertTrue(noSpace(afterRollback.getPricingSnapshot()).contains("unitPointsPerHour\":20"),
                 "回滚后新单应回到 v1 的价");
 
-        // 进行中的单不受影响：它下单时抄的快照仍是 v1
         BizStorageOrder untouched = TenantContext.callAs(TENANT, () -> orderMapper.selectById(v1Order.getId()));
         assertTrue(noSpace(untouched.getPricingSnapshot()).contains("unitPointsPerHour\":20"),
                 "发布 v2 与回滚都不能回头改这张单的价");

@@ -15,19 +15,6 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.List;
 
-/**
- * 触发方式二：Redis ZSet 索引（分数 = 到期毫秒）。
- *
- * <p>相比轮询的优势是<b>低延迟不用高频扫表</b>：只取已到期的成员，表再大也不做全表扫描。
- *
- * <p>它的两个短板都写明了：
- * <ul>
- *   <li>Redis 与 DB 没有事务，ZSet 会漂移（写完 DB 崩在 ZADD 前 → 提醒缺失）；
- *       所以本类<b>同时保留一条慢轮询兜底</b>——提醒只决定快不快，轮询决定会不会漏；</li>
- *   <li>取出即删除，取出后崩溃同样丢提醒，仍靠慢轮询补。</li>
- * </ul>
- * 这也是"ZSet 可以做索引、不能做真相源"的具体理由。
- */
 @Component
 @ConditionalOnProperty(name = "cabinet.scheduler.trigger", havingValue = "zset")
 public class ZsetTrigger implements DelayReminder {
@@ -58,7 +45,6 @@ public class ZsetTrigger implements DelayReminder {
                 fireAt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli());
     }
 
-    /** 快通道：只处理到期的提醒，1 秒一跳，延迟远低于轮询。 */
     @Scheduled(fixedDelayString = "${cabinet.scheduler.zset-interval-ms:1000}",
             initialDelayString = "${cabinet.scheduler.zset-interval-ms:1000}")
     @SuppressWarnings("unchecked")
@@ -71,7 +57,6 @@ public class ZsetTrigger implements DelayReminder {
         }
     }
 
-    /** 保底慢轮询：提醒丢了也能被扫到，只是慢。 */
     @Scheduled(fixedDelayString = "${cabinet.scheduler.poll-interval-ms:60000}",
             initialDelayString = "${cabinet.scheduler.poll-interval-ms:60000}")
     public void fallbackPoll() {

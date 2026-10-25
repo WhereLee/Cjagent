@@ -12,22 +12,11 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
-/**
- * 工单 SLA 到点：响应时限与解决时限各一个任务。
- *
- * <p>为什么用延迟任务而不是扫表：SLA 到点是“某一刻必须响”的事件，
- * 扫表会让响应时间取决于轮询间隔，工单一多还会把连接池打满。
- *
- * <p>两个 handler 都只做一件事：把“超时”变成一条待办（{@code biz_notice} 的 PHONE_CALL 频道，
- * 与“必须打电话”同一张清单，业务员不用再记一个地方）。<b>不改工单状态、不自动关闭</b>——
- * 超时是催促，不是结论。
- */
 public final class WorkOrderSlaHandlers {
 
     private WorkOrderSlaHandlers() {
     }
 
-    /** 响应时限：认领即响应；已响应或暂停中都不再发。 */
     @Component
     public static class ResponseSlaHandler implements TaskHandler {
 
@@ -64,7 +53,6 @@ public final class WorkOrderSlaHandlers {
         }
     }
 
-    /** 解决时限：已关闭或暂停中都不再发；到点只提醒，不替人下结论。 */
     @Component
     public static class ResolveSlaHandler implements TaskHandler {
 

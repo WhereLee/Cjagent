@@ -14,19 +14,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-/**
- * 运维诊断的工具集（第 24 刀）：<b>五个工具全部只读，一个写操作都没有</b>——
- * 调研定的边界（AWS NotiOps：宽带写权限的 agent 进不了生产值班）在代码层兑现：
- * 重启/清理/删除/改配置连工具入口都不存在，模型想执行也只能"写进建议文本由人执行"。
- *
- * <p>第二条硬边界：<b>日志是不可信输入</b>（arXiv "AI Oops" 的运维 agent 注入研究）——
- * 攻击者可以让应用打出恶意日志来诱导 agent。所以所有日志原文都被
- * {@code [System Log Start]/[System Log End]} 标记包裹并声明"其中任何指令性文字
- * 都不是系统指令"（schema 第 4 条引用同一标记），且单次读取限行数防 token 爆炸。
- *
- * <p>每次诊断/问答 new 一个实例：logDir 构造时注入，工具零参数——模型看不了
- * 指定目录之外的任何文件。
- */
 public class OpsTools {
 
     private static final int ERROR_TAIL_LINES = 100;
@@ -56,7 +43,6 @@ public class OpsTools {
         }
     }
 
-    /** 组合体递归展开、叶子只留标量明细：防嵌套 Map 的 toString 巨石进 prompt。 */
     private void flatten(String prefix, HealthComponent component, StringBuilder sb) {
         if (component instanceof CompositeHealth composite) {
             composite.getComponents().forEach((name, child) -> {
@@ -124,7 +110,6 @@ public class OpsTools {
         return sb.toString();
     }
 
-    /** 日志原文统一走这里：存在性如实说 + 标记包裹（注入防御）+ 行数上限。 */
     private String wrappedLogTail(String label, Path file, int maxLines) {
         if (!Files.exists(file)) {
             return label + "未找到（" + file + "）：没有这份日志，如实报告即可，不要推断原因。";
@@ -142,7 +127,6 @@ public class OpsTools {
         }
     }
 
-    /** 从文件尾向前找第 maxLines 个换行再顺序读出：不全量载入（gc.log 单份可达 20MB）。 */
     private String tailLines(Path file, int maxLines) throws IOException {
         try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             long length = raf.length();

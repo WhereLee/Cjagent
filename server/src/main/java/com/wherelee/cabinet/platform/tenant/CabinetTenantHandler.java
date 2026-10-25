@@ -12,36 +12,9 @@ import org.springframework.stereotype.Component;
 import java.util.Locale;
 import java.util.Set;
 
-/**
- * 租户条件自动注入：给所有<b>非白名单表</b>的 SELECT / INSERT / UPDATE / DELETE 加上 {@code tenant_id = ?}。
- *
- * <p>为什么必须由拦截器做、而不是让每个 Mapper 自己写 where：漏一处就是越租读别人数据，
- * 而且这种漏洞在功能测试里看不出来（单租户环境一切正常），只有两个租户同时在线才暴露。
- *
- * <p><b>无租户上下文时拒绝执行</b>（fail fast），不返回全表：
- * 内部任务/定时任务必须显式 {@code TenantContext.runAs(租户ID, ...)}，
- * 平台级任务则应把表放进白名单或走原生 SQL。让 SQL 在"租户为空"时悄悄退化成"不带条件"，
- * 等于把越租风险变成默认行为。
- */
 @Component
 public class CabinetTenantHandler implements TenantLineHandler {
 
-    /**
-     * 内置白名单（另外可通过 cabinet.tenant.ignore-tables 追加）。
-     * <ul>
-     *   <li>{@code flyway_schema_history}：迁移表，本身没有 tenant_id</li>
-     *   <li>{@code sys_tenant}：租户主表，自己的 tenant_id 就是主键，不能再被过滤</li>
-     *   <li>{@code sys_permission}：权限点与菜单字典，平台维护、全租户共享（见 V3 注释）</li>
-     *   <li>{@code sys_operation_log}：审计日志允许记录平台侧操作（tenant_id 可为空），
-     *       <b>代价是查这张表时必须自己加租户条件</b>，拦截器帮不了</li>
-     *   <li>{@code biz_cabinet_model}：柜机型号模板（硬件事实：6大/8中/10小）是全平台字典，
-     *       租户只引用不拥有（S-14）。进白名单的意思是“写错了不会越租，但也不隔离”，
-     *       所以它只允许平台侧维护，不给业务侧开放增删改接口</li>
-     *   <li>{@code biz_dead_letter}：MQ 死信归档。与 {@code sys_operation_log} 同理——
-     *       失败的消息可能来自任何租户，这是运维视角的全量表；
-     *       <b>代价是查它必须自己加租户条件</b>（实际上只看全量，不按租户筛）</li>
-     * </ul>
-     */
     private static final Set<String> BUILTIN_IGNORE = Set.of(
             "flyway_schema_history", "sys_tenant", "sys_permission", "sys_operation_log",
             "biz_cabinet_model", "biz_dead_letter");
@@ -78,7 +51,6 @@ public class CabinetTenantHandler implements TenantLineHandler {
                 .anyMatch(normalized::equals);
     }
 
-    /** 去掉反引号/库名前缀并统一小写，避免 `` WHERE `probe_audit`.`tenant_id` `` 这类写法绕过白名单匹配。 */
     private String normalize(String tableName) {
         if (tableName == null) {
             return "";
