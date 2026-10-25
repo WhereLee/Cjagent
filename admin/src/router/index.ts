@@ -70,6 +70,13 @@ const router = createRouter({
           meta: { title: '运维诊断', authority: ['ops:diagnose'] },
         },
         {
+          // 死信是“有一堆东西等你处理”，与“生成一份报告给你看”是两件事，所以单独成页
+          path: 'dead-letters',
+          name: 'dead-letters',
+          component: () => import('@/views/DeadLettersView.vue'),
+          meta: { title: '死信队列', authority: ['ops:diagnose'] },
+        },
+        {
           path: 'users',
           name: 'users',
           component: () => import('@/views/UsersView.vue'),

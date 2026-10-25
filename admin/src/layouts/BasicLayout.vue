@@ -12,6 +12,7 @@ import {
   Tickets,
   User,
   Warning,
+  WarningFilled,
 } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 
@@ -34,6 +35,7 @@ const iconMap: Record<string, Component> = {
   '/funds': Money,
   '/pricing': PriceTag,
   '/ops': Monitor,
+  '/dead-letters': WarningFilled,
   '/users': User,
 }
 
